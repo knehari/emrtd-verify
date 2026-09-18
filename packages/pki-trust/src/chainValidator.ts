@@ -1,18 +1,22 @@
-import type { SecurityObjectDocument, DataGroupHash } from "@emrtd-verify/emrtd-core";
-import { verifyDataGroupHashes } from "@emrtd-verify/emrtd-core";
+import type { DataGroupHash } from "@emrtd-verify/emrtd-core";
+import { decodeSod, verifyDataGroupHashes, isCertificateSignedBy } from "@emrtd-verify/emrtd-core";
 import type { TrustChainResult } from "@emrtd-verify/shared-types";
 import type { CscaTrustAnchor } from "./trustAnchor";
 import { isCscaValidAt } from "./trustAnchor";
 import type { NationalPkdRegistry } from "./nationalPkdAdapter";
 import type { ExtendedTrustStore } from "./trustStore";
+import { isSerialNumberRevoked, type DecodedRevocationList } from "./crl";
 
 export interface ChainValidationInput {
   countryCode: string;
-  sod: SecurityObjectDocument;
+  /** EF.SOD brut (DER), tel que lu sur la puce. */
+  sodDer: Uint8Array;
   computedDataGroupHashes: DataGroupHash[];
   icaoPkdAnchors: CscaTrustAnchor[];
   nationalPkdRegistry: NationalPkdRegistry;
   extendedTrustStore: ExtendedTrustStore;
+  /** CRL déjà récupérée pour le CSCA candidat, si disponible — voir docs/pki-trust-model.md "Révocation". */
+  revocationList?: DecodedRevocationList;
   /** Politique du client KYC : niveaux de confiance acceptés comme "suffisants". */
   clientAcceptedLevels: Array<"high" | "medium" | "low">;
   atIso8601?: string;
@@ -22,20 +26,28 @@ export interface ChainValidationResult extends TrustChainResult {
   dataGroupHashMismatches: number[];
   /** true si aucune source de confiance n'a de CSCA pour ce pays. */
   noTrustAnchorAvailable: boolean;
+  /** true si le SOD est authentiquement signé par la clé privée du certificat DSC embarqué. */
+  sodSignatureValid: boolean;
+  /** true si ce certificat DSC est lui-même signé par le CSCA de confiance sélectionné. */
+  dscTrustedByCsca: boolean;
+  /** true si la période de validité du DSC est respectée à la date de vérification. */
+  dscWithinValidityPeriod: boolean;
 }
 
 /**
  * Sélectionne la meilleure ancre de confiance disponible pour le pays, dans l'ordre
- * ICAO PKD > PKD nationale > magasin étendu (voir docs/pki-trust-model.md), puis vérifie
- * la chaîne CSCA -> DSC -> SOD et les hashs de DG.
- *
- * La vérification cryptographique de signature (DSC signé par CSCA, SOD signé par DSC)
- * est déléguée à une implémentation concrète (lib ASN.1/crypto) — voir docs/roadmap.md Phase 1.
- * Cette fonction orchestre la sélection de confiance et la synthèse du résultat, qui est
- * la partie spécifique à ce projet (le reste est de la crypto X.509 standard).
+ * ICAO PKD > PKD nationale > magasin étendu (voir docs/pki-trust-model.md), puis exécute
+ * la Passive Authentication complète (Doc 9303 Part 11 §4) : décodage du SOD, vérification
+ * de la signature SOD<-DSC, vérification de la chaîne DSC<-CSCA, périodes de validité,
+ * révocation (si une CRL est fournie) et comparaison des hashs de DG.
  */
 export async function validateTrustChain(input: ChainValidationInput): Promise<ChainValidationResult> {
   const atIso8601 = input.atIso8601 ?? new Date().toISOString();
+
+  const decoded = decodeSod(input.sodDer);
+  const hashVerifications = verifyDataGroupHashes(decoded.document, input.computedDataGroupHashes);
+  const dataGroupHashMismatches = hashVerifications.filter((h) => !h.matches).map((h) => h.dataGroupNumber);
+  const sodSignatureValid = await decoded.verifySignature();
 
   const icaoAnchors = input.icaoPkdAnchors.filter(
     (a) => a.countryCode === input.countryCode && isCscaValidAt(a, atIso8601),
@@ -47,9 +59,6 @@ export async function validateTrustChain(input: ChainValidationInput): Promise<C
   const candidate =
     icaoAnchors[0] ?? nationalAnchors.find((a) => isCscaValidAt(a, atIso8601)) ?? extendedAnchors[0];
 
-  const hashVerifications = verifyDataGroupHashes(input.sod, input.computedDataGroupHashes);
-  const dataGroupHashMismatches = hashVerifications.filter((h) => !h.matches).map((h) => h.dataGroupNumber);
-
   if (!candidate) {
     return {
       source: "extended-trust-store",
@@ -59,21 +68,39 @@ export async function validateTrustChain(input: ChainValidationInput): Promise<C
       revoked: false,
       dataGroupHashMismatches,
       noTrustAnchorAvailable: true,
+      sodSignatureValid,
+      dscTrustedByCsca: false,
+      dscWithinValidityPeriod:
+        atIso8601 >= decoded.document.signerCertificate.notBefore &&
+        atIso8601 <= decoded.document.signerCertificate.notAfter,
     };
   }
 
-  // La vérification effective de signature (DSC<-CSCA, SOD<-DSC) et de révocation est
-  // déléguée à l'implémentation crypto (voir docs/roadmap.md Phase 1) ; ce stub ne fait
-  // que sélectionner l'ancre et assembler le résultat exposé à l'API.
+  const dscTrustedByCsca = await isCertificateSignedBy(
+    decoded.document.signerCertificate.certificateDer,
+    candidate.certificateDer,
+  );
+
+  const dscWithinValidityPeriod =
+    atIso8601 >= decoded.document.signerCertificate.notBefore &&
+    atIso8601 <= decoded.document.signerCertificate.notAfter;
+
+  const revocationChecked = input.revocationList !== undefined;
+  const revoked =
+    revocationChecked && isSerialNumberRevoked(input.revocationList!, decoded.document.signerCertificate.serialNumber);
+
   return {
     source: candidate.source,
     level: candidate.level,
     sufficientForClientPolicy: input.clientAcceptedLevels.includes(candidate.level),
     cscaSubject: candidate.subject,
-    dscSubject: input.sod.signerCertificate.subject,
-    revocationChecked: false,
-    revoked: false,
+    dscSubject: decoded.document.signerCertificate.subject,
+    revocationChecked,
+    revoked,
     dataGroupHashMismatches,
     noTrustAnchorAvailable: false,
+    sodSignatureValid,
+    dscTrustedByCsca,
+    dscWithinValidityPeriod,
   };
 }

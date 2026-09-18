@@ -11,9 +11,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@emrtd-verify/shared-types": "workspace:*"
+    "@emrtd-verify/shared-types": "workspace:*",
+    "asn1js": "^3.0.10",
+    "pkijs": "^3.4.0"
   },
   "devDependencies": {
+    "@types/node": "^20.16.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   }
