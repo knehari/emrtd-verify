@@ -29,38 +29,38 @@ describe("buildMrzInformation", () => {
 });
 
 describe("deriveBacSeed", () => {
-  it("produit 16 octets, de façon déterministe", () => {
-    const seed1 = deriveBacSeed(referenceInput);
-    const seed2 = deriveBacSeed(referenceInput);
+  it("produit 16 octets, de façon déterministe", async () => {
+    const seed1 = await deriveBacSeed(referenceInput);
+    const seed2 = await deriveBacSeed(referenceInput);
     expect(seed1).toHaveLength(16);
     expect(Array.from(seed1)).toEqual(Array.from(seed2));
   });
 });
 
 describe("deriveBacSessionKeys", () => {
-  it("produit deux clés de 16 octets, chacune à parité DES impaire", () => {
-    const { kEnc, kMac } = deriveBacSessionKeys(referenceInput);
+  it("produit deux clés de 16 octets, chacune à parité DES impaire", async () => {
+    const { kEnc, kMac } = await deriveBacSessionKeys(referenceInput);
     expect(kEnc).toHaveLength(16);
     expect(kMac).toHaveLength(16);
     for (const byte of kEnc) expect(hasOddParity(byte)).toBe(true);
     for (const byte of kMac) expect(hasOddParity(byte)).toBe(true);
   });
 
-  it("KEnc et KMac sont différentes (compteurs de dérivation distincts)", () => {
-    const { kEnc, kMac } = deriveBacSessionKeys(referenceInput);
+  it("KEnc et KMac sont différentes (compteurs de dérivation distincts)", async () => {
+    const { kEnc, kMac } = await deriveBacSessionKeys(referenceInput);
     expect(Array.from(kEnc)).not.toEqual(Array.from(kMac));
   });
 
-  it("est déterministe pour une même entrée", () => {
-    const first = deriveBacSessionKeys(referenceInput);
-    const second = deriveBacSessionKeys(referenceInput);
+  it("est déterministe pour une même entrée", async () => {
+    const first = await deriveBacSessionKeys(referenceInput);
+    const second = await deriveBacSessionKeys(referenceInput);
     expect(Array.from(first.kEnc)).toEqual(Array.from(second.kEnc));
     expect(Array.from(first.kMac)).toEqual(Array.from(second.kMac));
   });
 
-  it("des entrées différentes produisent des clés différentes", () => {
-    const a = deriveBacSessionKeys(referenceInput);
-    const b = deriveBacSessionKeys({ ...referenceInput, dateOfExpiry: "990101" });
+  it("des entrées différentes produisent des clés différentes", async () => {
+    const a = await deriveBacSessionKeys(referenceInput);
+    const b = await deriveBacSessionKeys({ ...referenceInput, dateOfExpiry: "990101" });
     expect(Array.from(a.kEnc)).not.toEqual(Array.from(b.kEnc));
   });
 });

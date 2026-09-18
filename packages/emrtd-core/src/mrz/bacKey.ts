@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import { computeCheckDigit } from "./checkDigit";
+import { toArrayBuffer } from "../crypto/bytes";
 
 /** Données lues sur la MRZ imprimée, nécessaires à l'établissement du canal BAC. */
 export interface BacAccessKeyInput {
@@ -37,11 +37,28 @@ export function buildMrzInformation(input: BacAccessKeyInput): string {
   );
 }
 
+/**
+ * SHA-1 via le Web Crypto global (`globalThis.crypto.subtle`) plutôt que `node:crypto` :
+ * disponible nativement depuis Node 20, dans tout navigateur, et polyfillable en React
+ * Native — condition pour que ce module reste réellement réutilisable côté mobile
+ * (voir docs/architecture.md). SHA-1 n'est plus recommandé pour la signature, mais reste
+ * l'algorithme imposé ici par Doc 9303 Part 11 Appendix D.1 pour la dérivation de clé BAC.
+ */
+async function sha1(data: Uint8Array): Promise<Uint8Array> {
+  if (typeof globalThis.crypto?.subtle === "undefined") {
+    throw new Error(
+      "Web Crypto API indisponible (globalThis.crypto.subtle) : requis pour la dérivation de clé BAC.",
+    );
+  }
+  const digest = await globalThis.crypto.subtle.digest("SHA-1", toArrayBuffer(data));
+  return new Uint8Array(digest);
+}
+
 /** Kseed = 16 premiers octets de SHA-1(MRZ_information) — Doc 9303 Part 11 Appendix D.2. */
-export function deriveBacSeed(input: BacAccessKeyInput): Uint8Array {
+export async function deriveBacSeed(input: BacAccessKeyInput): Promise<Uint8Array> {
   const mrzInformation = buildMrzInformation(input);
-  const digest = createHash("sha1").update(mrzInformation, "ascii").digest();
-  return new Uint8Array(digest.subarray(0, 16));
+  const digest = await sha1(new TextEncoder().encode(mrzInformation));
+  return digest.subarray(0, 16);
 }
 
 function popcount8(byte: number): number {
@@ -66,12 +83,12 @@ function setOddParityByte(byte: number): number {
  * ajustée en parité DES. Algorithme identique à celui de référence implémentations largement
  * déployées (ex. pypassport `doc9303/bac.py`).
  */
-function deriveDesKey(seed: Uint8Array, counter: 1 | 2): Uint8Array {
+async function deriveDesKey(seed: Uint8Array, counter: 1 | 2): Promise<Uint8Array> {
   const material = new Uint8Array(seed.length + 4);
   material.set(seed, 0);
   material.set([0, 0, 0, counter], seed.length);
 
-  const hash = createHash("sha1").update(material).digest();
+  const hash = await sha1(material);
   const key = new Uint8Array(16);
   for (let i = 0; i < 16; i++) {
     key[i] = setOddParityByte(hash[i]);
@@ -80,10 +97,8 @@ function deriveDesKey(seed: Uint8Array, counter: 1 | 2): Uint8Array {
 }
 
 /** Dérive les clés de session BAC (KEnc, KMac) à partir des données lues sur la MRZ imprimée. */
-export function deriveBacSessionKeys(input: BacAccessKeyInput): BacSessionKeys {
-  const seed = deriveBacSeed(input);
-  return {
-    kEnc: deriveDesKey(seed, 1),
-    kMac: deriveDesKey(seed, 2),
-  };
+export async function deriveBacSessionKeys(input: BacAccessKeyInput): Promise<BacSessionKeys> {
+  const seed = await deriveBacSeed(input);
+  const [kEnc, kMac] = await Promise.all([deriveDesKey(seed, 1), deriveDesKey(seed, 2)]);
+  return { kEnc, kMac };
 }
