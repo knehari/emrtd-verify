@@ -19,6 +19,10 @@ datasource db {
 model VerificationRecord {
   id               String   @id @default(uuid())
   verificationId   String   @unique
+  /// Client KYC ayant soumis cette vérification (KycClient.clientId) — sert de frontière
+  /// d'autorisation pour GET /v1/verifications/:id (un client ne peut lire que ses propres
+  /// résultats), pas seulement d'un champ informatif.
+  clientId         String
   documentType     String
   issuingCountry   String
   verdict          String
@@ -29,7 +33,31 @@ model VerificationRecord {
   createdAt        DateTime @default(now())
 
   @@index([createdAt])
+  @@index([clientId])
   @@map("verification_records")
+}
+
+/// Client autorisé à consommer l'API KYC (voir docs/kyc-integration.md "Authentification").
+/// Provisionné hors API (script `scripts/create-kyc-client.ts`), jamais via un endpoint public —
+/// l'auto-inscription contredirait le principe même d'une liste de clients autorisés.
+model KycClient {
+  id                  String   @id @default(uuid())
+  /// Identifiant public stable (ex. nom de l'établissement), distinct de la clé API secrète.
+  clientId            String   @unique
+  /// SHA-256 de la clé API — jamais la clé en clair (voir KycClientService pour le choix de
+  /// hachage). La clé elle-même n'est montrée qu'une fois, à la création (voir le script).
+  apiKeyHash          String   @unique
+  /// Niveaux de confiance PKI ("high"/"medium"/"low") que ce client accepte comme suffisants —
+  /// voir docs/pki-trust-model.md. Un document validé à un niveau non accepté par le client
+  /// produit un verdict manual_review_required plutôt qu'un faux "authentic".
+  acceptedTrustLevels String[]
+  /// Champs d'identité que ce client est autorisé à recevoir (principe de minimisation RGPD,
+  /// voir docs/gdpr-compliance.md) — filtre appliqué en plus de `requestedFields` par requête.
+  allowedFields       String[]
+  active              Boolean  @default(true)
+  createdAt           DateTime @default(now())
+
+  @@map("kyc_clients")
 }
 
 /// Journal d'audit append-only (voir docs/gdpr-compliance.md "Sécurité" et AuditService) —

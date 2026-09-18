@@ -48,4 +48,31 @@ export class AuditService {
       this.prisma.verificationRecord.deleteMany({ where: { verificationId } }),
     ]);
   }
+
+  /**
+   * Purge automatisée par politique de rétention (voir docs/gdpr-compliance.md "Rétention",
+   * `DATA_RETENTION_DAYS`) — appelée quotidiennement par RetentionSchedulerService. Transaction
+   * interactive (et non un simple deleteMany en cascade) car AuditLogEntry n'a pas de clé
+   * étrangère vers VerificationRecord.createdAt : il faut d'abord résoudre les identifiants
+   * expirés côté VerificationRecord avant de purger les deux tables de façon cohérente.
+   */
+  async purgeExpired(retentionDays: number): Promise<{ purgedVerificationCount: number }> {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+
+    return this.prisma.$transaction(async (tx) => {
+      const expired = await tx.verificationRecord.findMany({
+        where: { createdAt: { lt: cutoff } },
+        select: { verificationId: true },
+      });
+      const verificationIds = expired.map((record) => record.verificationId);
+      if (verificationIds.length === 0) {
+        return { purgedVerificationCount: 0 };
+      }
+
+      await tx.auditLogEntry.deleteMany({ where: { verificationId: { in: verificationIds } } });
+      await tx.verificationRecord.deleteMany({ where: { verificationId: { in: verificationIds } } });
+
+      return { purgedVerificationCount: verificationIds.length };
+    });
+  }
 }

@@ -15,7 +15,7 @@ Ce document est un point de départ pour l'analyse d'impact relative à la prote
 
 ## Rétention
 
-- Durée de rétention configurable (`DATA_RETENTION_DAYS`, défaut 30 jours) avec purge automatique programmée.
+- Durée de rétention configurable (`DATA_RETENTION_DAYS`, défaut 30 jours) avec purge automatique programmée — implémentée (`RetentionSchedulerService`, job quotidien à 3h) : supprime `VerificationRecord` et les entrées `AuditLogEntry` correspondantes au-delà de la rétention configurée, testée (`apps/api/test/audit/`).
 - Le journal d'audit (`AuditModule`) conserve la trace *qu'une vérification a eu lieu et son verdict*, sans les données biométriques brutes, pour une durée distincte et plus longue si justifiée par une obligation légale (ex. obligations AML) — à documenter séparément.
 
 ## Droits des personnes

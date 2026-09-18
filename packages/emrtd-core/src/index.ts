@@ -5,6 +5,7 @@ export * from "./mrz/bacKey";
 export * from "./lds/dataGroups";
 export * from "./lds/sod";
 export * from "./lds/ldsSecurityObjectAsn1";
+export * from "./lds/activeAuthentication";
 export * from "./crypto/engine";
 export * from "./crypto/bytes";
 export * from "./crypto/x509";

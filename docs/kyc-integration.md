@@ -6,8 +6,14 @@ Un client KYC appelle l'API de vérification (ou reçoit un webhook asynchrone) 
 
 ## Authentification
 
-- OAuth2 client credentials (ou mTLS pour les intégrations à plus fort niveau d'exigence) par client KYC.
-- Chaque client a une politique de risque configurée côté `apps/api` : seuils de score facial acceptés, niveaux de confiance PKI acceptés (ex. un client peut choisir de n'accepter que `icao-pkd`/`national-pkd` et de traiter tout résultat `extended-trust-store` comme `manual_review_required`).
+**Implémenté** : authentification par clé API (`Authorization: Bearer <clé>`), voir `apps/api/src/modules/kyc/`. Chaque client KYC est provisionné hors API (`pnpm --filter @emrtd-verify/api create-kyc-client -- --client-id=... --trust-levels=... --fields=...` — jamais par auto-inscription, voir `scripts/create-kyc-client.ts`) avec :
+
+- Un identifiant public (`clientId`) et une clé API à haute entropie générée une seule fois (seul son hachage SHA-256 est stocké, jamais la clé en clair).
+- Une politique de risque (`acceptedTrustLevels`) : niveaux de confiance PKI acceptés (`high`/`medium`/`low` — voir [pki-trust-model.md](pki-trust-model.md)). Un document validé à un niveau non accepté produit `manual_review_required` plutôt qu'un faux `authentic`.
+- Une liste de champs autorisés (`allowedFields`) : défense en profondeur pour la minimisation RGPD, en plus de `requestedFields` par requête (l'intersection des deux est appliquée).
+- `GET /v1/verifications/{id}` vérifie que le client authentifié est bien celui qui a soumis cette vérification (toujours `404`, jamais `403`, pour ne pas révéler l'existence d'un enregistrement appartenant à un autre client).
+
+**Non implémenté** : OAuth2 client credentials / mTLS pour les intégrations à plus fort niveau d'exigence — une clé API statique est une base raisonnable pour un premier client pilote, mais un IdP dédié (rotation de jetons, scopes fins) reste une évolution pour des intégrations à plus grande échelle (voir docs/roadmap.md Phase 5).
 
 ## Endpoints (voir [api/openapi.yaml](api/openapi.yaml) pour le détail)
 

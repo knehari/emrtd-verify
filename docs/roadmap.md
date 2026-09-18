@@ -7,7 +7,7 @@
 - [x] Parsing BER/DER du SOD (`EF.SOD`, CMS `SignedData`) et extraction du `LDSSecurityObject` — `packages/emrtd-core/src/lds/sod.ts` + `ldsSecurityObjectAsn1.ts`, via pkijs/asn1js. Testé de bout en bout contre une chaîne PKI synthétique réellement signée (RSA-2048/SHA-256).
 - [x] Vérification de signature DSC/CSCA — `packages/pki-trust/src/chainValidator.ts` (`dscTrustedByCsca`, `sodSignatureValid`), testée contre un CSCA authentique et un CSCA usurpateur (détection confirmée).
 - [ ] Synchronisation avec l'ICAO PKD (LDAP) — `packages/pki-trust/src/pkdClient.ts` reste un stub : l'annuaire LDAP officiel ICAO PKD nécessite un enregistrement/des identifiants d'accès que ce projet n'a pas. Le client est prêt à être branché (`createIcaoPkdClient`) dès qu'un accès est obtenu. `apps/api`'s `PkiTrustService` dégrade proprement (liste d'ancres vide, verdict `manual_review_required`) en attendant.
-- [ ] Active Authentication et Chip Authentication (Doc 9303 Part 11 §5/§6) — dépend de la même session de lecture puce que la Phase 4 ci-dessous.
+- [x] Vérification cryptographique Active Authentication (ECDSA) — `packages/emrtd-core/src/lds/activeAuthentication.ts` (`verifyActiveAuthenticationResponse`), testée de bout en bout avec des clés P-256/P-384 synthétiques (usurpation et rejeu détectés). RSA/ISO-9796-2 scheme 1 volontairement non couvert (schéma peu courant, sans référence de vérification disponible ici — voir docstring du module). Branchée dans `AnomalyDetectionService` (`ACTIVE_AUTHENTICATION_FAILED` en critique). L'envoi du défi et la réception de la réponse dépendent de la même session APDU que la Phase 4 ci-dessous.
 
 ## Phase 2 — Magasin de confiance étendu
 
@@ -32,7 +32,7 @@
 
 - [x] Persistance du résultat de vérification et journal d'audit (RGPD, droit à l'effacement) — Prisma/PostgreSQL, `apps/api/prisma/schema.prisma`, `AuditService.purge()`.
 - [x] Traitement asynchrone (BullMQ) — `POST /v1/verifications` répond immédiatement, le pipeline complet tourne en file.
-- [ ] Authentification par client KYC (OAuth2/mTLS) et politique de risque par client (`clientAcceptedLevels`) — `KycModule` reste un stub d'intégration ; `clientId`/`clientAcceptedLevels` sont actuellement des valeurs par défaut commentées dans `VerificationService`/`VerificationProcessor`.
+- [x] Authentification par client KYC et politique de risque par client — clé API (`KycApiKeyGuard`, `KycClientService`), provisionnement via `scripts/create-kyc-client.ts`, `acceptedTrustLevels`/`allowedFields` réellement propagés dans `VerificationProcessor`. `GET /v1/verifications/:id` vérifie l'appartenance client (404 si non). OAuth2/mTLS non couverts (voir [kyc-integration.md](kyc-integration.md) "Authentification").
 - [ ] Finaliser le contrat API/webhook avec un premier client KYC pilote.
 - [ ] Réaliser l'AIPD/DPIA complète (voir [gdpr-compliance.md](gdpr-compliance.md), qui n'est qu'un point de départ).
 - [ ] Signature cryptographique des `VerificationResult` (HSM/KMS) — `VerificationResult.signature` est actuellement une chaîne vide, explicitement marquée comme non implémentée.
@@ -42,5 +42,6 @@
 - [x] Résilience de base : timeout + retry avec backoff + disjoncteur sur l'appel à `services/face-match`, cache TTL des ancres de confiance PKI, limitation de débit, endpoints `/health` (liveness) et `/ready` (readiness DB+Redis) — `apps/api/src/common/resilience/`, `apps/api/src/modules/pki/trust-cache.service.ts`, `apps/api/src/modules/health/`. Tous testés (26 tests unitaires) et vérifiés par un smoke test de démarrage réel (l'API démarre et `/health` répond même sans Postgres/Redis).
 - [ ] Faire tourner le worker BullMQ dans un processus séparé de l'API HTTP (scaling horizontal indépendant) — actuellement in-process, suffisant tant que la charge réelle n'est pas connue.
 - [ ] Audit de sécurité externe (chaîne de confiance PKI + pipeline biométrique).
-- [ ] Tests de charge réels et politique de rétention/purge automatisée programmée (le mécanisme de purge existe — `AuditService.purge()` — son déclenchement automatisé à `DATA_RETENTION_DAYS` reste à programmer).
+- [x] Purge automatisée par politique de rétention — `RetentionSchedulerService` (`@nestjs/schedule`, job quotidien), appelle `AuditService.purgeExpired(DATA_RETENTION_DAYS)`, testée (7 tests).
+- [ ] Tests de charge réels.
 - [ ] Observabilité applicative (métriques de taux de rejet/anomalie par pays, alerting sur dérive) — la journalisation structurée (Pino) est en place, les métriques/dashboards restent à construire.

@@ -10,6 +10,7 @@ import { PkiTrustService } from "../pki/pki-trust.service";
 import { AnomalyDetectionService } from "../anomaly-detection/anomaly-detection.service";
 import { FaceMatchClient } from "../face-match/face-match.client";
 import { AuditService } from "../audit/audit.service";
+import type { TrustLevel } from "../kyc/kyc-client.service";
 import { computeVerdict } from "./verdict.policy";
 import { decodeChipData, type DecodedChipData } from "./chip-data.decoder";
 import type { SubmitVerificationDto } from "./dto/submit-verification.dto";
@@ -18,6 +19,10 @@ export interface VerificationJobData {
   verificationId: string;
   dto: SubmitVerificationDto;
   clientId: string;
+  /** Politique de risque du client authentifié (KycClientService) — voir docs/pki-trust-model.md. */
+  clientAcceptedLevels: TrustLevel[];
+  /** Champs d'identité que ce client est autorisé à recevoir (minimisation RGPD). */
+  allowedFields: string[];
 }
 
 /**
@@ -42,7 +47,7 @@ export class VerificationProcessor extends WorkerHost {
   }
 
   async process(job: Job<VerificationJobData>): Promise<void> {
-    const { verificationId, dto, clientId } = job.data;
+    const { verificationId, dto, clientId, clientAcceptedLevels, allowedFields } = job.data;
 
     let decoded: DecodedChipData;
     try {
@@ -59,15 +64,13 @@ export class VerificationProcessor extends WorkerHost {
       countryCode: decoded.documentIdentity.issuingState,
       sodDer: decoded.sodDer,
       computedDataGroupHashes: decoded.computedDataGroupHashes,
-      // TODO(docs/kyc-integration.md "Authentification") : niveaux acceptés par client, une fois
-      // la politique de risque par client KYC modélisée — "high"/"medium" en attendant.
-      clientAcceptedLevels: ["high", "medium"],
+      clientAcceptedLevels,
     });
 
     const anomalies: AnomalyFinding[] = this.anomalyDetection.detect({
       trustChain,
       mrzValidation: decoded.mrzValidation,
-      activeOrChipAuthenticationPresent: decoded.activeOrChipAuthenticationPresent,
+      activeAuthentication: decoded.activeAuthentication,
       // Doc 9303 Part 11 §5/§6 : AA/CA sont attendues sur les ePassports, pas systématiquement
       // sur les eID/titres de séjour selon le profil national.
       documentExpectedToSupportAaOrCa: dto.documentType === "ePassport",
@@ -107,7 +110,11 @@ export class VerificationProcessor extends WorkerHost {
       document: {
         type: dto.documentType,
         issuingCountry: decoded.documentIdentity.issuingState,
-        fields: buildRequestedFieldChecks(decoded.documentIdentity, decoded.mrzValidation, dto.requestedFields ?? []),
+        fields: buildRequestedFieldChecks(
+          decoded.documentIdentity,
+          decoded.mrzValidation,
+          intersectRequestedFields(dto.requestedFields ?? [], allowedFields),
+        ),
       },
       trustChain,
       faceMatch,
@@ -124,6 +131,7 @@ export class VerificationProcessor extends WorkerHost {
     await this.prisma.verificationRecord.create({
       data: {
         verificationId: result.verificationId,
+        clientId,
         documentType: result.document.type,
         issuingCountry: result.document.issuingCountry,
         verdict: result.verdict,
@@ -184,6 +192,15 @@ export class VerificationProcessor extends WorkerHost {
 
     await this.persist(result, clientId);
   }
+}
+
+/**
+ * Défense en profondeur pour la minimisation RGPD : un client ne peut jamais recevoir un champ
+ * hors de ceux que son enregistrement KycClient autorise (`allowedFields`), même s'il le
+ * demande explicitement dans `requestedFields` — les deux listes doivent s'accorder.
+ */
+function intersectRequestedFields(requestedFields: string[], allowedFields: string[]): string[] {
+  return requestedFields.filter((field) => allowedFields.includes(field));
 }
 
 /**

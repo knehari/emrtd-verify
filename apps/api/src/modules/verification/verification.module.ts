@@ -7,9 +7,10 @@ import { AnomalyDetectionService } from "../anomaly-detection/anomaly-detection.
 import { FaceMatchClient } from "../face-match/face-match.client";
 import { PkiTrustModule } from "../pki/pki-trust.module";
 import { AuditModule } from "../audit/audit.module";
+import { KycModule } from "../kyc/kyc.module";
 
 @Module({
-  imports: [BullModule.registerQueue({ name: "verification" }), PkiTrustModule, AuditModule],
+  imports: [BullModule.registerQueue({ name: "verification" }), PkiTrustModule, AuditModule, KycModule],
   controllers: [VerificationController],
   providers: [VerificationService, VerificationProcessor, AnomalyDetectionService, FaceMatchClient],
   exports: [VerificationService],

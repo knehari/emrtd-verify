@@ -4,6 +4,7 @@ import { Queue } from "bullmq";
 import { randomUUID } from "node:crypto";
 import type { VerificationResult } from "@emrtd-verify/shared-types";
 import { PrismaService } from "../prisma/prisma.service";
+import type { AuthenticatedKycClient } from "../kyc/kyc-client.service";
 import type { SubmitVerificationDto } from "./dto/submit-verification.dto";
 import type { VerificationJobData } from "./verification.processor";
 
@@ -22,22 +23,28 @@ export class VerificationService {
     private readonly prisma: PrismaService,
   ) {}
 
-  async submit(dto: SubmitVerificationDto): Promise<{ verificationId: string }> {
+  async submit(dto: SubmitVerificationDto, kycClient: AuthenticatedKycClient): Promise<{ verificationId: string }> {
     const verificationId = randomUUID();
 
-    // TODO(docs/kyc-integration.md "Authentification") : le clientId devrait provenir de
-    // l'authentification OAuth2/mTLS du client KYC appelant ; aucune couche d'auth n'existe
-    // encore sur ce contrôleur, donc pas de politique de risque par client à ce stade.
-    const clientId = "unknown";
-
-    await this.verificationQueue.add("verify", { verificationId, dto, clientId });
+    await this.verificationQueue.add("verify", {
+      verificationId,
+      dto,
+      clientId: kycClient.clientId,
+      clientAcceptedLevels: kycClient.acceptedTrustLevels,
+      allowedFields: kycClient.allowedFields,
+    });
 
     return { verificationId };
   }
 
-  async getResult(verificationId: string): Promise<VerificationResult> {
+  /**
+   * `requestingClientId` : frontière d'autorisation — un client ne peut lire que ses propres
+   * résultats. Toujours 404 (jamais 403) quand ça ne correspond pas, pour ne pas confirmer à un
+   * client l'existence d'une vérification appartenant à un autre (voir docs/threat-model.md).
+   */
+  async getResult(verificationId: string, requestingClientId: string): Promise<VerificationResult> {
     const record = await this.prisma.verificationRecord.findUnique({ where: { verificationId } });
-    if (!record) {
+    if (!record || record.clientId !== requestingClientId) {
       throw new NotFoundException(`Aucune vérification trouvée pour l'identifiant ${verificationId}`);
     }
     return record.result as unknown as VerificationResult;

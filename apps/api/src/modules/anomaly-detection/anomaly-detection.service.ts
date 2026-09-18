@@ -1,12 +1,18 @@
 import { Injectable } from "@nestjs/common";
 import type { AnomalyFinding } from "@emrtd-verify/shared-types";
 import type { ChainValidationResult } from "@emrtd-verify/pki-trust";
-import type { MrzFieldValidation } from "@emrtd-verify/emrtd-core";
+import type { ActiveAuthenticationVerification, MrzFieldValidation } from "@emrtd-verify/emrtd-core";
 
 export interface AnomalyDetectionInput {
   trustChain: ChainValidationResult;
   mrzValidation: MrzFieldValidation;
-  activeOrChipAuthenticationPresent: boolean;
+  /**
+   * Résultat de la vérification cryptographique Active/Chip Authentication — undefined si le
+   * document ne l'a pas présentée du tout (voir `documentExpectedToSupportAaOrCa` pour savoir
+   * si c'est anormal), sinon le résultat réel de `verifyActiveAuthenticationResponse`
+   * (packages/emrtd-core/src/lds/activeAuthentication.ts).
+   */
+  activeAuthentication?: ActiveAuthenticationVerification;
   documentExpectedToSupportAaOrCa: boolean;
   cscaExpiresWithinDays?: number;
 }
@@ -52,11 +58,28 @@ export class AnomalyDetectionService {
       });
     }
 
-    if (input.documentExpectedToSupportAaOrCa && !input.activeOrChipAuthenticationPresent) {
+    if (!input.activeAuthentication) {
+      if (input.documentExpectedToSupportAaOrCa) {
+        findings.push({
+          code: "MISSING_ACTIVE_CHIP_AUTH",
+          severity: "warning",
+          message: "Active/Chip Authentication absente alors que le document devrait la supporter (indice possible de clonage)",
+        });
+      }
+    } else if (input.activeAuthentication.supported && !input.activeAuthentication.valid) {
+      // Le défi a été signé, mais pas avec la clé privée correspondant à DG15 : la puce ne
+      // possède pas la clé attendue — signal fort de clonage (SOD copié sans la clé privée),
+      // bien plus grave qu'une simple absence d'AA (voir docs/verification-checklist.md §2).
       findings.push({
-        code: "MISSING_ACTIVE_CHIP_AUTH",
-        severity: "warning",
-        message: "Active/Chip Authentication absente alors que le document devrait la supporter (indice possible de clonage)",
+        code: "ACTIVE_AUTHENTICATION_FAILED",
+        severity: "critical",
+        message: "Échec de la vérification Active/Chip Authentication : la puce ne détient pas la clé privée attendue",
+      });
+    } else if (!input.activeAuthentication.supported) {
+      findings.push({
+        code: "ACTIVE_AUTHENTICATION_UNSUPPORTED_ALGORITHM",
+        severity: "info",
+        message: input.activeAuthentication.reason ?? "Algorithme Active Authentication non supporté par cette implémentation",
       });
     }
 

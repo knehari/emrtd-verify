@@ -1,0 +1,171 @@
+import { describe, it, expect } from "vitest";
+import { AnomalyDetectionService } from "../../src/modules/anomaly-detection/anomaly-detection.service";
+import type { ChainValidationResult } from "@emrtd-verify/pki-trust";
+import type { MrzFieldValidation } from "@emrtd-verify/emrtd-core";
+
+const baseTrustChain: ChainValidationResult = {
+  source: "icao-pkd",
+  level: "high",
+  sufficientForClientPolicy: true,
+  revocationChecked: true,
+  revoked: false,
+  dataGroupHashMismatches: [],
+  noTrustAnchorAvailable: false,
+  sodSignatureValid: true,
+  dscTrustedByCsca: true,
+  dscWithinValidityPeriod: true,
+};
+
+const validMrz: MrzFieldValidation = {
+  documentNumberValid: true,
+  dateOfBirthValid: true,
+  dateOfExpiryValid: true,
+  compositeValid: true,
+};
+
+const service = new AnomalyDetectionService();
+
+describe("AnomalyDetectionService", () => {
+  it("ne remonte aucune anomalie quand tous les signaux sont propres", () => {
+    const findings = service.detect({
+      trustChain: baseTrustChain,
+      mrzValidation: validMrz,
+      documentExpectedToSupportAaOrCa: false,
+    });
+    expect(findings).toHaveLength(0);
+  });
+
+  it("signale un hash de DG divergent en critique", () => {
+    const findings = service.detect({
+      trustChain: { ...baseTrustChain, dataGroupHashMismatches: [1, 2] },
+      mrzValidation: validMrz,
+      documentExpectedToSupportAaOrCa: false,
+    });
+    expect(findings).toContainEqual(expect.objectContaining({ code: "DG_HASH_MISMATCH", severity: "critical" }));
+  });
+
+  it("signale l'absence de tout CSCA de confiance en critique", () => {
+    const findings = service.detect({
+      trustChain: { ...baseTrustChain, noTrustAnchorAvailable: true },
+      mrzValidation: validMrz,
+      documentExpectedToSupportAaOrCa: false,
+    });
+    expect(findings).toContainEqual(expect.objectContaining({ code: "NO_TRUST_ANCHOR", severity: "critical" }));
+  });
+
+  it("signale un niveau de confiance bas (magasin étendu) en avertissement, sans doublon avec NO_TRUST_ANCHOR", () => {
+    const findings = service.detect({
+      trustChain: { ...baseTrustChain, level: "low" },
+      mrzValidation: validMrz,
+      documentExpectedToSupportAaOrCa: false,
+    });
+    expect(findings).toContainEqual(expect.objectContaining({ code: "LOW_TRUST_LEVEL", severity: "warning" }));
+    expect(findings.some((f) => f.code === "NO_TRUST_ANCHOR")).toBe(false);
+  });
+
+  it("signale un CSCA/DSC révoqué en critique", () => {
+    const findings = service.detect({
+      trustChain: { ...baseTrustChain, revoked: true },
+      mrzValidation: validMrz,
+      documentExpectedToSupportAaOrCa: false,
+    });
+    expect(findings).toContainEqual(expect.objectContaining({ code: "CSCA_REVOKED", severity: "critical" }));
+  });
+
+  it("signale un chiffre de contrôle composite MRZ invalide en critique", () => {
+    const findings = service.detect({
+      trustChain: baseTrustChain,
+      mrzValidation: { ...validMrz, compositeValid: false },
+      documentExpectedToSupportAaOrCa: false,
+    });
+    expect(findings).toContainEqual(expect.objectContaining({ code: "MRZ_COMPOSITE_INVALID", severity: "critical" }));
+  });
+
+  it("signale un CSCA proche de l'expiration en info", () => {
+    const findings = service.detect({
+      trustChain: baseTrustChain,
+      mrzValidation: validMrz,
+      documentExpectedToSupportAaOrCa: false,
+      cscaExpiresWithinDays: 30,
+    });
+    expect(findings).toContainEqual(expect.objectContaining({ code: "CSCA_EXPIRING_SOON", severity: "info" }));
+  });
+
+  it("ne signale rien pour un CSCA qui expire dans plus de 90 jours", () => {
+    const findings = service.detect({
+      trustChain: baseTrustChain,
+      mrzValidation: validMrz,
+      documentExpectedToSupportAaOrCa: false,
+      cscaExpiresWithinDays: 200,
+    });
+    expect(findings.some((f) => f.code === "CSCA_EXPIRING_SOON")).toBe(false);
+  });
+
+  describe("Active/Chip Authentication", () => {
+    it("signale l'absence d'AA en avertissement quand le document devrait la supporter", () => {
+      const findings = service.detect({
+        trustChain: baseTrustChain,
+        mrzValidation: validMrz,
+        documentExpectedToSupportAaOrCa: true,
+      });
+      expect(findings).toContainEqual(expect.objectContaining({ code: "MISSING_ACTIVE_CHIP_AUTH", severity: "warning" }));
+    });
+
+    it("ne signale rien pour l'absence d'AA sur un document qui ne devrait pas la supporter", () => {
+      const findings = service.detect({
+        trustChain: baseTrustChain,
+        mrzValidation: validMrz,
+        documentExpectedToSupportAaOrCa: false,
+      });
+      expect(findings.some((f) => f.code === "MISSING_ACTIVE_CHIP_AUTH")).toBe(false);
+    });
+
+    it("signale un échec de vérification AA en critique (indice de clonage) — plus grave qu'une simple absence", () => {
+      const findings = service.detect({
+        trustChain: baseTrustChain,
+        mrzValidation: validMrz,
+        documentExpectedToSupportAaOrCa: true,
+        activeAuthentication: { supported: true, valid: false },
+      });
+      expect(findings).toContainEqual(
+        expect.objectContaining({ code: "ACTIVE_AUTHENTICATION_FAILED", severity: "critical" }),
+      );
+      expect(findings.some((f) => f.code === "MISSING_ACTIVE_CHIP_AUTH")).toBe(false);
+    });
+
+    it("ne signale aucune anomalie quand l'AA est présente et valide", () => {
+      const findings = service.detect({
+        trustChain: baseTrustChain,
+        mrzValidation: validMrz,
+        documentExpectedToSupportAaOrCa: true,
+        activeAuthentication: { supported: true, valid: true },
+      });
+      expect(findings).toHaveLength(0);
+    });
+
+    it("signale un algorithme AA non supporté en info, sans le traiter comme un échec de vérification", () => {
+      const findings = service.detect({
+        trustChain: baseTrustChain,
+        mrzValidation: validMrz,
+        documentExpectedToSupportAaOrCa: true,
+        activeAuthentication: { supported: false, valid: false, reason: "RSA non supporté" },
+      });
+      expect(findings).toContainEqual(
+        expect.objectContaining({ code: "ACTIVE_AUTHENTICATION_UNSUPPORTED_ALGORITHM", severity: "info" }),
+      );
+      expect(findings.some((f) => f.code === "ACTIVE_AUTHENTICATION_FAILED")).toBe(false);
+    });
+  });
+
+  it("cumule plusieurs anomalies indépendantes simultanément", () => {
+    const findings = service.detect({
+      trustChain: { ...baseTrustChain, dataGroupHashMismatches: [2], revoked: true },
+      mrzValidation: { ...validMrz, compositeValid: false },
+      documentExpectedToSupportAaOrCa: true,
+    });
+    const codes = findings.map((f) => f.code).sort();
+    expect(codes).toEqual(
+      ["CSCA_REVOKED", "DG_HASH_MISMATCH", "MISSING_ACTIVE_CHIP_AUTH", "MRZ_COMPOSITE_INVALID"].sort(),
+    );
+  });
+});
