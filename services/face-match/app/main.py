@@ -44,5 +44,5 @@ def compare(request: CompareRequest) -> CompareResponse:
         similarity_score=result.similarity_score,
         match_decision=result.match_decision,
         liveness_passed=True,
-        quality_warnings=[],
+        quality_warnings=result.quality_warnings,
     )

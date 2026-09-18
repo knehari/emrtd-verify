@@ -46,7 +46,16 @@ Voir [`docs/architecture.md`](docs/architecture.md) pour le détail des flux de 
 
 ## État du projet
 
-Ce dépôt contient l'**architecture et le squelette de code** (interfaces, types, stubs documentés) — pas encore une implémentation de production. Les modules cryptographiques (Passive Authentication, Active/Chip Authentication, Terminal Authentication) et le matching facial doivent être complétés et audités avant tout usage en production. Voir [SECURITY.md](SECURITY.md).
+Ce qui est **réellement implémenté et testé** (72 tests automatisés, TypeScript + Python) :
+- Passive Authentication complète : décodage CMS/SOD, vérification de signature DSC↔CSCA, détection d'altération et d'usurpation (`packages/emrtd-core`, `packages/pki-trust`).
+- Dérivation de clé de session BAC, conforme Doc 9303 Part 11 Appendix D (`packages/emrtd-core`).
+- Reconnaissance faciale (détection + embedding + similarité), liveness passive (`services/face-match`).
+- API NestJS de bout en bout : file asynchrone, persistance PostgreSQL/Prisma, cache de confiance PKI, résilience (retry/disjoncteur), rate limiting, endpoints `/health`/`/ready`, journal d'audit RGPD (`apps/api`).
+
+Ce qui reste hors de portée d'un environnement de développement sans matériel/accès réels, documenté précisément dans [docs/roadmap.md](docs/roadmap.md) :
+- Le protocole NFC/APDU bas niveau (lecture effective de la puce) — nécessite un vrai document et un vrai lecteur.
+- La synchronisation avec l'ICAO PKD réel — nécessite un enregistrement/accès officiel.
+- L'audit indépendant du modèle de reconnaissance faciale (biais démographique, calibration) — condition explicite avant production, voir [SECURITY.md](SECURITY.md).
 
 ## Stack
 

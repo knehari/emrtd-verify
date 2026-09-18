@@ -1,31 +1,45 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bullmq";
+import { Queue } from "bullmq";
 import { randomUUID } from "node:crypto";
 import type { VerificationResult } from "@emrtd-verify/shared-types";
-import { AnomalyDetectionService } from "../anomaly-detection/anomaly-detection.service";
-import { FaceMatchClient } from "../face-match/face-match.client";
-import { computeVerdict } from "./verdict.policy";
+import { PrismaService } from "../prisma/prisma.service";
 import type { SubmitVerificationDto } from "./dto/submit-verification.dto";
+import type { VerificationJobData } from "./verification.processor";
 
 /**
  * Orchestrateur du parcours de vérification (voir docs/architecture.md "Flux de données").
- * Le décodage LDS/SOD (packages/emrtd-core) et la validation de la chaîne de confiance
- * (packages/pki-trust) restent à implémenter en profondeur (voir docs/roadmap.md Phase 1) ;
- * cette classe fixe déjà l'orchestration et le contrat de sortie (VerificationResult).
+ * `submit()` répond immédiatement avec un identifiant et met la vérification en file
+ * (BullMQ) : le traitement complet implique un appel à services/face-match, potentiellement
+ * lent — docs/kyc-integration.md recommande explicitement un traitement asynchrone dès que
+ * la reconnaissance faciale est impliquée, pour ne jamais faire attendre l'appelant HTTP
+ * sur cette dépendance externe.
  */
 @Injectable()
 export class VerificationService {
   constructor(
-    private readonly anomalyDetection: AnomalyDetectionService,
-    private readonly faceMatchClient: FaceMatchClient,
+    @InjectQueue("verification") private readonly verificationQueue: Queue<VerificationJobData>,
+    private readonly prisma: PrismaService,
   ) {}
 
-  async submit(_dto: SubmitVerificationDto): Promise<{ verificationId: string }> {
-    // TODO(roadmap Phase 1) : décoder chipData (DG + SOD), lancer la validation de chaîne
-    // et la comparaison faciale en tâche asynchrone, persister le résultat, notifier par webhook.
-    return { verificationId: randomUUID() };
+  async submit(dto: SubmitVerificationDto): Promise<{ verificationId: string }> {
+    const verificationId = randomUUID();
+
+    // TODO(docs/kyc-integration.md "Authentification") : le clientId devrait provenir de
+    // l'authentification OAuth2/mTLS du client KYC appelant ; aucune couche d'auth n'existe
+    // encore sur ce contrôleur, donc pas de politique de risque par client à ce stade.
+    const clientId = "unknown";
+
+    await this.verificationQueue.add("verify", { verificationId, dto, clientId });
+
+    return { verificationId };
   }
 
-  async getResult(_verificationId: string): Promise<VerificationResult> {
-    throw new Error("Non implémenté : persistance du résultat de vérification. Voir docs/roadmap.md Phase 1.");
+  async getResult(verificationId: string): Promise<VerificationResult> {
+    const record = await this.prisma.verificationRecord.findUnique({ where: { verificationId } });
+    if (!record) {
+      throw new NotFoundException(`Aucune vérification trouvée pour l'identifiant ${verificationId}`);
+    }
+    return record.result as unknown as VerificationResult;
   }
 }

@@ -1,0 +1,50 @@
+// Schéma Prisma — voir docs/gdpr-compliance.md "Minimisation des données" (article 5.1.c) :
+// aucune colonne ne porte de photo, d'embedding facial ou de donnée biométrique brute.
+// `VerificationResult` ne contient déjà que des scores/décisions (voir
+// packages/shared-types/src/verificationResult.ts), jamais l'image DG2 ni la capture live.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Résultat persisté d'une vérification — le VerificationResult complet est stocké en Json
+/// (colonne `result`) pour rester fidèle au contrat KYC (voir docs/kyc-integration.md), les
+/// colonnes dénormalisées (verdict, trustChainSource, ...) ne servent qu'à l'indexation/au
+/// filtrage sans avoir à parser le Json à chaque requête.
+model VerificationRecord {
+  id               String   @id @default(uuid())
+  verificationId   String   @unique
+  documentType     String
+  issuingCountry   String
+  verdict          String
+  trustChainSource String
+  trustChainLevel  String
+  /// VerificationResult complet (packages/shared-types), hors toute image/empreinte biométrique.
+  result           Json
+  createdAt        DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("verification_records")
+}
+
+/// Journal d'audit append-only (voir docs/gdpr-compliance.md "Sécurité" et AuditService) —
+/// jamais de champ d'identité complet ni de donnée biométrique, uniquement la trace qu'une
+/// vérification a eu lieu, son verdict et les codes d'anomalie.
+model AuditLogEntry {
+  id               String   @id @default(uuid())
+  verificationId   String
+  clientId         String
+  verdict          String
+  trustChainSource String
+  anomalyCodes     String[]
+  occurredAt       DateTime
+
+  @@index([verificationId])
+  @@index([occurredAt])
+  @@map("audit_log_entries")
+}

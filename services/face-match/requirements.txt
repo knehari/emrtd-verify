@@ -3,3 +3,6 @@ uvicorn[standard]==0.31.0
 pydantic==2.9.2
 numpy==2.1.1
 Pillow==10.4.0
+# Détection (YuNet) + reconnaissance (SFace) faciales — voir docs/facial-recognition.md
+# et models/README.md pour la provenance/licence des modèles ONNX embarqués.
+opencv-python-headless==4.10.0.84
