@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "emrtd-verify",
+    "slug": "emrtd-verify",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "ios": {
+      "infoPlist": {
+        "NFCReaderUsageDescription": "Lecture de la puce du document d'identité (BAC/PACE) pour vérifier son authenticité."
+      }
+    },
+    "android": {
+      "permissions": ["android.permission.NFC"]
+    },
+    "plugins": ["react-native-nfc-manager"]
+  }
+}

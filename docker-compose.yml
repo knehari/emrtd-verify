@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: emrtd
+      POSTGRES_PASSWORD: emrtd
+      POSTGRES_DB: emrtd_verify
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  face-match:
+    build: ./services/face-match
+    env_file: .env
+    ports:
+      - "8001:8001"
+
+  api:
+    build: ./apps/api
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+      - face-match
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:

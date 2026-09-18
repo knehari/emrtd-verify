@@ -1,0 +1,163 @@
+openapi: 3.0.3
+info:
+  title: emrtd-verify KYC API
+  version: 0.1.0
+  description: >
+    API de vérification d'authenticité de documents eMRTD (ICAO Doc 9303) pour parcours KYC.
+    Voir docs/kyc-integration.md pour le contrat complet.
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /verifications:
+    post:
+      summary: Soumettre une session de vérification
+      security:
+        - oauth2: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerificationRequest"
+      responses:
+        "202":
+          description: Vérification acceptée, traitement asynchrone
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verificationId:
+                    type: string
+                    format: uuid
+  /verifications/{verificationId}:
+    get:
+      summary: Récupérer le résultat d'une vérification
+      security:
+        - oauth2: []
+      parameters:
+        - name: verificationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Résultat de la vérification
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationResult"
+        "404":
+          description: Vérification introuvable
+components:
+  securitySchemes:
+    oauth2:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://auth.example.com/oauth/token
+          scopes:
+            "verifications:write": Soumettre des vérifications
+            "verifications:read": Lire les résultats
+  schemas:
+    VerificationRequest:
+      type: object
+      required: [documentType, chipData]
+      properties:
+        documentType:
+          type: string
+          enum: [eID, ePassport, eResidenceCard]
+        chipData:
+          type: string
+          format: byte
+          description: Payload brut lu sur la puce (DG + SOD), encodé base64
+        liveCapture:
+          type: string
+          format: byte
+          description: Image ou courte séquence de capture vivante, encodée base64
+        requestedFields:
+          type: array
+          items:
+            type: string
+          description: Sous-ensemble de champs demandés (principe de minimisation)
+    VerificationResult:
+      type: object
+      properties:
+        verificationId:
+          type: string
+          format: uuid
+        verdict:
+          type: string
+          enum: [authentic, suspicious, rejected, manual_review_required]
+        document:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [eID, ePassport, eResidenceCard]
+            issuingCountry:
+              type: string
+              description: ISO 3166-1 alpha-3
+            fields:
+              type: object
+              additionalProperties:
+                $ref: "#/components/schemas/FieldCheck"
+        trustChain:
+          $ref: "#/components/schemas/TrustChainResult"
+        faceMatch:
+          $ref: "#/components/schemas/FaceMatchResult"
+        anomalies:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnomalyFinding"
+        verifiedAt:
+          type: string
+          format: date-time
+        signature:
+          type: string
+    FieldCheck:
+      type: object
+      properties:
+        value:
+          type: string
+        valid:
+          type: boolean
+        checks:
+          type: array
+          items:
+            type: string
+    TrustChainResult:
+      type: object
+      properties:
+        source:
+          type: string
+          enum: [icao-pkd, national-pkd, extended-trust-store]
+        level:
+          type: string
+          enum: [high, medium, low]
+        sufficientForClientPolicy:
+          type: boolean
+    FaceMatchResult:
+      type: object
+      properties:
+        similarityScore:
+          type: number
+          minimum: 0
+          maximum: 1
+        matchDecision:
+          type: string
+          enum: [match, no_match, inconclusive]
+        livenessPassed:
+          type: boolean
+    AnomalyFinding:
+      type: object
+      properties:
+        code:
+          type: string
+        severity:
+          type: string
+          enum: [info, warning, critical]
+        message:
+          type: string

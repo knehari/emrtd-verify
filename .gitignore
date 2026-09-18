@@ -1,0 +1,25 @@
+node_modules/
+dist/
+build/
+.turbo/
+*.log
+.env
+.env.local
+.DS_Store
+coverage/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Mobile
+apps/mobile/.expo/
+apps/mobile/ios/
+apps/mobile/android/
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
+.idea/

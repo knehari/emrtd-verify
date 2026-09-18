@@ -1,0 +1,22 @@
+{
+  "name": "emrtd-verify",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Plateforme modulaire de vérification d'authenticité de documents eMRTD (ICAO Doc 9303) pour parcours KYC.",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "turbo": "^2.1.0",
+    "typescript": "^5.6.0"
+  }
+}
