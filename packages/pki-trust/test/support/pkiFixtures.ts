@@ -179,8 +179,16 @@ async function buildSignedCms(options: {
 export async function buildSignedSod(options: {
   ldsSecurityObjectDer: Uint8Array;
   signer: GeneratedCertificate;
+  extraCertificatesBefore?: Certificate[];
+  sidSubjectKeyIdentifier?: Uint8Array;
 }): Promise<Uint8Array> {
-  return buildSignedCms({ eContentType: LDS_SECURITY_OBJECT_OID, contentDer: options.ldsSecurityObjectDer, signer: options.signer });
+  return buildSignedCms({
+    eContentType: LDS_SECURITY_OBJECT_OID,
+    contentDer: options.ldsSecurityObjectDer,
+    signer: options.signer,
+    extraCertificatesBefore: options.extraCertificatesBefore,
+    sidSubjectKeyIdentifier: options.sidSubjectKeyIdentifier,
+  });
 }
 
 export async function buildSignedMasterList(options: {

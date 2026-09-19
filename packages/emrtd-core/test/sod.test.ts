@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 import { decodeSod, verifyDataGroupHashes } from "../src/lds/sod";
 import { encodeLdsSecurityObject } from "../src/lds/ldsSecurityObjectAsn1";
-import { buildSignedSod, generateCscaAndDsc } from "./support/pkiFixtures";
+import { buildSignedSod, generateCscaAndDsc, generateCertificate } from "./support/pkiFixtures";
 
 async function buildSampleSod() {
   const { dsc } = await generateCscaAndDsc("UTO");
@@ -44,6 +44,23 @@ describe("decodeSod", () => {
   it("valide une signature authentique", async () => {
     const { sodDer } = await buildSampleSod();
     const decoded = decodeSod(sodDer);
+    await expect(decoded.verifySignature()).resolves.toBe(true);
+  });
+
+  it("retrouve le DSC signataire même quand il n'est pas le premier certificat du CMS (même classe de bug que la Master List, voir masterList.test.ts)", async () => {
+    const { dsc } = await generateCscaAndDsc("UTO");
+    const otherCert = await generateCertificate({ commonName: "Autre certificat non signataire", countryCode: "UTO", isCa: true });
+
+    const ldsSecurityObject = {
+      version: 0,
+      digestAlgorithm: "SHA-256" as const,
+      dataGroupHashes: [{ dataGroupNumber: 1 as const, hash: new Uint8Array(createHash("sha256").update("test").digest()) }],
+    };
+    const ldsSecurityObjectDer = encodeLdsSecurityObject(ldsSecurityObject);
+    const sodDer = await buildSignedSod({ ldsSecurityObjectDer, signer: dsc, extraCertificatesBefore: [otherCert.certificate] });
+
+    const decoded = decodeSod(sodDer);
+    expect(decoded.document.signerCertificate.subject).toContain("CN=DSC UTO");
     await expect(decoded.verifySignature()).resolves.toBe(true);
   });
 

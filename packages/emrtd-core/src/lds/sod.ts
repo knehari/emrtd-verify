@@ -1,5 +1,5 @@
 import { fromBER } from "asn1js";
-import { ContentInfo, SignedData } from "pkijs";
+import { ContentInfo, SignedData, type Certificate } from "pkijs";
 import type { DataGroupNumber } from "@emrtd-verify/shared-types";
 import { ensurePkiEngine } from "../crypto/engine";
 import { toArrayBuffer } from "../crypto/bytes";
@@ -9,6 +9,7 @@ import {
   distinguishedNameToString,
   parseCertificate,
 } from "../crypto/x509";
+import { findCmsSignerCertificate, verifyCmsSignerInfo } from "../crypto/cms";
 import { decodeLdsSecurityObject } from "./ldsSecurityObjectAsn1";
 
 /**
@@ -94,8 +95,8 @@ export function decodeSod(sodDer: Uint8Array): DecodedSod {
   if (!certificates || certificates.length === 0) {
     throw new Error("SOD invalide : certificat Document Signer absent du SignedData");
   }
-  const dscCertificate = certificates[0];
-  if (!("subject" in dscCertificate)) {
+  const typedCertificates = certificates.filter((cert): cert is Certificate => "subject" in cert);
+  if (typedCertificates.length === 0) {
     throw new Error("SOD invalide : entrée de certificat inattendue (attribute certificate ?)");
   }
 
@@ -103,6 +104,10 @@ export function decodeSod(sodDer: Uint8Array): DecodedSod {
   if (!signerInfo) {
     throw new Error("SOD invalide : SignerInfo absent");
   }
+
+  // Le DSC effectivement signataire n'est pas nécessairement le premier certificat du CMS
+  // (constaté sur de vraies Master Lists ICAO PKD — voir crypto/cms.ts ; même risque théorique ici).
+  const dscCertificate = findCmsSignerCertificate(signerInfo, typedCertificates);
 
   const { notBefore, notAfter } = certificateValidityIso(dscCertificate);
   const document: SecurityObjectDocument = {
@@ -122,13 +127,7 @@ export function decodeSod(sodDer: Uint8Array): DecodedSod {
   return {
     document,
     async verifySignature() {
-      const result = await signedData.verify({
-        signer: 0,
-        data: eContent,
-        trustedCerts: [dscCertificate],
-        extendedMode: true,
-      });
-      return result.signatureVerified === true;
+      return verifyCmsSignerInfo({ signedData, signerIndex: 0, signerCertificate: dscCertificate, content: eContent });
     },
   };
 }
