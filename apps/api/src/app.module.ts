@@ -12,6 +12,7 @@ import { AuditModule } from "./modules/audit/audit.module";
 import { PrismaModule } from "./modules/prisma/prisma.module";
 import { PkiTrustModule } from "./modules/pki/pki-trust.module";
 import { HealthModule } from "./modules/health/health.module";
+import { MetricsModule } from "./modules/metrics/metrics.module";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
 
 @Module({
@@ -50,6 +51,7 @@ import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
     PrismaModule,
     PkiTrustModule,
     HealthModule,
+    MetricsModule,
     VerificationModule,
     KycModule,
     AuditModule,

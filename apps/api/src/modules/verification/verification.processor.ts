@@ -11,6 +11,7 @@ import { AnomalyDetectionService } from "../anomaly-detection/anomaly-detection.
 import { FaceMatchClient } from "../face-match/face-match.client";
 import { AuditService } from "../audit/audit.service";
 import { ResultSignerService } from "./result-signer.service";
+import { MetricsService } from "../metrics/metrics.service";
 import type { TrustLevel } from "../kyc/kyc-client.service";
 import { computeVerdict } from "./verdict.policy";
 import { decodeChipData, type DecodedChipData } from "./chip-data.decoder";
@@ -44,12 +45,14 @@ export class VerificationProcessor extends WorkerHost {
     private readonly faceMatchClient: FaceMatchClient,
     private readonly auditService: AuditService,
     private readonly resultSigner: ResultSignerService,
+    private readonly metrics: MetricsService,
   ) {
     super();
   }
 
   async process(job: Job<VerificationJobData>): Promise<void> {
     const { verificationId, dto, clientId, clientAcceptedLevels, allowedFields } = job.data;
+    const startedAt = process.hrtime.bigint();
 
     let decoded: DecodedChipData;
     try {
@@ -59,6 +62,7 @@ export class VerificationProcessor extends WorkerHost {
         `Extraction des données de puce indisponible pour ${verificationId} (voir docs/roadmap.md Phase 4) : ${String(error)}`,
       );
       await this.persistUnprocessable(verificationId, dto, clientId, String(error));
+      this.metrics.observeProcessingDuration(elapsedSeconds(startedAt));
       return;
     }
 
@@ -68,6 +72,7 @@ export class VerificationProcessor extends WorkerHost {
       computedDataGroupHashes: decoded.computedDataGroupHashes,
       clientAcceptedLevels,
     });
+    this.metrics.recordTrustChain(trustChain.source, trustChain.level);
 
     const anomalies: AnomalyFinding[] = this.anomalyDetection.detect({
       trustChain,
@@ -105,6 +110,10 @@ export class VerificationProcessor extends WorkerHost {
       decoded.mrzValidation.dateOfExpiryValid;
 
     const verdict = computeVerdict({ trustChain, anomalies, faceMatch, allFieldChecksValid });
+    for (const anomaly of anomalies) {
+      this.metrics.recordAnomaly(anomaly.code, anomaly.severity);
+    }
+    this.metrics.recordVerification(verdict, decoded.documentIdentity.issuingState);
 
     const resultWithoutSignature: Omit<VerificationResult, "signature"> = {
       verificationId,
@@ -126,6 +135,7 @@ export class VerificationProcessor extends WorkerHost {
     const result: VerificationResult = { ...resultWithoutSignature, signature: await this.resultSigner.sign(resultWithoutSignature) };
 
     await this.persist(result, clientId);
+    this.metrics.observeProcessingDuration(elapsedSeconds(startedAt));
   }
 
   private async persist(result: VerificationResult, clientId: string): Promise<void> {
@@ -191,8 +201,19 @@ export class VerificationProcessor extends WorkerHost {
     };
     const result: VerificationResult = { ...resultWithoutSignature, signature: await this.resultSigner.sign(resultWithoutSignature) };
 
+    this.metrics.recordTrustChain(result.trustChain.source, result.trustChain.level);
+    for (const anomaly of result.anomalies) {
+      this.metrics.recordAnomaly(anomaly.code, anomaly.severity);
+    }
+    this.metrics.recordVerification(result.verdict, result.document.issuingCountry);
+
     await this.persist(result, clientId);
   }
+}
+
+/** Durée écoulée en secondes depuis `startedAt` (obtenu via `process.hrtime.bigint()`), pour l'histogramme Prometheus. */
+function elapsedSeconds(startedAt: bigint): number {
+  return Number(process.hrtime.bigint() - startedAt) / 1e9;
 }
 
 /**

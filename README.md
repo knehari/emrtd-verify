@@ -46,7 +46,7 @@ Voir [`docs/architecture.md`](docs/architecture.md) pour le détail des flux de 
 
 ## État du projet
 
-Ce qui est **réellement implémenté et testé** (163 tests automatisés, TypeScript + Python) :
+Ce qui est **réellement implémenté et testé** (170 tests automatisés, TypeScript + Python) :
 - Passive Authentication complète : décodage CMS/SOD, vérification de signature DSC↔CSCA, détection d'altération et d'usurpation (`packages/emrtd-core`, `packages/pki-trust`).
 - Active Authentication (ECDSA) : vérification cryptographique challenge-réponse contre la clé publique DG15, détection de clonage (`packages/emrtd-core`).
 - Dérivation de clé de session BAC, conforme Doc 9303 Part 11 Appendix D (`packages/emrtd-core`).
@@ -54,6 +54,7 @@ Ce qui est **réellement implémenté et testé** (163 tests automatisés, TypeS
 - Signature cryptographique des `VerificationResult` (ECDSA P-256, sérialisation JSON canonique) et clé publique distribuée via `GET /v1/verifications/signing-key`, pour que le client KYC détecte une altération en transit/stockage (voir [docs/kyc-integration.md](docs/kyc-integration.md) "Vérification de la signature").
 - Reconnaissance faciale (détection + embedding + similarité), liveness passive (`services/face-match`).
 - API NestJS de bout en bout : authentification par client KYC (clé API, politique de risque par client), file asynchrone, persistance PostgreSQL/Prisma, cache de confiance PKI, résilience (retry/disjoncteur), rate limiting, purge automatisée de rétention (RGPD), endpoints `/health`/`/ready`, journal d'audit (`apps/api`).
+- Observabilité applicative : métriques Prometheus (`GET /metrics`) sur le taux de verdicts, les anomalies et l'état de la chaîne de confiance PKI, labels bornés en cardinalité (jamais de PII ni d'identifiant de vérification) (`apps/api/src/modules/metrics`).
 
 Ce qui reste hors de portée d'un environnement de développement sans matériel/accès réels, documenté précisément dans [docs/roadmap.md](docs/roadmap.md) :
 - Le protocole NFC/APDU bas niveau (lecture effective de la puce) — nécessite un vrai document et un vrai lecteur.

@@ -9,9 +9,10 @@ import { FaceMatchClient } from "../face-match/face-match.client";
 import { PkiTrustModule } from "../pki/pki-trust.module";
 import { AuditModule } from "../audit/audit.module";
 import { KycModule } from "../kyc/kyc.module";
+import { MetricsModule } from "../metrics/metrics.module";
 
 @Module({
-  imports: [BullModule.registerQueue({ name: "verification" }), PkiTrustModule, AuditModule, KycModule],
+  imports: [BullModule.registerQueue({ name: "verification" }), PkiTrustModule, AuditModule, KycModule, MetricsModule],
   controllers: [VerificationController],
   providers: [VerificationService, VerificationProcessor, AnomalyDetectionService, FaceMatchClient, ResultSignerService],
   exports: [VerificationService, ResultSignerService],
