@@ -31,9 +31,16 @@ model VerificationRecord {
   /// VerificationResult complet (packages/shared-types), hors toute image/empreinte biométrique.
   result           Json
   createdAt        DateTime @default(now())
+  /// Fiche "personne vérifiée" consolidée à laquelle cette tentative se rattache (voir
+  /// VerifiedPerson et VerifiedPersonService) — nullable : purgée avec SetNull si la fiche
+  /// elle-même est supprimée, jamais l'inverse (la purge de rétention ne doit jamais échouer
+  /// à cause de cette relation, voir RetentionSchedulerService).
+  verifiedPerson   VerifiedPerson? @relation(fields: [verifiedPersonId], references: [id], onDelete: SetNull)
+  verifiedPersonId String?
 
   @@index([createdAt])
   @@index([clientId])
+  @@index([verifiedPersonId])
   @@map("verification_records")
 }
 
@@ -56,6 +63,11 @@ model KycClient {
   allowedFields       String[]
   active              Boolean  @default(true)
   createdAt           DateTime @default(now())
+  /// Comptes humains du portail tenant scopés à ce client (voir TenantUser) — distincts de
+  /// `apiKeyHash` (identifiant machine-à-machine).
+  tenantUsers         TenantUser[]
+  /// Fiches "personnes vérifiées" consolidées pour ce tenant (voir VerifiedPerson).
+  verifiedPersons     VerifiedPerson[]
 
   @@map("kyc_clients")
 }
@@ -173,4 +185,107 @@ model MasterListSyncRun {
 
   @@index([startedAt])
   @@map("master_list_sync_runs")
+}
+
+/// Rôle d'un compte administrateur interne SaaS (voir AdminAuthModule) — SUPPORT peut consulter
+/// et faire de la revue manuelle, seul SUPER_ADMIN peut créer/suspendre un tenant (KycClient) ou
+/// un autre AdminUser (voir docs/admin-web.md).
+enum AdminRole {
+  SUPER_ADMIN
+  SUPPORT
+}
+
+/// Compte humain d'un administrateur interne SaaS (apps/admin-web) — distinct de KycClient
+/// (identifiant machine-à-machine d'un tenant) et de TenantUser (compte humain d'un tenant).
+/// Provisionné hors API (script `scripts/create-admin-user.ts`), jamais par auto-inscription —
+/// même principe que KycClient (voir docs/kyc-integration.md "Authentification").
+model AdminUser {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  /// scrypt (node:crypto, voir PasswordHasher) — pas de dépendance native (argon2/bcrypt),
+  /// cohérent avec le reste du projet (KycClientService.hashApiKey, ResultSignerService).
+  passwordHash String
+  role         AdminRole @default(SUPPORT)
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@map("admin_users")
+}
+
+/// Rôle d'un compte humain au sein d'un tenant (portail apps/tenant-portal).
+enum TenantUserRole {
+  OWNER
+  MEMBER
+}
+
+/// Compte humain permettant à un tenant (KycClient) de se connecter au portail tenant — distinct
+/// de `KycClient.apiKeyHash` (identifiant machine-à-machine de l'intégration API). Provisionné
+/// par un administrateur interne (voir docs/admin-web.md) : pas d'auto-inscription tenant, la
+/// création d'un tenant reste une décision commerciale/sécurité humaine.
+model TenantUser {
+  id           String         @id @default(uuid())
+  email        String         @unique
+  passwordHash String
+  /// Référence `KycClient.clientId` (l'identifiant PUBLIC stable, ex. "acme-bank"), pas l'id
+  /// interne — même convention que `VerificationRecord.clientId`, pour que le worker BullMQ
+  /// (qui ne connaît que ce clientId public via le job) n'ait jamais besoin d'une requête
+  /// supplémentaire pour résoudre l'id interne avant de relier un VerifiedPerson.
+  kycClient    KycClient      @relation(fields: [kycClientId], references: [clientId], onDelete: Cascade)
+  kycClientId  String
+  role         TenantUserRole @default(MEMBER)
+  active       Boolean        @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime       @default(now())
+
+  @@index([kycClientId])
+  @@map("tenant_users")
+}
+
+/// Statut consolidé d'une personne au regard d'un tenant donné (voir VerifiedPerson).
+/// WATCHLIST est toujours une action humaine explicite (jamais automatique) — voir
+/// VerifiedPersonService.
+enum VerifiedPersonStatus {
+  VERIFIED
+  UNVERIFIED
+  PENDING_REVIEW
+  WATCHLIST
+}
+
+/// Vue consolidée d'une personne au travers de plusieurs tentatives de vérification pour un même
+/// tenant (voir VerifiedPersonService et docs/gdpr-compliance.md "VerifiedPerson"). Rapprochement
+/// par clé naturelle hachée (documentType+issuingCountry+documentNumber+dateOfBirth normalisés,
+/// jamais stockée en clair — voir VerifiedPersonService.computeMatchKey) : limite assumée, un
+/// renouvellement de document (nouveau documentNumber) crée une nouvelle fiche plutôt que de
+/// rattacher à l'ancienne (voir docs/roadmap.md). Les champs dénormalisés (status/displayFields/
+/// lastVerifiedAt/verificationCount) sont mis à jour par VerifiedPersonService à chaque nouvelle
+/// vérification liée, jamais recalculés à la volée à partir de `verifications` — pages de liste
+/// du portail tenant rapides sans agrégation SQL à chaque requête.
+model VerifiedPerson {
+  id                String               @id @default(uuid())
+  /// Référence `KycClient.clientId` (identifiant public), même convention que TenantUser
+  /// ci-dessus et que `VerificationRecord.clientId`.
+  kycClient         KycClient            @relation(fields: [kycClientId], references: [clientId], onDelete: Cascade)
+  kycClientId       String
+  matchKey          String
+  status            VerifiedPersonStatus @default(PENDING_REVIEW)
+  documentType      String
+  issuingCountry    String
+  /// Sous-ensemble de VerificationResult.document.fields déjà filtré par `KycClient.allowedFields`
+  /// (jamais plus que ce que GET /v1/verifications/:id renverrait déjà à ce tenant) — dénormalisé
+  /// pour affichage rapide dans le portail tenant.
+  displayFields     Json
+  /// Renseigné uniquement quand `status = WATCHLIST`, saisi par un humain (tenant ou admin) —
+  /// jamais déduit automatiquement d'un verdict.
+  watchlistReason   String?
+  firstVerifiedAt   DateTime             @default(now())
+  lastVerifiedAt    DateTime             @default(now())
+  verificationCount Int                  @default(0)
+  verifications     VerificationRecord[]
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@unique([kycClientId, matchKey])
+  @@index([kycClientId, status])
+  @@map("verified_persons")
 }

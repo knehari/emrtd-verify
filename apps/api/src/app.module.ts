@@ -13,6 +13,8 @@ import { PkiTrustModule } from "./modules/pki/pki-trust.module";
 import { CscaSyncModule } from "./modules/pki/csca-sync.module";
 import { HealthModule } from "./modules/health/health.module";
 import { MetricsModule } from "./modules/metrics/metrics.module";
+import { AdminAuthModule } from "./modules/admin-auth/admin-auth.module";
+import { TenantAuthModule } from "./modules/tenant-auth/tenant-auth.module";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
 import { bullmqConnectionFactory } from "./common/bullmq-connection.factory";
 
@@ -52,6 +54,8 @@ import { bullmqConnectionFactory } from "./common/bullmq-connection.factory";
     VerificationModule,
     KycModule,
     AuditModule,
+    AdminAuthModule,
+    TenantAuthModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

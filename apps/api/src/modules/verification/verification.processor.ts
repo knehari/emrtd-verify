@@ -12,6 +12,7 @@ import { FaceMatchClient } from "../face-match/face-match.client";
 import { AuditService } from "../audit/audit.service";
 import { ResultSignerService } from "./result-signer.service";
 import { MetricsService } from "../metrics/metrics.service";
+import { VerifiedPersonService } from "../verified-person/verified-person.service";
 import type { TrustLevel } from "../kyc/kyc-client.service";
 import { computeVerdict } from "./verdict.policy";
 import { decodeChipData, type DecodedChipData } from "./chip-data.decoder";
@@ -46,6 +47,7 @@ export class VerificationProcessor extends WorkerHost {
     private readonly auditService: AuditService,
     private readonly resultSigner: ResultSignerService,
     private readonly metrics: MetricsService,
+    private readonly verifiedPerson: VerifiedPersonService,
   ) {
     super();
   }
@@ -134,12 +136,24 @@ export class VerificationProcessor extends WorkerHost {
     };
     const result: VerificationResult = { ...resultWithoutSignature, signature: await this.resultSigner.sign(resultWithoutSignature) };
 
-    await this.persist(result, clientId);
+    const persisted = await this.persist(result, clientId);
+    // Jamais dans persistUnprocessable() : sans identité décodée (documentNumber/dateOfBirth),
+    // aucun rapprochement VerifiedPerson fiable n'est possible — voir VerifiedPersonService.
+    await this.verifiedPerson.linkVerification({
+      kycClientId: clientId,
+      verificationRecordId: persisted.id,
+      documentType: dto.documentType,
+      issuingCountry: decoded.documentIdentity.issuingState,
+      documentNumber: decoded.documentIdentity.documentNumber,
+      dateOfBirth: decoded.documentIdentity.dateOfBirth,
+      verdict,
+      displayFields: resultWithoutSignature.document.fields,
+    });
     this.metrics.observeProcessingDuration(elapsedSeconds(startedAt));
   }
 
-  private async persist(result: VerificationResult, clientId: string): Promise<void> {
-    await this.prisma.verificationRecord.create({
+  private async persist(result: VerificationResult, clientId: string): Promise<{ id: string }> {
+    const record = await this.prisma.verificationRecord.create({
       data: {
         verificationId: result.verificationId,
         clientId,
@@ -160,6 +174,8 @@ export class VerificationProcessor extends WorkerHost {
       anomalyCodes: result.anomalies.map((a) => a.code),
       occurredAt: result.verifiedAt,
     });
+
+    return { id: record.id };
   }
 
   /**
