@@ -63,7 +63,9 @@ async function main(): Promise<void> {
       data: {
         email,
         passwordHash: await hashPassword(temporaryPassword),
-        kycClientId: kycClient.id,
+        // kycClient.clientId (identifiant public), pas kycClient.id — la FK TenantUser.kycClientId
+        // référence KycClient.clientId (voir schema.prisma).
+        kycClientId: kycClient.clientId,
         role,
         active: true,
       },

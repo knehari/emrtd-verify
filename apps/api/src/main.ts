@@ -34,7 +34,11 @@ async function bootstrap() {
   );
   app.enableCors({ origin: allowedOrigins, credentials: true });
 
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }));
+  // transform: true — nécessaire pour que `@Type(() => Number)` (voir
+  // ListVerificationsQueryDto) coerce réellement les paramètres de requête (toujours des
+  // chaînes en HTTP) vers le type attendu par le DTO, en plus de la validation whitelist déjà
+  // en place.
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
 
   const port = Number(process.env.API_PORT ?? 3000);
   await app.listen(port, "0.0.0.0");

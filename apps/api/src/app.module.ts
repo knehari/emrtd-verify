@@ -14,7 +14,9 @@ import { CscaSyncModule } from "./modules/pki/csca-sync.module";
 import { HealthModule } from "./modules/health/health.module";
 import { MetricsModule } from "./modules/metrics/metrics.module";
 import { AdminAuthModule } from "./modules/admin-auth/admin-auth.module";
+import { AdminApiModule } from "./modules/admin-api/admin-api.module";
 import { TenantAuthModule } from "./modules/tenant-auth/tenant-auth.module";
+import { TenantApiModule } from "./modules/tenant-api/tenant-api.module";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
 import { bullmqConnectionFactory } from "./common/bullmq-connection.factory";
 
@@ -55,7 +57,9 @@ import { bullmqConnectionFactory } from "./common/bullmq-connection.factory";
     KycModule,
     AuditModule,
     AdminAuthModule,
+    AdminApiModule,
     TenantAuthModule,
+    TenantApiModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
