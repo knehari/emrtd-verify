@@ -1,8 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { generateKeyPairSync, sign as nodeSign, webcrypto } from "node:crypto";
-import { verifyRawSignature } from "../src/crypto/signatureVerify";
+import { createPublicKey, generateKeyPairSync, sign as nodeSign, verify as nodeVerify, webcrypto } from "node:crypto";
+import { verifyRawSignature, registerEcdsaFallbackVerifier } from "../src/crypto/signatureVerify";
 
 const subtle = webcrypto.subtle;
+
+// En production, ce repli est enregistré par packages/pki-trust/src/nodeCryptoFallback.ts (voir sa
+// docstring : emrtd-core reste volontairement dépourvu de toute référence à node:crypto/Buffer
+// pour rester compilable comme dépendance source par apps/mobile). Ce test vit dans emrtd-core et
+// n'a pas cette contrainte de portabilité — il enregistre son propre repli, identique.
+registerEcdsaFallbackVerifier(async ({ spkiDer, hash, signature, signedData }) => {
+  const publicKey = createPublicKey({ key: Buffer.from(spkiDer), format: "der", type: "spki" });
+  return nodeVerify(hash.toLowerCase().replace("-", ""), Buffer.from(signedData), publicKey, Buffer.from(signature));
+});
 
 describe("verifyRawSignature", () => {
   it("vérifie une signature ECDSA sur une courbe Brainpool via le repli node:crypto (Web Crypto ne la supporte pas nativement)", () => {

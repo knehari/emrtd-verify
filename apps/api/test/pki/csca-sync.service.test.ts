@@ -76,19 +76,24 @@ async function buildSignedMasterList(certificatesDer: Uint8Array[], signer: Awai
 
 // --- Prisma factice en mémoire : couvre exactement les méthodes utilisées par CscaSyncService ---
 
+interface FakeCertificateRecord {
+  batchId: string;
+  countryCode: string;
+  subject: string;
+  serialNumber: string;
+  notBefore: Date;
+  notAfter: Date;
+  certificateDer: Uint8Array;
+  trustState: string;
+  sourceKind: string;
+  validatedVia?: string | null;
+}
+
 function buildFakePrisma() {
   const state = {
     runs: new Map<string, { id: string; status: string; errorMessage?: string; certificateCount?: number }>(),
-    batches: new Map<string, { id: string; createdAt: Date }>(),
-    certificates: [] as Array<{
-      batchId: string;
-      countryCode: string;
-      subject: string;
-      serialNumber: string;
-      notBefore: Date;
-      notAfter: Date;
-      certificateDer: Uint8Array;
-    }>,
+    batches: new Map<string, { id: string; createdAt: Date; source?: string; masterListSignerSubject?: string; certificateCount?: number }>(),
+    certificates: [] as FakeCertificateRecord[],
     trustState: undefined as { id: number; activeBatchId: string | null } | undefined,
   };
 
@@ -109,6 +114,7 @@ function buildFakePrisma() {
     },
     cscaSyncBatch: {
       findMany: vi.fn(async () => Array.from(state.batches.values()).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())),
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => state.batches.get(where.id) ?? null),
       deleteMany: vi.fn(async ({ where }: { where: { id: { notIn: string[] } } }) => {
         for (const batchId of Array.from(state.batches.keys())) {
           if (!where.id.notIn.includes(batchId)) {
@@ -116,6 +122,19 @@ function buildFakePrisma() {
           }
         }
       }),
+    },
+    cscaCertificateRecord: {
+      findMany: vi.fn(async ({ where }: { where: { batchId: string; countryCode?: string; trustState?: { in: string[] } } }) => {
+        return state.certificates.filter(
+          (record) =>
+            record.batchId === where.batchId &&
+            (!where.countryCode || record.countryCode === where.countryCode) &&
+            (!where.trustState || where.trustState.in.includes(record.trustState)),
+        );
+      }),
+    },
+    cscaTrustState: {
+      findUnique: vi.fn(async ({ where }: { where: { id: number } }) => (where.id === 1 ? (state.trustState ?? null) : null)),
     },
     $transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
       const tx = {
@@ -127,7 +146,7 @@ function buildFakePrisma() {
           }),
         },
         cscaCertificateRecord: {
-          createMany: vi.fn(async ({ data }: { data: typeof state.certificates }) => {
+          createMany: vi.fn(async ({ data }: { data: FakeCertificateRecord[] }) => {
             state.certificates.push(...data);
           }),
         },
@@ -238,4 +257,58 @@ describe("CscaSyncService.sync", () => {
     expect(result.status).toBe("failed");
     expect(prisma._state.trustState).toBeUndefined();
   }, 15_000);
+});
+
+describe("CscaSyncService.syncCountryMasterLists", () => {
+  function seedActiveBatch(prisma: ReturnType<typeof buildFakePrisma>, records: FakeCertificateRecord[]): void {
+    const batchId = "seed-batch";
+    prisma._state.batches.set(batchId, { id: batchId, createdAt: new Date(), source: "https", masterListSignerSubject: "CN=Seed" });
+    prisma._state.certificates.push(...records.map((r) => ({ ...r, batchId })));
+    prisma._state.trustState = { id: 1, activeBatchId: batchId };
+  }
+
+  it("valide une Master List nationale dont le signataire est déjà une CSCA approuvée, et l'ajoute au lot en LINK_VALIDATED", async () => {
+    const csca = await generateCert({ commonName: "CSCA Test", countryCode: "TST", isCa: true });
+    const masterListDer = await buildSignedMasterList([csca.certificateDer], csca);
+
+    const prisma = buildFakePrisma();
+    seedActiveBatch(prisma, [
+      {
+        batchId: "",
+        countryCode: "TST",
+        subject: "CN=CSCA Test",
+        serialNumber: "already-trusted",
+        notBefore: new Date(Date.now() - 1000),
+        notAfter: new Date(Date.now() + 1000),
+        certificateDer: csca.certificateDer,
+        trustState: "ICAO_ML_VALIDATED",
+        sourceKind: "icao-global-ml",
+      },
+    ]);
+
+    const service = new CscaSyncService(prisma as never, buildConfig({}));
+    const result = await service.syncCountryMasterLists([{ dn: "cn=x,o=ml,c=TST", countryCode: "TST", masterListCmsDer: masterListDer }]);
+
+    expect(result.status).toBe("success");
+    expect(result.validatedCountries).toBe(1);
+    expect(result.skippedCountries).toBe(0);
+    const newBatchId = prisma._state.trustState!.activeBatchId!;
+    const persisted = prisma._state.certificates.filter((c) => c.batchId === newBatchId);
+    expect(persisted.some((c) => c.trustState === "LINK_VALIDATED" && c.countryCode === "TST")).toBe(true);
+  });
+
+  it("ignore une Master List nationale dont le pays n'a encore aucune CSCA approuvée (jamais d'auto-bootstrap)", async () => {
+    const csca = await generateCert({ commonName: "CSCA Inconnu", countryCode: "XXX", isCa: true });
+    const masterListDer = await buildSignedMasterList([csca.certificateDer], csca);
+
+    const prisma = buildFakePrisma();
+    // Aucun lot actif préexistant — aucune CSCA approuvée pour aucun pays.
+    const service = new CscaSyncService(prisma as never, buildConfig({}));
+    const result = await service.syncCountryMasterLists([{ dn: "cn=x,o=ml,c=XXX", countryCode: "XXX", masterListCmsDer: masterListDer }]);
+
+    expect(result.status).toBe("success");
+    expect(result.validatedCountries).toBe(0);
+    expect(result.skippedCountries).toBe(1);
+    expect(prisma._state.trustState).toBeUndefined(); // aucun lot créé, rien à fusionner
+  });
 });

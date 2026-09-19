@@ -9,10 +9,13 @@
  * avec "Incorrect type for ECDSA public key parameters" — leurs certificats utilisent Brainpool.
  *
  * Stratégie : tenter Web Crypto quand la courbe est supportée (chemin rapide, portable, inchangé
- * pour le cas majoritaire RSA/P-256/P-384/P-521) ; sinon, replier sur `node:crypto` (OpenSSL),
- * qui supporte Brainpool nativement — chargé dynamiquement pour ne jamais casser un bundler
- * navigateur/React Native qui ne fournit pas `node:crypto` (ce module n'est utilisé aujourd'hui
- * que côté serveur : synchronisation PKD dans apps/api, jamais par apps/mobile).
+ * pour le cas majoritaire RSA/P-256/P-384/P-521) ; sinon, déléguer à un vérificateur de repli
+ * ENREGISTRÉ PAR L'APPELANT via `registerEcdsaFallbackVerifier` — ce module reste volontairement
+ * dépourvu de toute référence à `node:crypto`/`Buffer`, car il est compilé (types TypeScript
+ * compris) par apps/mobile en tant que dépendance source, qui n'a pas les types Node. Le repli
+ * réel (node:crypto/OpenSSL, qui supporte Brainpool nativement) vit dans
+ * packages/pki-trust/src/nodeCryptoFallback.ts (déjà Node-only en pratique, jamais consommé par
+ * apps/mobile) et s'enregistre automatiquement à l'import de packages/pki-trust.
  */
 import { fromBER, type ObjectIdentifier, type Sequence } from "asn1js";
 import { PublicKeyInfo } from "pkijs";
@@ -161,16 +164,21 @@ function ecNamedCurveOid(spki: PublicKeyInfo): string | undefined {
   return (params as ObjectIdentifier).valueBlock.toString();
 }
 
-async function verifyEcdsaWithNodeCrypto(params: { spkiDer: ArrayBuffer; hash: string; signature: ArrayBuffer; signedData: ArrayBuffer }): Promise<boolean> {
-  // Import dynamique : ce module reste chargeable (sans erreur) dans un bundler sans node:crypto
-  // (navigateur/React Native) tant que ce chemin n'est pas effectivement exécuté. node:crypto
-  // (OpenSSL) accepte directement le DER de la SubjectPublicKeyInfo quelle que soit la forme de
-  // ses paramètres de courbe (OID nommé non reconnu par Web Crypto, ou paramètres explicites) —
-  // pas besoin de faire nous-mêmes correspondre la courbe à une table connue.
-  const nodeCrypto = await import("node:crypto");
-  const publicKey = nodeCrypto.createPublicKey({ key: Buffer.from(params.spkiDer), format: "der", type: "spki" });
-  const hashName = params.hash.toLowerCase().replace("-", "");
-  return nodeCrypto.verify(hashName, Buffer.from(params.signedData), publicKey, Buffer.from(params.signature));
+export type EcdsaFallbackVerifier = (params: {
+  spkiDer: ArrayBuffer;
+  hash: string;
+  signature: ArrayBuffer;
+  signedData: ArrayBuffer;
+}) => Promise<boolean>;
+
+let ecdsaFallbackVerifier: EcdsaFallbackVerifier | undefined;
+
+/**
+ * Enregistre le vérificateur ECDSA de repli (node:crypto/OpenSSL) — appelé par
+ * packages/pki-trust/src/nodeCryptoFallback.ts à l'import, jamais par emrtd-core lui-même.
+ */
+export function registerEcdsaFallbackVerifier(verifier: EcdsaFallbackVerifier): void {
+  ecdsaFallbackVerifier = verifier;
 }
 
 /**
@@ -224,5 +232,10 @@ export async function verifyRawSignature(params: {
     }
   }
 
-  return verifyEcdsaWithNodeCrypto({ spkiDer, hash: scheme.hash, signature, signedData });
+  if (!ecdsaFallbackVerifier) {
+    throw new Error(
+      `Courbe ECDSA non supportée par Web Crypto et aucun vérificateur de repli enregistré (OID ${curveOid ?? "paramètres explicites"}) — importer @emrtd-verify/pki-trust enregistre automatiquement le repli node:crypto`,
+    );
+  }
+  return ecdsaFallbackVerifier({ spkiDer, hash: scheme.hash, signature, signedData });
 }

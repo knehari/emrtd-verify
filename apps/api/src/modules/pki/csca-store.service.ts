@@ -20,7 +20,14 @@ export class CscaStoreService {
     }
 
     const records = await this.prisma.cscaCertificateRecord.findMany({
-      where: { batchId: state.activeBatchId, countryCode },
+      where: {
+        batchId: state.activeBatchId,
+        countryCode,
+        // Seuls ces états de confiance sont utilisables comme ancre — DISCOVERED/PKD_OBSERVED/
+        // QUARANTINED/REVOKED_OR_DISTRUSTED ne sont jamais servis à la chaîne de validation, voir
+        // docs/pki-trust-model.md "Modèle de confiance à deux niveaux".
+        trustState: { in: ["ICAO_ML_VALIDATED", "LINK_VALIDATED", "OUT_OF_BAND_VALIDATED"] },
+      },
     });
 
     return records.map((record) => ({
