@@ -1,5 +1,5 @@
 import { fromBER } from "asn1js";
-import { ContentInfo, SignedData } from "pkijs";
+import { ContentInfo, SignedData, type Certificate } from "pkijs";
 import {
   ensurePkiEngine,
   toArrayBuffer,
@@ -7,6 +7,8 @@ import {
   certificateValidityIso,
   distinguishedNameToString,
   isCertificateSignedBy,
+  verifyCmsSignerInfo,
+  findCmsSignerCertificate,
 } from "@emrtd-verify/emrtd-core";
 import { decodeCscaMasterList, CSCA_MASTER_LIST_MAX_ASN1_NODES, type DecodedCscaMasterList } from "./masterListAsn1";
 import type { CscaTrustAnchor } from "./trustAnchor";
@@ -62,8 +64,8 @@ export function decodeMasterList(masterListCmsDer: Uint8Array): DecodedMasterLis
   if (!certificates || certificates.length === 0) {
     throw new Error("Master List invalide : certificat du Master List Signer absent du SignedData");
   }
-  const signerCert = certificates[0];
-  if (!("subject" in signerCert)) {
+  const typedCertificates = certificates.filter((cert): cert is Certificate => "subject" in cert);
+  if (typedCertificates.length === 0) {
     throw new Error("Master List invalide : entrée de certificat inattendue (attribute certificate ?)");
   }
 
@@ -71,6 +73,11 @@ export function decodeMasterList(masterListCmsDer: Uint8Array): DecodedMasterLis
   if (!signerInfo) {
     throw new Error("Master List invalide : SignerInfo absent");
   }
+
+  // Le certificat effectivement signataire n'est pas nécessairement le premier de la liste :
+  // constaté sur de vraies Master Lists ICAO PKD (Botswana, Cameroun...) qui embarquent plusieurs
+  // certificats (signataire + CSCA émettrice) — voir emrtd-core/crypto/cms.ts.
+  const signerCert = findCmsSignerCertificate(signerInfo, typedCertificates);
 
   const { notBefore, notAfter } = certificateValidityIso(signerCert);
 
@@ -85,13 +92,7 @@ export function decodeMasterList(masterListCmsDer: Uint8Array): DecodedMasterLis
       notAfter,
     },
     async verifySignature() {
-      const result = await signedData.verify({
-        signer: 0,
-        data: eContent,
-        trustedCerts: [signerCert],
-        extendedMode: true,
-      });
-      return result.signatureVerified === true;
+      return verifyCmsSignerInfo({ signedData, signerIndex: 0, signerCertificate: signerCert, content: eContent });
     },
   };
 }

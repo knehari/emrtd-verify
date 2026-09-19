@@ -43,6 +43,45 @@ describe("decodeCscaMasterList", () => {
   });
 });
 
+describe("decodeMasterList > sélection du certificat signataire", () => {
+  it("retrouve le signataire par IssuerAndSerialNumber même quand il n'est pas le premier certificat du CMS (vu sur une vraie Master List ICAO PKD, Botswana)", async () => {
+    const signer = await generateCertificate({ commonName: "Master List Signer", countryCode: "UN", isCa: true });
+    const otherCert = await generateCertificate({ commonName: "Autre certificat non signataire", countryCode: "UN", isCa: true });
+    const csca = await generateCertificate({ commonName: "CSCA Test", countryCode: "TST", isCa: true });
+    const cscaMasterListDer = encodeCscaMasterList({ version: 0, certificatesDer: [csca.certificateDer] });
+
+    const masterListCmsDer = await buildSignedMasterList({
+      cscaMasterListDer,
+      signer,
+      extraCertificatesBefore: [otherCert.certificate], // le signataire n'est PAS certificates[0]
+    });
+
+    const decoded = decodeMasterList(masterListCmsDer);
+    expect(decoded.signerCertificate.subject).toContain("CN=Master List Signer");
+    expect(decoded.signerCertificate.serialNumber).toBe(certificateSerialNumberHex(signer.certificate));
+    await expect(decoded.verifySignature()).resolves.toBe(true);
+  });
+
+  it("retrouve le signataire par SubjectKeyIdentifier déclaré (pas recalculé) même quand il ne suit pas RFC 5280 méthode 1 (vu sur une vraie Master List ICAO PKD, Pays-Bas)", async () => {
+    const declaredSki = new Uint8Array(20).fill(0x42); // volontairement sans rapport avec SHA-1(clé publique)
+    const signer = await generateCertificate({ commonName: "Master List Signer NL", countryCode: "UN", isCa: true, subjectKeyIdentifier: declaredSki });
+    const otherCert = await generateCertificate({ commonName: "Autre certificat non signataire", countryCode: "UN", isCa: true });
+    const csca = await generateCertificate({ commonName: "CSCA Test", countryCode: "TST", isCa: true });
+    const cscaMasterListDer = encodeCscaMasterList({ version: 0, certificatesDer: [csca.certificateDer] });
+
+    const masterListCmsDer = await buildSignedMasterList({
+      cscaMasterListDer,
+      signer,
+      extraCertificatesBefore: [otherCert.certificate],
+      sidSubjectKeyIdentifier: declaredSki,
+    });
+
+    const decoded = decodeMasterList(masterListCmsDer);
+    expect(decoded.signerCertificate.subject).toContain("CN=Master List Signer NL");
+    await expect(decoded.verifySignature()).resolves.toBe(true);
+  });
+});
+
 describe("decodeMasterList", () => {
   it("décode une Master List signée et en extrait les certificats CSCA et le signataire", async () => {
     const { signer, masterListCmsDer } = await buildScenario();

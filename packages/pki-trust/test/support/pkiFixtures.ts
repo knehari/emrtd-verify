@@ -1,5 +1,5 @@
 import { webcrypto } from "node:crypto";
-import { Integer, OctetString, PrintableString, Utf8String } from "asn1js";
+import { Integer, OctetString, Primitive, PrintableString, Utf8String } from "asn1js";
 import {
   AttributeTypeAndValue,
   BasicConstraints,
@@ -46,6 +46,10 @@ export async function generateCertificate(options: {
   issuer?: { certificate: Certificate; privateKey: CryptoKey };
   notBefore?: Date;
   notAfter?: Date;
+  /** Ajoute une extension X.509v3 SubjectKeyIdentifier (2.5.29.14) avec CETTE valeur exacte — pour
+   * reproduire un SubjectKeyIdentifier qui ne suit PAS la méthode RFC 5280 §4.2.1.2 méthode 1
+   * (SHA-1 de la clé publique), comme constaté sur une vraie Master List ICAO PKD (Pays-Bas). */
+  subjectKeyIdentifier?: Uint8Array;
 }): Promise<GeneratedCertificate> {
   ensurePkiEngine();
   const keyPair = await generateRsaKeyPair();
@@ -71,6 +75,15 @@ export async function generateCertificate(options: {
       extnValue: new BasicConstraints({ cA: options.isCa }).toSchema().toBER(false),
     }),
   ];
+  if (options.subjectKeyIdentifier) {
+    cert.extensions.push(
+      new Extension({
+        extnID: "2.5.29.14",
+        critical: false,
+        extnValue: new OctetString({ valueHex: toArrayBuffer(options.subjectKeyIdentifier) }).toBER(false),
+      }),
+    );
+  }
 
   await cert.subjectPublicKeyInfo.importKey(keyPair.publicKey);
   const signingKey = options.issuer ? options.issuer.privateKey : keyPair.privateKey;
@@ -129,9 +142,23 @@ async function buildSignedCms(options: {
   eContentType: string;
   contentDer: Uint8Array;
   signer: GeneratedCertificate;
+  /** Certificats CMS additionnels publiés à côté du signataire (ex. la CSCA émettrice) — pour
+   * reproduire un CMS à plusieurs certificats où le signataire n'est PAS le premier de la liste,
+   * comme constaté sur une vraie Master List ICAO PKD (Botswana). */
+  extraCertificatesBefore?: Certificate[];
+  /** SubjectKeyIdentifier en octets bruts, pour signer avec un sid CHOICE [0] plutôt que le
+   * IssuerAndSerialNumber par défaut. */
+  sidSubjectKeyIdentifier?: Uint8Array;
 }): Promise<Uint8Array> {
   ensurePkiEngine();
   const { certificate: signerCert, privateKey } = options.signer;
+
+  // Forme "[0] IMPLICIT SubjectKeyIdentifier" réellement constatée (ICAO PKD Pays-Bas) : un
+  // OctetString construit normalement sérialise toujours avec le tag universel OCTET STRING (04)
+  // même avec un idBlock personnalisé — seul asn1js.Primitive respecte le tag de contexte demandé.
+  const sid = options.sidSubjectKeyIdentifier
+    ? new Primitive({ idBlock: { tagClass: 3, tagNumber: 0 }, valueHex: toArrayBuffer(options.sidSubjectKeyIdentifier) })
+    : new IssuerAndSerialNumber({ issuer: signerCert.issuer, serialNumber: signerCert.serialNumber });
 
   const cmsSigned = new SignedData({
     version: 1,
@@ -139,13 +166,8 @@ async function buildSignedCms(options: {
       eContentType: options.eContentType,
       eContent: new OctetString({ valueHex: toArrayBuffer(options.contentDer) }),
     }),
-    signerInfos: [
-      new SignerInfo({
-        version: 1,
-        sid: new IssuerAndSerialNumber({ issuer: signerCert.issuer, serialNumber: signerCert.serialNumber }),
-      }),
-    ],
-    certificates: [signerCert],
+    signerInfos: [new SignerInfo({ version: 1, sid })],
+    certificates: [...(options.extraCertificatesBefore ?? []), signerCert],
   });
 
   await cmsSigned.sign(privateKey, 0, "SHA-256", toArrayBuffer(options.contentDer));
@@ -164,8 +186,16 @@ export async function buildSignedSod(options: {
 export async function buildSignedMasterList(options: {
   cscaMasterListDer: Uint8Array;
   signer: GeneratedCertificate;
+  extraCertificatesBefore?: Certificate[];
+  sidSubjectKeyIdentifier?: Uint8Array;
 }): Promise<Uint8Array> {
-  return buildSignedCms({ eContentType: CSCA_MASTER_LIST_OID, contentDer: options.cscaMasterListDer, signer: options.signer });
+  return buildSignedCms({
+    eContentType: CSCA_MASTER_LIST_OID,
+    contentDer: options.cscaMasterListDer,
+    signer: options.signer,
+    extraCertificatesBefore: options.extraCertificatesBefore,
+    sidSubjectKeyIdentifier: options.sidSubjectKeyIdentifier,
+  });
 }
 
 export { encodeLdsSecurityObject };
