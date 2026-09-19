@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { parseCertificate, certificateCountryCode, certificateSerialNumberHex, certificateValidityIso, distinguishedNameToString } from "@emrtd-verify/emrtd-core";
+import { Integer, Sequence } from "asn1js";
+import { parseCertificate, certificateCountryCode, certificateSerialNumberHex, certificateValidityIso, distinguishedNameToString, toArrayBuffer } from "@emrtd-verify/emrtd-core";
 import { decodeMasterList, verifyMasterListTrust, masterListCertificatesToTrustAnchors } from "../src/masterList";
-import { encodeCscaMasterList } from "../src/masterListAsn1";
+import { encodeCscaMasterList, decodeCscaMasterList } from "../src/masterListAsn1";
 import { buildSignedMasterList, generateCertificate } from "./support/pkiFixtures";
 
 async function buildScenario() {
@@ -20,6 +21,27 @@ async function buildScenario() {
 
   return { signer, csca1, csca2, masterListCmsDer };
 }
+
+describe("decodeCscaMasterList", () => {
+  it("décode un certList dépassant la limite par défaut de 10 000 nœuds ASN.1 d'asn1js (vu sur une vraie Master List ICAO PKD)", () => {
+    // asn1js refuse par défaut de décoder plus de 10 000 nœuds ASN.1 (protection anti-DoS,
+    // DEFAULT_MAX_NODES) — un export LDIF ICAO PKD réel a révélé qu'une Master List nationale
+    // légitime peut largement dépasser ce seuil (Doc 9303 Part 12 §8 autorise un pays à publier
+    // une liste agrégeant les CSCA de nombreux autres pays). Reproduit ici sans données réelles :
+    // 2000 pseudo-certificats (SEQUENCE de 5 INTEGER, 6 nœuds chacun) => 12 000+ nœuds au total.
+    const fakeCertificatesDer = Array.from({ length: 2000 }, (_, i) => {
+      const seq = new Sequence({
+        value: Array.from({ length: 5 }, (_, j) => new Integer({ value: i * 10 + j })),
+      });
+      return new Uint8Array(seq.toBER(false));
+    });
+
+    const cscaMasterListDer = encodeCscaMasterList({ version: 0, certificatesDer: fakeCertificatesDer });
+    const decoded = decodeCscaMasterList(toArrayBuffer(cscaMasterListDer));
+
+    expect(decoded.certificatesDer).toHaveLength(2000);
+  });
+});
 
 describe("decodeMasterList", () => {
   it("décode une Master List signée et en extrait les certificats CSCA et le signataire", async () => {

@@ -11,6 +11,16 @@ import { toArrayBuffer } from "@emrtd-verify/emrtd-core";
  */
 export const ID_ICAO_CSCA_MASTER_LIST_OID = "2.23.136.1.1.2";
 
+/**
+ * asn1js limite par défaut le nombre total de nœuds ASN.1 décodés à 10 000 (protection anti-DoS,
+ * `DEFAULT_MAX_NODES`) — insuffisant pour de vraies CSCA Master Lists : constaté sur un export LDIF
+ * ICAO PKD réel, certains pays publient des listes agrégeant les CSCA de nombreux autres pays
+ * (Doc 9303 Part 12 §8 n'impose pas qu'une Master List ne contienne que les CSCA du pays qui la
+ * signe), atteignant plusieurs centaines de certificats et dépassant la limite par défaut. Valeur
+ * généreuse mais toujours finie (pas de désactivation totale de la protection anti-DoS).
+ */
+export const CSCA_MASTER_LIST_MAX_ASN1_NODES = 2_000_000;
+
 export interface DecodedCscaMasterList {
   version: number;
   /** DER de chaque certificat CSCA contenu dans la liste, non encore parsés individuellement. */
@@ -34,7 +44,7 @@ export function encodeCscaMasterList(list: { version: number; certificatesDer: U
 }
 
 export function decodeCscaMasterList(eContent: ArrayBuffer): DecodedCscaMasterList {
-  const asn1 = fromBER(eContent);
+  const asn1 = fromBER(eContent, { maxNodes: CSCA_MASTER_LIST_MAX_ASN1_NODES });
   if (asn1.offset === -1) {
     throw new Error("CscaMasterList invalide : échec du décodage ASN.1");
   }

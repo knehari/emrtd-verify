@@ -8,7 +8,7 @@ import {
   distinguishedNameToString,
   isCertificateSignedBy,
 } from "@emrtd-verify/emrtd-core";
-import { decodeCscaMasterList, type DecodedCscaMasterList } from "./masterListAsn1";
+import { decodeCscaMasterList, CSCA_MASTER_LIST_MAX_ASN1_NODES, type DecodedCscaMasterList } from "./masterListAsn1";
 import type { CscaTrustAnchor } from "./trustAnchor";
 
 /**
@@ -43,7 +43,7 @@ export interface DecodedMasterList {
 export function decodeMasterList(masterListCmsDer: Uint8Array): DecodedMasterList {
   ensurePkiEngine();
 
-  const asn1 = fromBER(toArrayBuffer(masterListCmsDer));
+  const asn1 = fromBER(toArrayBuffer(masterListCmsDer), { maxNodes: CSCA_MASTER_LIST_MAX_ASN1_NODES });
   if (asn1.offset === -1) {
     throw new Error("Master List invalide : échec du décodage ASN.1 du ContentInfo");
   }
