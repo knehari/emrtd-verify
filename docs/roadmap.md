@@ -35,7 +35,7 @@
 - [x] Authentification par client KYC et politique de risque par client — clé API (`KycApiKeyGuard`, `KycClientService`), provisionnement via `scripts/create-kyc-client.ts`, `acceptedTrustLevels`/`allowedFields` réellement propagés dans `VerificationProcessor`. `GET /v1/verifications/:id` vérifie l'appartenance client (404 si non). OAuth2/mTLS non couverts (voir [kyc-integration.md](kyc-integration.md) "Authentification").
 - [ ] Finaliser le contrat API/webhook avec un premier client KYC pilote.
 - [ ] Réaliser l'AIPD/DPIA complète (voir [gdpr-compliance.md](gdpr-compliance.md), qui n'est qu'un point de départ).
-- [ ] Signature cryptographique des `VerificationResult` (HSM/KMS) — `VerificationResult.signature` est actuellement une chaîne vide, explicitement marquée comme non implémentée.
+- [x] Signature cryptographique des `VerificationResult` — ECDSA P-256/SHA-256 sur la sérialisation JSON canonique du résultat (`packages/emrtd-core/src/crypto/jsonSigning.ts`, `apps/api/src/modules/verification/result-signer.service.ts`), clé publique distribuée via `GET /v1/verifications/signing-key` (voir [kyc-integration.md](kyc-integration.md) "Vérification de la signature"). Testé de bout en bout (signature/vérification, altération détectée, mauvaise clé rejetée, clé absente/invalide dégrade proprement vers une signature vide plutôt que d'échouer). **Limite assumée** : la clé privée est chargée depuis une variable d'environnement (`pnpm --filter @emrtd-verify/api generate-signing-key`) — suffisant pour développer/tester le mécanisme, mais une mise en production réelle doit détenir cette clé dans un HSM/KMS, jamais en clair.
 
 ## Phase 6 — Durcissement production
 

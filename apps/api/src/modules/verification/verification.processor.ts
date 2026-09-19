@@ -10,6 +10,7 @@ import { PkiTrustService } from "../pki/pki-trust.service";
 import { AnomalyDetectionService } from "../anomaly-detection/anomaly-detection.service";
 import { FaceMatchClient } from "../face-match/face-match.client";
 import { AuditService } from "../audit/audit.service";
+import { ResultSignerService } from "./result-signer.service";
 import type { TrustLevel } from "../kyc/kyc-client.service";
 import { computeVerdict } from "./verdict.policy";
 import { decodeChipData, type DecodedChipData } from "./chip-data.decoder";
@@ -42,6 +43,7 @@ export class VerificationProcessor extends WorkerHost {
     private readonly anomalyDetection: AnomalyDetectionService,
     private readonly faceMatchClient: FaceMatchClient,
     private readonly auditService: AuditService,
+    private readonly resultSigner: ResultSignerService,
   ) {
     super();
   }
@@ -104,7 +106,7 @@ export class VerificationProcessor extends WorkerHost {
 
     const verdict = computeVerdict({ trustChain, anomalies, faceMatch, allFieldChecksValid });
 
-    const result: VerificationResult = {
+    const resultWithoutSignature: Omit<VerificationResult, "signature"> = {
       verificationId,
       verdict,
       document: {
@@ -120,9 +122,8 @@ export class VerificationProcessor extends WorkerHost {
       faceMatch,
       anomalies,
       verifiedAt: new Date().toISOString(),
-      // TODO(docs/roadmap.md Phase 5) : signature cryptographique du résultat via HSM/KMS.
-      signature: "",
     };
+    const result: VerificationResult = { ...resultWithoutSignature, signature: await this.resultSigner.sign(resultWithoutSignature) };
 
     await this.persist(result, clientId);
   }
@@ -162,7 +163,7 @@ export class VerificationProcessor extends WorkerHost {
     clientId: string,
     reason: string,
   ): Promise<void> {
-    const result: VerificationResult = {
+    const resultWithoutSignature: Omit<VerificationResult, "signature"> = {
       verificationId,
       verdict: "manual_review_required",
       document: {
@@ -187,8 +188,8 @@ export class VerificationProcessor extends WorkerHost {
         },
       ],
       verifiedAt: new Date().toISOString(),
-      signature: "",
     };
+    const result: VerificationResult = { ...resultWithoutSignature, signature: await this.resultSigner.sign(resultWithoutSignature) };
 
     await this.persist(result, clientId);
   }

@@ -11,3 +11,4 @@ export * from "./crypto/bytes";
 export * from "./crypto/x509";
 export * from "./crypto/signatureVerify";
 export * from "./crypto/cms";
+export * from "./crypto/jsonSigning";

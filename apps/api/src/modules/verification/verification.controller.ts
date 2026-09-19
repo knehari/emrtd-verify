@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Req, UseGuard
 import type { FastifyRequest } from "fastify";
 import { KycApiKeyGuard } from "../kyc/kyc-api-key.guard";
 import { VerificationService } from "./verification.service";
+import { ResultSignerService } from "./result-signer.service";
 import { SubmitVerificationDto } from "./dto/submit-verification.dto";
 
 /**
@@ -12,13 +13,31 @@ import { SubmitVerificationDto } from "./dto/submit-verification.dto";
 @Controller("v1/verifications")
 @UseGuards(KycApiKeyGuard)
 export class VerificationController {
-  constructor(private readonly verificationService: VerificationService) {}
+  constructor(
+    private readonly verificationService: VerificationService,
+    private readonly resultSigner: ResultSignerService,
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.ACCEPTED)
   submit(@Body() dto: SubmitVerificationDto, @Req() request: FastifyRequest) {
     // KycApiKeyGuard a déjà authentifié la requête et rempli request.kycClient.
     return this.verificationService.submit(dto, request.kycClient!);
+  }
+
+  /**
+   * Clé publique (SPKI, ECDSA P-256, base64) permettant au client KYC de vérifier
+   * `VerificationResult.signature` lui-même — voir docs/kyc-integration.md "Vérification de la
+   * signature". Route statique déclarée AVANT `:verificationId` pour ne pas être interprétée
+   * comme un identifiant de vérification par le routeur.
+   */
+  @Get("signing-key")
+  getSigningKey() {
+    const publicKeyBase64 = this.resultSigner.getPublicKeyBase64();
+    return {
+      algorithm: "ECDSA-P256-SHA256",
+      publicKeySpkiBase64: publicKeyBase64 ?? null,
+    };
   }
 
   @Get(":verificationId")

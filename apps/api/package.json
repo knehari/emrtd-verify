@@ -13,7 +13,8 @@
     "prisma:migrate": "prisma migrate dev --schema=./prisma/schema.prisma",
     "create-kyc-client": "node -r ts-node/register/transpile-only scripts/create-kyc-client.ts",
     "sync-master-list": "node -r ts-node/register/transpile-only scripts/sync-master-list.ts",
-    "import-pkd-ldif": "node -r ts-node/register/transpile-only scripts/import-pkd-ldif.ts"
+    "import-pkd-ldif": "node -r ts-node/register/transpile-only scripts/import-pkd-ldif.ts",
+    "generate-signing-key": "node -r ts-node/register/transpile-only scripts/generate-signing-key.ts"
   },
   "dependencies": {
     "@emrtd-verify/emrtd-core": "workspace:*",

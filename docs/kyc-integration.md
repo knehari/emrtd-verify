@@ -50,6 +50,23 @@ interface VerificationResult {
 
 Type complet dans `packages/shared-types/src/verificationResult.ts`.
 
+## Vérification de la signature
+
+`VerificationResult.signature` permet au client de détecter une altération du résultat entre son émission par la plateforme et sa réception/son stockage (voir `apps/api/src/modules/verification/result-signer.service.ts`).
+
+- **Algorithme** : ECDSA P-256 / SHA-256, sur la sérialisation JSON **canonique** (clés d'objet triées récursivement, ordre des tableaux préservé) du résultat **sans le champ `signature` lui-même** — voir `packages/emrtd-core/src/crypto/jsonSigning.ts` (`canonicalJsonStringify`).
+- **Obtenir la clé publique** : `GET /v1/verifications/signing-key` (authentifié comme le reste de l'API) renvoie `{ algorithm: "ECDSA-P256-SHA256", publicKeySpkiBase64: string | null }` — `null` si la plateforme n'a pas de clé de signature configurée (voir avertissement ci-dessous).
+- **Vérifier côté client** (pseudo-code) :
+  ```
+  payload = result sans le champ "signature"
+  canonical = JSON.stringify(payload, clés triées récursivement)
+  publicKey = importSpki(base64Decode(publicKeySpkiBase64), "ECDSA", "P-256")
+  valid = ECDSA_verify(publicKey, canonical, base64Decode(result.signature), "SHA-256")
+  ```
+- **Signature vide** (`signature: ""`) : la plateforme n'avait pas de clé de signature configurée au moment de l'émission — à traiter comme "non vérifiable", jamais comme "vérifié" par défaut.
+
+**Limite honnête à connaître** : dans cet environnement de développement, la clé privée de signature est chargée depuis une variable d'environnement (voir `.env.example`, `VERIFICATION_RESULT_SIGNING_PRIVATE_KEY`) — suffisant pour démontrer et tester le mécanisme, mais un déploiement de production doit détenir cette clé dans un HSM/KMS (voir [roadmap.md](roadmap.md) Phase 5).
+
 ## Minimisation côté contrat
 
 À l'enregistrement d'un client KYC, on déclare la liste des champs réellement nécessaires (ex. seulement `dateOfBirth` pour un contrôle d'âge, sans exposer le numéro de document complet) — `VerificationResult.document.fields` ne contient que les champs déclarés, jamais tout le document par défaut (voir [gdpr-compliance.md](gdpr-compliance.md)).
