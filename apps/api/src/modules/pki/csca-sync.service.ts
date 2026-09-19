@@ -136,6 +136,12 @@ export class CscaSyncService {
           notBefore: new Date(anchor.notBefore),
           notAfter: new Date(anchor.notAfter),
           certificateDer: Buffer.from(anchor.certificateDer),
+          // Extrait de la Master List ICAO globale, dont le signataire a été vérifié contre une
+          // ancre épinglée hors bande — niveau de confiance le plus fort obtenu automatiquement
+          // (voir docs/pki-trust-model.md "Modèle de confiance à deux niveaux").
+          trustState: "ICAO_ML_VALIDATED" as const,
+          sourceKind: "icao-global-ml",
+          validatedVia: "pinned-icao-master-list-signer-anchor",
         })),
       });
 

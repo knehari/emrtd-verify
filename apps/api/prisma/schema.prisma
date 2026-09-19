@@ -77,6 +77,36 @@ model AuditLogEntry {
   @@map("audit_log_entries")
 }
 
+/// État de confiance d'une CSCA persistée — jamais un simple booléen, voir docs/pki-trust-model.md
+/// "Modèle de confiance à deux niveaux". Seuls ICAO_ML_VALIDATED, LINK_VALIDATED et
+/// OUT_OF_BAND_VALIDATED sont utilisables pour la validation de chaîne (CscaStoreService) ; les
+/// autres sont conservés pour audit/revue manuelle mais jamais servis comme ancre de confiance.
+/// Nommé CscaCertificateTrustState (et non CscaTrustState) pour ne pas entrer en collision avec
+/// le modèle CscaTrustState ci-dessous (le pointeur de lot actif — un concept différent).
+enum CscaCertificateTrustState {
+  /// Vue dans une donnée PKD (ex. une Master List nationale o=ml,c=XX) mais jamais validée contre
+  /// une base de confiance préexistante — jamais servie comme ancre.
+  DISCOVERED
+  /// Reçue depuis le portail/LDAP ICAO PKD sans validation cryptographique de provenance au-delà
+  /// de l'auto-cohérence du CMS — inventaire uniquement, jamais servie comme ancre.
+  PKD_OBSERVED
+  /// Présente dans la Master List ICAO globale dont le signataire correspond à une ancre épinglée
+  /// hors bande (config/master-list-signer-trust-anchors.json) — niveau de confiance le plus fort
+  /// obtenu automatiquement.
+  ICAO_ML_VALIDATED
+  /// Nouvelle CSCA reliée à une CSCA déjà approuvée (rollover par certificat de liaison, ou
+  /// signataire d'une Master List nationale relié à une CSCA déjà approuvée pour ce pays).
+  LINK_VALIDATED
+  /// Confirmée manuellement par une voie hors bande (magasin de confiance étendu, voir
+  /// packages/pki-trust/src/trustStore.ts) — jamais automatique.
+  OUT_OF_BAND_VALIDATED
+  /// Révoquée ou retirée de confiance par décision explicite — jamais servie comme ancre.
+  REVOKED_OR_DISTRUSTED
+  /// Incohérence détectée (ex. changement non authentifié, algorithme non supporté) — en attente
+  /// de revue manuelle, jamais servie comme ancre.
+  QUARANTINED
+}
+
 /// Un lot de certificats CSCA importés lors d'une synchronisation Master List réussie et
 /// vérifiée (voir CscaSyncService et packages/pki-trust/src/masterList.ts). Immutable après
 /// création : la bascule atomique (CscaTrustState) est ce qui change, jamais un lot en place —
@@ -105,8 +135,16 @@ model CscaCertificateRecord {
   notBefore      DateTime
   notAfter       DateTime
   certificateDer Bytes
+  trustState     CscaCertificateTrustState @default(DISCOVERED)
+  /// "icao-global-ml" | "country-ml" | "extended-trust-store" | "link-certificate" — provenance
+  /// de cet enregistrement, voir CscaSyncService.
+  sourceKind     String
+  /// Description libre de ce qui a validé ce certificat (ex. "pinned-icao-anchor",
+  /// "csca:<numéro de série>") — traçabilité d'audit, jamais utilisé pour une décision.
+  validatedVia   String?
 
   @@index([batchId, countryCode])
+  @@index([countryCode, trustState])
   @@map("csca_certificate_records")
 }
 
