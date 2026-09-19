@@ -39,7 +39,7 @@ async function generateRsaKeyPair(): Promise<CryptoKeyPair> {
   )) as CryptoKeyPair;
 }
 
-async function generateCertificate(options: {
+export async function generateCertificate(options: {
   commonName: string;
   countryCode: string;
   isCa: boolean;
@@ -122,10 +122,12 @@ export function cscaToTrustAnchor(
 }
 
 const LDS_SECURITY_OBJECT_OID = "2.23.136.1.1.1";
+const CSCA_MASTER_LIST_OID = "2.23.136.1.1.2";
 const CMS_SIGNED_DATA_OID = "1.2.840.113549.1.7.2";
 
-export async function buildSignedSod(options: {
-  ldsSecurityObjectDer: Uint8Array;
+async function buildSignedCms(options: {
+  eContentType: string;
+  contentDer: Uint8Array;
   signer: GeneratedCertificate;
 }): Promise<Uint8Array> {
   ensurePkiEngine();
@@ -134,8 +136,8 @@ export async function buildSignedSod(options: {
   const cmsSigned = new SignedData({
     version: 1,
     encapContentInfo: new EncapsulatedContentInfo({
-      eContentType: LDS_SECURITY_OBJECT_OID,
-      eContent: new OctetString({ valueHex: toArrayBuffer(options.ldsSecurityObjectDer) }),
+      eContentType: options.eContentType,
+      eContent: new OctetString({ valueHex: toArrayBuffer(options.contentDer) }),
     }),
     signerInfos: [
       new SignerInfo({
@@ -146,10 +148,24 @@ export async function buildSignedSod(options: {
     certificates: [signerCert],
   });
 
-  await cmsSigned.sign(privateKey, 0, "SHA-256", toArrayBuffer(options.ldsSecurityObjectDer));
+  await cmsSigned.sign(privateKey, 0, "SHA-256", toArrayBuffer(options.contentDer));
 
   const contentInfo = new ContentInfo({ contentType: CMS_SIGNED_DATA_OID, content: cmsSigned.toSchema(true) });
   return new Uint8Array(contentInfo.toSchema().toBER(false));
+}
+
+export async function buildSignedSod(options: {
+  ldsSecurityObjectDer: Uint8Array;
+  signer: GeneratedCertificate;
+}): Promise<Uint8Array> {
+  return buildSignedCms({ eContentType: LDS_SECURITY_OBJECT_OID, contentDer: options.ldsSecurityObjectDer, signer: options.signer });
+}
+
+export async function buildSignedMasterList(options: {
+  cscaMasterListDer: Uint8Array;
+  signer: GeneratedCertificate;
+}): Promise<Uint8Array> {
+  return buildSignedCms({ eContentType: CSCA_MASTER_LIST_OID, contentDer: options.cscaMasterListDer, signer: options.signer });
 }
 
 export { encodeLdsSecurityObject };

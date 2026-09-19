@@ -76,3 +76,63 @@ model AuditLogEntry {
   @@index([occurredAt])
   @@map("audit_log_entries")
 }
+
+/// Un lot de certificats CSCA importés lors d'une synchronisation Master List réussie et
+/// vérifiée (voir CscaSyncService et packages/pki-trust/src/masterList.ts). Immutable après
+/// création : la bascule atomique (CscaTrustState) est ce qui change, jamais un lot en place —
+/// voir docs/pki-trust-model.md "Synchronisation de la Master List".
+model CscaSyncBatch {
+  id                      String                   @id @default(uuid())
+  source                  String // "https" | "ldap"
+  masterListSignerSubject String
+  certificateCount        Int
+  createdAt               DateTime                 @default(now())
+  certificates            CscaCertificateRecord[]
+
+  @@index([createdAt])
+  @@map("csca_sync_batches")
+}
+
+/// Certificats publics uniquement (X.509 CSCA) — aucune donnée personnelle, voir l'en-tête de
+/// ce fichier. Chaque certificat appartient à exactement un lot (CscaSyncBatch).
+model CscaCertificateRecord {
+  id             String        @id @default(uuid())
+  batch          CscaSyncBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  batchId        String
+  countryCode    String
+  subject        String
+  serialNumber   String
+  notBefore      DateTime
+  notAfter       DateTime
+  certificateDer Bytes
+
+  @@index([batchId, countryCode])
+  @@map("csca_certificate_records")
+}
+
+/// Pointeur vers le lot actuellement actif — table à une seule ligne (id fixe), jamais modifiée
+/// sauf par une bascule explicite après succès complet d'une synchronisation. Un échec de
+/// synchronisation ne touche jamais cette ligne : le magasin de confiance reste celui du dernier
+/// succès (voir docs/pki-trust-model.md "Fiabilité — jamais de trou de confiance").
+model CscaTrustState {
+  id            Int      @id @default(1)
+  activeBatchId String?
+  updatedAt     DateTime @updatedAt
+
+  @@map("csca_trust_state")
+}
+
+/// Observabilité des exécutions de synchronisation (succès/échec, durée, nombre de certificats) —
+/// utile pour l'alerting opérationnel (voir docs/roadmap.md "Observabilité").
+model MasterListSyncRun {
+  id               String    @id @default(uuid())
+  startedAt        DateTime  @default(now())
+  finishedAt       DateTime?
+  status           String // "success" | "failed"
+  source           String // "https" | "ldap"
+  certificateCount Int?
+  errorMessage     String?
+
+  @@index([startedAt])
+  @@map("master_list_sync_runs")
+}

@@ -32,12 +32,13 @@ Parsing indépendant de tout framework : lecture des lignes MRZ (TD1/TD2/TD3), c
 Encapsule toute la logique de confiance :
 
 - **`CscaTrustAnchor`** : représentation d'un certificat CSCA de confiance, avec sa source (`icao-pkd`, `national-pkd`, `extended-trust-store`) et son niveau de confiance associé.
-- **`PkdClient`** : client vers l'ICAO PKD (annuaire LDAP officiel — CSCA Master Lists, DSC, CRL).
+- **`MasterListSource`** (`pkdClient.ts`) : récupération de la CSCA Master List ICAO, via HTTPS (`createHttpsMasterListSource`) ou l'annuaire LDAP officiel (`createLdapMasterListSource`) — source configurable, HTTPS recommandé par défaut.
+- **`decodeMasterList` / `verifyMasterListTrust`** (`masterList.ts`, `masterListAsn1.ts`) : décodage CMS `SignedData` + structure ICAO `CscaMasterList`, et vérification cryptographique contre des ancres de confiance du Master List Signer épinglées hors bande (jamais le certificat embarqué dans le fichier lui-même).
 - **`NationalPkdAdapter`** : interface pour brancher une PKD nationale bilatérale (hors ICAO PKD) quand elle existe.
 - **`ExtendedTrustStore`** : magasin de confiance pour les pays qui ne publient ni sur l'ICAO PKD ni sur une PKD nationale accessible — alimenté par un processus de vérification manuelle documenté (voir [pki-trust-model.md](pki-trust-model.md)), jamais utilisé silencieusement en confiance pleine.
 - **`ChainValidator`** : construit et valide la chaîne CSCA → Document Signer Certificate → signature du SOD, vérifie la révocation (CRL/Master List de déviation) et la période de validité.
 
-Voir [pki-trust-model.md](pki-trust-model.md) pour le détail.
+Côté `apps/api`, `CscaSyncService` orchestre la synchronisation périodique (récupération → vérification → persistance avec bascule atomique dans Postgres via Prisma) et `CscaStoreService` sert de chemin de lecture rapide au `ChainValidator`. Voir [pki-trust-model.md](pki-trust-model.md) pour le détail.
 
 ### `apps/api` (NestJS)
 

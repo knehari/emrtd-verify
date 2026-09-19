@@ -23,6 +23,48 @@ Le module `packages/pki-trust` définit une interface commune `TrustSource` et t
 | `national-pkd` | Échange bilatéral avec une PKD nationale (hors ICAO PKD), lorsqu'un accord existe. | `high` si l'accord et le canal sont documentés et le CSCA authentifié directement par l'autorité émettrice ; `medium` sinon |
 | `extended-trust-store` | Magasin de confiance étendu, alimenté manuellement, pour les pays qui ne publient nulle part un CSCA vérifiable en ligne. | `medium` ou `low` selon la provenance (voir ci-dessous) — **jamais `high` par défaut** |
 
+## Synchronisation de la CSCA Master List
+
+Le CSCA n'est utile à la vérification que s'il est disponible localement au moment du contrôle — c'est le rôle de `CscaSyncService` (`apps/api/src/modules/pki/csca-sync.service.ts`) : récupérer périodiquement la CSCA Master List ICAO, la vérifier cryptographiquement, et rendre tous les CSCA qu'elle contient disponibles pour la validation de chaîne, sans jamais dégrader silencieusement la sécurité.
+
+### Pourquoi le stockage est côté backend, pas local à l'application
+
+La demande initiale envisageait un stockage "en backend ou en local dans l'application". Le choix retenu est **exclusivement backend** (PostgreSQL, via Prisma) :
+
+- **Protection des données et intégrité** : les CSCA sont des données publiques, mais leur *ensemble de confiance actif* est une donnée de sécurité — un appareil mobile compromis ou hors ligne ne doit jamais pouvoir servir une liste de CSCA falsifiée ou périmée à la logique de décision. Garder la source de vérité unique côté serveur, où l'accès en écriture est restreint à `CscaSyncService`, élimine cette classe d'attaque.
+- **Fiabilité** : `apps/mobile` ne fait que lire les DG/SOD sur la puce (voir Phase 4 de [roadmap.md](roadmap.md)) et transmet au backend pour validation — il n'a donc de toute façon pas besoin d'une copie locale des CSCA pour fonctionner.
+- **Rapidité d'exécution malgré tout** : voir "Chemin de lecture" ci-dessous — la lecture est un accès DB indexé derrière un cache mémoire TTL, donc aussi rapide qu'un accès local, sans en avoir les risques.
+- **Cohérence** : toutes les instances de l'API partagent le même état de confiance actif au même instant (bascule atomique, voir plus bas), ce qu'un stockage local par appareil ne pourrait pas garantir.
+
+Un export en lecture seule d'un sous-ensemble de CSCA vers un client mobile (pour un mode dégradé hors-ligne, par exemple) est envisageable en évolution future, mais resterait un **cache advisory** non faisant autorité — la décision de confiance resterait toujours revalidée côté backend. Non implémenté à ce stade (pas de besoin produit identifié).
+
+### Bootstrap de confiance de la Master List elle-même
+
+Une Master List CSCA est une structure ASN.1 `CscaMasterList` (Doc 9303 Part 12 §8) encapsulée dans un CMS `SignedData` (OID `2.23.136.1.1.2`), signée par un **Master List Signer** désigné par l'ICAO. Le certificat de ce signataire est *inclus dans le fichier téléchargé lui-même* — il ne peut donc **jamais** servir de preuve de sa propre authenticité (sinon n'importe qui pourrait forger une Master List avec son propre certificat auto-signé inclus).
+
+`verifyMasterListTrust()` (`packages/pki-trust/src/masterList.ts`) résout ce problème en n'acceptant que des signataires trouvés dans un magasin d'ancres **épinglées hors bande** : `config/master-list-signer-trust-anchors.json` (vide par défaut, schéma documenté dans `config/master-list-signer-trust-anchors.README.md`), alimenté manuellement à partir d'une source de confiance indépendante (ex. publication officielle ICAO, canal diplomatique) — jamais depuis le fichier synchronisé. Sans ancre configurée, la synchronisation échoue systématiquement (voir `apps/api/test/pki/csca-sync.service.test.ts`), plutôt que de risquer un auto-bootstrap non sécurisé.
+
+### Pipeline de synchronisation et bascule atomique
+
+`CscaSyncService.sync()`, déclenché quotidiennement (`CscaSyncScheduler`, `@Cron`) ou manuellement (`pnpm --filter @emrtd-verify/api sync-master-list`) :
+
+1. **Récupération** via la source configurée (`PKD_MASTER_LIST_SOURCE=https|ldap`, `packages/pki-trust/src/pkdClient.ts`), avec retry/backoff sur échec transitoire réseau.
+2. **Décodage** CMS + structure ICAO (`decodeMasterList`).
+3. **Vérification de confiance** contre les ancres épinglées (`verifyMasterListTrust`) — échec = arrêt immédiat, aucun état modifié.
+4. **Persistance atomique** : dans une transaction Prisma unique, un nouveau `CscaSyncBatch` (immuable) et ses `CscaCertificateRecord` sont créés, puis le pointeur singleton `CscaTrustState` (id fixe) est basculé vers ce nouveau lot — le tout ou rien garantit qu'il n'existe **jamais d'instant sans confiance valide** : soit l'ancien lot reste actif, soit le nouveau l'est intégralement.
+5. **Rétention** : les lots plus anciens au-delà de `CSCA_SYNC_RETAIN_BATCHES` (défaut 2) sont purgés après bascule réussie, en conservant un court historique pour audit/rollback manuel.
+6. **Traçabilité** : chaque exécution (succès ou échec, avec message d'erreur) est journalisée dans `MasterListSyncRun`.
+
+Toute erreur à n'importe quelle étape est interceptée et journalisée sans jamais toucher le pointeur `CscaTrustState` actif ni faire remonter d'exception au planificateur — une synchronisation échouée dégrade au pire vers "pas de mise à jour", jamais vers "confiance corrompue".
+
+### Chemin de lecture (validation en cours de vérification)
+
+`CscaStoreService.getAnchorsForCountry(countryCode)` lit uniquement le lot actif (jointure indexée sur `[batchId, countryCode]`, aucun réseau ni calcul cryptographique) et convertit en `CscaTrustAnchor[]` (`source: "icao-pkd"`, `level: "high"`). `PkiTrustService` l'appelle derrière le cache TTL déjà existant (`TrustCacheService`, `TRUST_CACHE_TTL_MS`) — le chemin critique de latence d'une vérification n'est donc jamais impacté par la synchronisation elle-même.
+
+### Ce qui reste non vérifié en conditions réelles
+
+L'accès à l'annuaire LDAP officiel ICAO PKD n'a pas pu être testé de bout en bout : il nécessite un enregistrement ICAO PKD et des identifiants que ce projet n'a pas. Le client LDAP (`createLdapMasterListSource`, via `ldapjs`) est testé unitairement contre un client LDAP factice injecté (`packages/pki-trust/test/pkdClient.test.ts`), mais jamais contre un vrai serveur ICAO PKD. La source HTTPS est l'option recommandée par défaut tant que cet accès n'est pas obtenu.
+
 ## Magasin de confiance étendu (pays hors PKD)
 
 C'est le point le plus sensible de l'architecture — c'est aussi ce qui permet de couvrir "un plus grand nombre de documents officiels de pays du monde entier, même ceux qui ne font pas encore partie de la PKD" comme demandé.

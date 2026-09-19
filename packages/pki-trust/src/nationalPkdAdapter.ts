@@ -1,5 +1,5 @@
 import type { CscaTrustAnchor } from "./trustAnchor";
-import type { RevocationList } from "./pkdClient";
+import type { DecodedRevocationList } from "./crl";
 
 /**
  * Interface pour brancher une PKD nationale accessible par échange bilatéral,
@@ -10,7 +10,7 @@ import type { RevocationList } from "./pkdClient";
 export interface NationalPkdAdapter {
   countryCode: string;
   fetchCsca(): Promise<CscaTrustAnchor[]>;
-  fetchRevocationList(): Promise<RevocationList | undefined>;
+  fetchRevocationList(): Promise<DecodedRevocationList | undefined>;
 }
 
 export class NationalPkdRegistry {
