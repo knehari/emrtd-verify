@@ -54,6 +54,7 @@ Ce qui est **réellement implémenté et testé** (170 tests automatisés, TypeS
 - Signature cryptographique des `VerificationResult` (ECDSA P-256, sérialisation JSON canonique) et clé publique distribuée via `GET /v1/verifications/signing-key`, pour que le client KYC détecte une altération en transit/stockage (voir [docs/kyc-integration.md](docs/kyc-integration.md) "Vérification de la signature").
 - Reconnaissance faciale (détection + embedding + similarité), liveness passive (`services/face-match`).
 - API NestJS de bout en bout : authentification par client KYC (clé API, politique de risque par client), file asynchrone, persistance PostgreSQL/Prisma, cache de confiance PKI, résilience (retry/disjoncteur), rate limiting, purge automatisée de rétention (RGPD), endpoints `/health`/`/ready`, journal d'audit (`apps/api`).
+- Processus worker BullMQ séparé de l'API HTTP (`apps/api/src/worker.ts`), scalable indépendamment (`docker compose up --scale worker=N`) — l'API ne fait que produire des jobs, le worker exécute la chaîne de confiance PKI/anomalies/face-match/verdict et expose ses propres métriques Prometheus.
 - Observabilité applicative : métriques Prometheus (`GET /metrics`) sur le taux de verdicts, les anomalies et l'état de la chaîne de confiance PKI, labels bornés en cardinalité (jamais de PII ni d'identifiant de vérification) (`apps/api/src/modules/metrics`).
 
 Ce qui reste hors de portée d'un environnement de développement sans matériel/accès réels, documenté précisément dans [docs/roadmap.md](docs/roadmap.md) :

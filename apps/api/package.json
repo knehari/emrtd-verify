@@ -5,7 +5,9 @@
   "scripts": {
     "build": "nest build",
     "dev": "NODE_OPTIONS=\"-r ts-node/register/transpile-only\" nest start --watch",
+    "dev:worker": "NODE_OPTIONS=\"-r ts-node/register/transpile-only\" node src/worker.ts",
     "start": "node -r ts-node/register/transpile-only dist/main.js",
+    "start:worker": "node -r ts-node/register/transpile-only dist/worker.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vitest run",

@@ -30,9 +30,9 @@ export interface VerificationJobData {
 /**
  * Worker BullMQ traitant une vérification de bout en bout : validation de la chaîne de
  * confiance PKI, détection d'anomalies, comparaison faciale, verdict, persistance et
- * journalisation d'audit. Tourne dans le même processus que l'API pour l'instant — le faire
- * tourner dans un processus worker séparé (scaling horizontal indépendant de l'API HTTP) est
- * une étape ultérieure, une fois la charge réelle connue (voir docs/roadmap.md Phase 6).
+ * journalisation d'audit. Déclaré dans VerificationWorkerModule, tourne dans le processus
+ * worker séparé (`apps/api/src/worker.ts`), jamais dans le processus API HTTP — voir
+ * docs/roadmap.md Phase 6 "processus séparé".
  */
 @Processor("verification")
 export class VerificationProcessor extends WorkerHost {

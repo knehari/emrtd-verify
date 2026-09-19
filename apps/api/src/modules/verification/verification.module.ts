@@ -2,19 +2,22 @@ import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { VerificationController } from "./verification.controller";
 import { VerificationService } from "./verification.service";
-import { VerificationProcessor } from "./verification.processor";
 import { ResultSignerService } from "./result-signer.service";
-import { AnomalyDetectionService } from "../anomaly-detection/anomaly-detection.service";
-import { FaceMatchClient } from "../face-match/face-match.client";
-import { PkiTrustModule } from "../pki/pki-trust.module";
-import { AuditModule } from "../audit/audit.module";
 import { KycModule } from "../kyc/kyc.module";
-import { MetricsModule } from "../metrics/metrics.module";
 
+/**
+ * Côté API HTTP du parcours de vérification : reçoit la requête, authentifie le client KYC,
+ * met la vérification en file (BullMQ, `VerificationService.submit`) et répond immédiatement.
+ * Le traitement effectif (chaîne de confiance PKI, anomalies, face-match, verdict, persistance)
+ * tourne dans le processus worker séparé — voir VerificationWorkerModule et
+ * docs/roadmap.md Phase 6 "processus séparé". `BullModule.registerQueue` ici n'enregistre que le
+ * producteur (aucun `@Processor` dans ce module) ; les deux processus partagent la même file
+ * Redis nommée "verification".
+ */
 @Module({
-  imports: [BullModule.registerQueue({ name: "verification" }), PkiTrustModule, AuditModule, KycModule, MetricsModule],
+  imports: [BullModule.registerQueue({ name: "verification" }), KycModule],
   controllers: [VerificationController],
-  providers: [VerificationService, VerificationProcessor, AnomalyDetectionService, FaceMatchClient, ResultSignerService],
+  providers: [VerificationService, ResultSignerService],
   exports: [VerificationService, ResultSignerService],
 })
 export class VerificationModule {}

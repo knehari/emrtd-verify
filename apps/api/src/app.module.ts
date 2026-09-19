@@ -5,15 +5,16 @@ import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { LoggerModule } from "nestjs-pino";
 import { BullModule } from "@nestjs/bullmq";
 import { ScheduleModule } from "@nestjs/schedule";
-import IORedis from "ioredis";
 import { VerificationModule } from "./modules/verification/verification.module";
 import { KycModule } from "./modules/kyc/kyc.module";
 import { AuditModule } from "./modules/audit/audit.module";
 import { PrismaModule } from "./modules/prisma/prisma.module";
 import { PkiTrustModule } from "./modules/pki/pki-trust.module";
+import { CscaSyncModule } from "./modules/pki/csca-sync.module";
 import { HealthModule } from "./modules/health/health.module";
 import { MetricsModule } from "./modules/metrics/metrics.module";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
+import { bullmqConnectionFactory } from "./common/bullmq-connection.factory";
 
 @Module({
   imports: [
@@ -41,15 +42,11 @@ import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
     ]),
     BullModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        connection: new IORedis(config.get<string>("REDIS_URL") ?? "redis://localhost:6379", {
-          // Exigé par BullMQ pour ses commandes bloquantes (Workers) — voir doc BullMQ "Connections".
-          maxRetriesPerRequest: null,
-        }),
-      }),
+      useFactory: bullmqConnectionFactory,
     }),
     PrismaModule,
     PkiTrustModule,
+    CscaSyncModule,
     HealthModule,
     MetricsModule,
     VerificationModule,
