@@ -100,6 +100,35 @@ export function decodeMasterList(masterListCmsDer: Uint8Array): DecodedMasterLis
 export interface MasterListTrustResult {
   trusted: boolean;
   reason?: string;
+  /** Le certificat, parmi `trustedDer`, qui a effectivement validé le signataire (audit). */
+  trustedViaDer?: Uint8Array;
+}
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((byte, i) => byte === b[i]);
+}
+
+/**
+ * Primitive de confiance partagée : `candidateDer` est-il, parmi `trustedDers`, soit littéralement
+ * l'un d'eux (comparaison directe), soit signé par l'un d'eux (chaîne courte) ? Réutilisée par :
+ * - `verifyMasterListTrust` (le signataire de la Master List ICAO globale doit correspondre à une
+ *   ancre épinglée hors bande) ;
+ * - `verifyCountryMasterListTrust` (le signataire d'une Master List nationale doit correspondre à
+ *   une CSCA DÉJÀ approuvée pour ce pays — jamais une CSCA extraite de la même Master List) ;
+ * - le rollover d'une CSCA par certificat de liaison ("Link Certificate", Doc 9303 Part 12) : une
+ *   nouvelle CSCA signée par une ancienne CSCA déjà approuvée est le même cas de figure.
+ * Ne devine jamais : renvoie simplement `undefined` si aucune correspondance, sans favoriser un
+ * candidat plutôt qu'un autre.
+ */
+export async function isCertificateTrustedByChain(candidateDer: Uint8Array, trustedDers: Uint8Array[]): Promise<Uint8Array | undefined> {
+  for (const trustedDer of trustedDers) {
+    const isPinnedDirectly = bytesEqual(candidateDer, trustedDer);
+    const isSignedByTrusted = isPinnedDirectly ? false : await isCertificateSignedBy(candidateDer, trustedDer);
+    if (isPinnedDirectly || isSignedByTrusted) {
+      return trustedDer;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -107,6 +136,11 @@ export interface MasterListTrustResult {
  * des ancres de confiance épinglées — jamais l'inverse (ne fait jamais confiance à un signataire
  * simplement parce qu'il est présent dans le fichier). `trustedSignerCertificatesDer` doit
  * provenir de `config/master-list-signer-trust-anchors.json`, jamais du fichier téléchargé.
+ *
+ * S'applique à LA Master List ICAO globale (récupérée via `PKD_MASTER_LIST_SOURCE`) — PAS aux
+ * Master Lists nationales publiées par chaque pays sous la branche LDAP `o=ml,c=XX` de l'ICAO PKD,
+ * qui n'ont pas de signataire unique pinnable de cette façon (voir `verifyCountryMasterListTrust`
+ * et docs/pki-trust-model.md "Modèle de confiance à deux niveaux").
  */
 export async function verifyMasterListTrust(
   decoded: DecodedMasterList,
@@ -130,25 +164,52 @@ export async function verifyMasterListTrust(
     return { trusted: false, reason: "Certificat du Master List Signer hors période de validité" };
   }
 
-  for (const anchorDer of trustedSignerCertificatesDer) {
-    // Le signataire peut soit être littéralement l'ancre épinglée (comparaison directe), soit un
-    // certificat intermédiaire signé par elle (chaîne courte) — les deux cas sont légitimes selon
-    // la configuration ICAO PKD du moment, voir docs/pki-trust-model.md.
-    const isPinnedDirectly = bytesEqual(decoded.signerCertificate.certificateDer, anchorDer);
-    const isSignedByPinnedAnchor = isPinnedDirectly
-      ? false
-      : await isCertificateSignedBy(decoded.signerCertificate.certificateDer, anchorDer);
-
-    if (isPinnedDirectly || isSignedByPinnedAnchor) {
-      return { trusted: true };
-    }
+  const trustedViaDer = await isCertificateTrustedByChain(decoded.signerCertificate.certificateDer, trustedSignerCertificatesDer);
+  if (trustedViaDer) {
+    return { trusted: true, trustedViaDer };
   }
 
   return { trusted: false, reason: "Certificat du Master List Signer non reconnu parmi les ancres épinglées" };
 }
 
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  return a.length === b.length && a.every((byte, i) => byte === b[i]);
+/**
+ * Vérifie une Master List NATIONALE (branche LDAP ICAO PKD `o=ml,c=XX`, un CMS par pays) : son
+ * signataire doit correspondre à une CSCA DÉJÀ approuvée pour CE pays (`alreadyTrustedCscaDersForCountry`
+ * — typiquement issue d'un cycle précédent, elle-même validée via la Master List ICAO globale ou le
+ * magasin de confiance étendu). Ne fait JAMAIS confiance à une CSCA extraite de la Master List en
+ * cours de validation elle-même — cela ne prouverait qu'une auto-cohérence, pas une provenance
+ * légitime (n'importe qui peut forger un CMS auto-cohérent). Voir docs/pki-trust-model.md.
+ */
+export async function verifyCountryMasterListTrust(
+  decoded: DecodedMasterList,
+  alreadyTrustedCscaDersForCountry: Uint8Array[],
+  atIso8601: string = new Date().toISOString(),
+): Promise<MasterListTrustResult> {
+  if (alreadyTrustedCscaDersForCountry.length === 0) {
+    return {
+      trusted: false,
+      reason: "Aucune CSCA déjà approuvée pour ce pays — impossible de valider une Master List nationale sans base de confiance préexistante",
+    };
+  }
+
+  const signatureValid = await decoded.verifySignature();
+  if (!signatureValid) {
+    return { trusted: false, reason: "Signature CMS de la Master List nationale invalide" };
+  }
+
+  if (atIso8601 < decoded.signerCertificate.notBefore || atIso8601 > decoded.signerCertificate.notAfter) {
+    return { trusted: false, reason: "Certificat du signataire de la Master List nationale hors période de validité" };
+  }
+
+  const trustedViaDer = await isCertificateTrustedByChain(decoded.signerCertificate.certificateDer, alreadyTrustedCscaDersForCountry);
+  if (trustedViaDer) {
+    return { trusted: true, trustedViaDer };
+  }
+
+  return {
+    trusted: false,
+    reason: "Signataire de la Master List nationale non relié à une CSCA déjà approuvée pour ce pays (revue manuelle nécessaire)",
+  };
 }
 
 /**

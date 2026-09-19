@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Integer, Sequence } from "asn1js";
 import { parseCertificate, certificateCountryCode, certificateSerialNumberHex, certificateValidityIso, distinguishedNameToString, toArrayBuffer } from "@emrtd-verify/emrtd-core";
-import { decodeMasterList, verifyMasterListTrust, masterListCertificatesToTrustAnchors } from "../src/masterList";
+import { decodeMasterList, verifyMasterListTrust, verifyCountryMasterListTrust, masterListCertificatesToTrustAnchors } from "../src/masterList";
 import { encodeCscaMasterList, decodeCscaMasterList } from "../src/masterListAsn1";
 import { buildSignedMasterList, generateCertificate } from "./support/pkiFixtures";
 
@@ -162,6 +162,65 @@ describe("verifyMasterListTrust", () => {
       // Décodage ASN.1 en échec sur des données corrompues est aussi une détection valide.
       expect(error).toBeInstanceOf(Error);
     }
+  });
+});
+
+describe("verifyCountryMasterListTrust", () => {
+  it("refuse quand aucune CSCA n'est déjà approuvée pour ce pays (jamais d'auto-bootstrap depuis la Master List nationale elle-même)", async () => {
+    const csca = await generateCertificate({ commonName: "CSCA Test", countryCode: "TST", isCa: true });
+    const cscaMasterListDer = encodeCscaMasterList({ version: 0, certificatesDer: [csca.certificateDer] });
+    // Le signataire EST la CSCA embarquée dans cette même liste (auto-cohérent, mais sans preuve de provenance).
+    const masterListCmsDer = await buildSignedMasterList({ cscaMasterListDer, signer: csca });
+    const decoded = decodeMasterList(masterListCmsDer);
+
+    const result = await verifyCountryMasterListTrust(decoded, []);
+
+    expect(result.trusted).toBe(false);
+    expect(result.reason).toMatch(/[Aa]ucune CSCA/);
+  });
+
+  it("refuse quand le signataire n'est relié qu'à une CSCA extraite de la même Master List, jamais passée comme déjà approuvée", async () => {
+    const csca = await generateCertificate({ commonName: "CSCA Test", countryCode: "TST", isCa: true });
+    const cscaMasterListDer = encodeCscaMasterList({ version: 0, certificatesDer: [csca.certificateDer] });
+    const masterListCmsDer = await buildSignedMasterList({ cscaMasterListDer, signer: csca });
+    const decoded = decodeMasterList(masterListCmsDer);
+
+    // Une CSCA sans rapport est déjà approuvée, mais PAS `csca` (celle de la liste en cours de validation).
+    const unrelatedAlreadyTrusted = await generateCertificate({ commonName: "CSCA sans rapport", countryCode: "TST", isCa: true });
+    const result = await verifyCountryMasterListTrust(decoded, [unrelatedAlreadyTrusted.certificateDer]);
+
+    expect(result.trusted).toBe(false);
+    expect(result.reason).toMatch(/non relié/);
+  });
+
+  it("fait confiance quand le signataire EST une CSCA déjà approuvée pour ce pays (CSCA auto-signée agissant comme son propre signataire, vu Botswana/Ouganda réels)", async () => {
+    const csca = await generateCertificate({ commonName: "CSCA Test", countryCode: "TST", isCa: true });
+    const cscaMasterListDer = encodeCscaMasterList({ version: 0, certificatesDer: [csca.certificateDer] });
+    const masterListCmsDer = await buildSignedMasterList({ cscaMasterListDer, signer: csca });
+    const decoded = decodeMasterList(masterListCmsDer);
+
+    const result = await verifyCountryMasterListTrust(decoded, [csca.certificateDer]);
+
+    expect(result.trusted).toBe(true);
+    expect(result.trustedViaDer).toEqual(csca.certificateDer);
+  });
+
+  it("fait confiance quand le signataire est un certificat distinct signé par une CSCA déjà approuvée (Master List Signer national, vu Cameroun/Norvège/Lettonie réels)", async () => {
+    const csca = await generateCertificate({ commonName: "CSCA Test", countryCode: "TST", isCa: true });
+    const nationalSigner = await generateCertificate({
+      commonName: "National Master List Signer",
+      countryCode: "TST",
+      isCa: true,
+      issuer: { certificate: csca.certificate, privateKey: csca.privateKey },
+    });
+    const cscaMasterListDer = encodeCscaMasterList({ version: 0, certificatesDer: [csca.certificateDer] });
+    const masterListCmsDer = await buildSignedMasterList({ cscaMasterListDer, signer: nationalSigner, extraCertificatesBefore: [csca.certificate] });
+    const decoded = decodeMasterList(masterListCmsDer);
+
+    const result = await verifyCountryMasterListTrust(decoded, [csca.certificateDer]);
+
+    expect(result.trusted).toBe(true);
+    expect(result.trustedViaDer).toEqual(csca.certificateDer);
   });
 });
 
