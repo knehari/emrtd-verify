@@ -1,0 +1,13 @@
+# Fournisseur de dashboards Grafana (mécanisme standard "provisioning/dashboards") — charge tout
+# dashboard JSON versionné dans config/grafana/dashboards/ au démarrage, sans action manuelle.
+apiVersion: 1
+
+providers:
+  - name: emrtd-verify
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards/files

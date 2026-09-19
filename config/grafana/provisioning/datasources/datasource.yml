@@ -1,0 +1,14 @@
+# Provisionnement automatique de la source de données Grafana (mécanisme standard Grafana
+# "provisioning/datasources") — voir docs/admin-web.md "Dashboard Grafana". Pointe vers le
+# service `prometheus` défini dans docker-compose.yml (résolution DNS interne au réseau Docker
+# Compose, pas localhost).
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

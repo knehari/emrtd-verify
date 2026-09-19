@@ -1,0 +1,21 @@
+# Configuration de scraping Prometheus — voir docs/roadmap.md Phase 7 "Dashboard Grafana" et
+# docs/admin-web.md. Deux cibles : le processus API HTTP (apps/api/src/modules/metrics) et le
+# processus worker BullMQ séparé (apps/api/src/worker.ts, port dédié WORKER_METRICS_PORT) —
+# chacun expose son propre registre prom-client (voir la note dans worker.ts sur les deux
+# instances distinctes de MetricsService).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: emrtd-api
+    static_configs:
+      - targets: ["api:3000"]
+        labels:
+          service: api
+
+  - job_name: emrtd-worker
+    static_configs:
+      - targets: ["worker:3001"]
+        labels:
+          service: worker

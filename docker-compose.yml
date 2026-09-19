@@ -48,5 +48,39 @@ services:
     ports:
       - "3001:3001"
 
+  # Observabilité (voir docs/roadmap.md Phase 7 "Dashboard Grafana", docs/admin-web.md
+  # "Dashboard Grafana") — scrape les endpoints /metrics réels de `api` (port 3000) et `worker`
+  # (port 3001, processus séparé, voir la note dans apps/api/src/worker.ts), déjà exposés et
+  # testés avant l'ajout de ces deux services.
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - api
+      - worker
+    ports:
+      - "9090:9090"
+
+  # Dashboard provisionné (datasource + dashboard JSON versionnés dans config/grafana/, voir
+  # docs/admin-web.md) — prêt à l'emploi sans configuration manuelle. Lien exposé dans
+  # apps/admin-web via NEXT_PUBLIC_GRAFANA_URL (voir apps/admin-web/.env.local.example).
+  grafana:
+    image: grafana/grafana:11.3.1
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards/files:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    ports:
+      - "3002:3000"
+
 volumes:
   postgres-data:
+  prometheus-data:
+  grafana-data:
