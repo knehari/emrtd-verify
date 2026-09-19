@@ -2,7 +2,11 @@
 
 ## Principe
 
-Une interface web réservée au personnel opérationnel de la plateforme (pas aux tenants tiers, voir [tenant-portal.md](tenant-portal.md)) : gestion des tenants (clients KYC), gestion des comptes administrateurs, revue globale des vérifications, et un lien vers le dashboard Grafana (voir [roadmap.md](roadmap.md) Phase 4). Le frontend (`apps/admin-web`, Next.js) n'est pas encore construit — ce document décrit la surface d'API backend déjà implémentée et testée (`apps/api/src/modules/admin-auth/`, `apps/api/src/modules/admin-api/`) sur laquelle il s'appuiera.
+Une interface web réservée au personnel opérationnel de la plateforme (pas aux tenants tiers, voir [tenant-portal.md](tenant-portal.md)) : gestion des tenants (clients KYC), gestion des comptes administrateurs, revue globale des vérifications, et un lien vers le dashboard Grafana (voir [roadmap.md](roadmap.md) Phase 4). Le frontend (`apps/admin-web`, Next.js 14 App Router + Tailwind + Radix UI + React Query) est implémenté : pages Connexion, Tableau de bord (KPIs + répartition des verdicts), Tenants (CRUD), Vérifications (revue globale filtrée/paginée), Administrateurs (CRUD, réservé SUPER_ADMIN). Vérifié par un vrai build de production (`next build`) et un parcours utilisateur réel en navigateur (connexion, création de tenant avec révélation de clé API une seule fois, RBAC, aucune erreur console) — voir "Vérification" ci-dessous.
+
+## Tableau de bord (KPIs)
+
+`GET /admin/dashboard/stats` (`AdminDashboardController`/`AdminDashboardService`) agrège : tenants totaux/actifs, nombre d'administrateurs, vérifications des dernières 24h, répartition par verdict — alimente les cartes KPI et le graphique (recharts) de `apps/admin-web`.
 
 ## Authentification
 
@@ -47,8 +51,13 @@ Voir `AdminVerificationsController`/`AdminVerificationsService` — vue opérate
 
 Voir [roadmap.md](roadmap.md) Phase 4 — dashboard provisionné dans `docker-compose.yml`, branché sur `/metrics` (API et worker). L'interface d'administration expose un simple lien vers l'URL Grafana (pas d'authentification unifiée SSO en v1 — limite assumée).
 
+## Vérification
+
+- **Typecheck + build de production** réels (`pnpm --filter @emrtd-verify/admin-web exec tsc --noEmit`, `next build`) — 7 routes compilées sans erreur.
+- **Parcours réel en navigateur** (Chromium headless) contre l'API réelle et un Postgres local : connexion (cookie de session posé), tableau de bord affichant les vrais compteurs, création d'un tenant avec révélation de clé API une seule fois, rafraîchissement automatique de la liste (React Query), page Vérifications (filtres, état vide correct), page Administrateurs (RBAC — un SUPPORT ne peut pas écrire côté API ; côté UI, seul un SUPER_ADMIN voit la page). Aucune erreur ni avertissement dans la console du navigateur sur l'ensemble du parcours.
+
 ## Limites assumées (v1)
 
 - Pas de changement de mot de passe en libre-service ni de 2FA — à construire avant un déploiement multi-opérateurs réel.
 - Pas de journal d'audit dédié aux actions d'administration (CRUD tenant, rotation de clé) — seul le journal d'audit des vérifications existe (`AuditService`). À ajouter avant production.
-- `apps/admin-web` (frontend Next.js) reste à construire.
+- Pas de tests automatisés (Vitest/React Testing Library) pour `apps/admin-web` — vérifié uniquement par build réel + parcours navigateur manuel dans cette session ; à ajouter avant une évolution non triviale de l'UI.
