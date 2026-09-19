@@ -38,32 +38,78 @@ La demande initiale envisageait un stockage "en backend ou en local dans l'appli
 
 Un export en lecture seule d'un sous-ensemble de CSCA vers un client mobile (pour un mode dégradé hors-ligne, par exemple) est envisageable en évolution future, mais resterait un **cache advisory** non faisant autorité — la décision de confiance resterait toujours revalidée côté backend. Non implémenté à ce stade (pas de besoin produit identifié).
 
-### Bootstrap de confiance de la Master List elle-même
+### Bootstrap de confiance de la Master List ICAO globale (Phase A)
 
-Une Master List CSCA est une structure ASN.1 `CscaMasterList` (Doc 9303 Part 12 §8) encapsulée dans un CMS `SignedData` (OID `2.23.136.1.1.2`), signée par un **Master List Signer** désigné par l'ICAO. Le certificat de ce signataire est *inclus dans le fichier téléchargé lui-même* — il ne peut donc **jamais** servir de preuve de sa propre authenticité (sinon n'importe qui pourrait forger une Master List avec son propre certificat auto-signé inclus).
+Une Master List CSCA est une structure ASN.1 `CscaMasterList` (Doc 9303 Part 12 §8) encapsulée dans un CMS `SignedData` (OID `2.23.136.1.1.2`), signée par un **Master List Signer**. Le certificat de ce signataire est *inclus dans le fichier téléchargé lui-même* — il ne peut donc **jamais** servir de preuve de sa propre authenticité (sinon n'importe qui pourrait forger une Master List avec son propre certificat auto-signé inclus).
 
 `verifyMasterListTrust()` (`packages/pki-trust/src/masterList.ts`) résout ce problème en n'acceptant que des signataires trouvés dans un magasin d'ancres **épinglées hors bande** : `config/master-list-signer-trust-anchors.json` (vide par défaut, schéma documenté dans `config/master-list-signer-trust-anchors.README.md`), alimenté manuellement à partir d'une source de confiance indépendante (ex. publication officielle ICAO, canal diplomatique) — jamais depuis le fichier synchronisé. Sans ancre configurée, la synchronisation échoue systématiquement (voir `apps/api/test/pki/csca-sync.service.test.ts`), plutôt que de risquer un auto-bootstrap non sécurisé.
 
-### Pipeline de synchronisation et bascule atomique
+### Modèle de confiance à deux niveaux (branche par pays de l'ICAO PKD)
+
+L'annuaire LDAP ICAO PKD publie, en plus d'éventuelles listes consolidées, une **Master List par pays** sous `o=ml,c=XX` — un CMS distinct par pays, signé par une entité propre à ce pays. Vérifié empiriquement sur un vrai export LDIF ICAO PKD (28 pays, fourni par un utilisateur) : dans les 28 cas, le signataire de la Master List nationale est *systématiquement* soit une CSCA de ce même pays (auto-signée agissant comme son propre Master List Signer — Botswana, Ouganda...), soit un certificat distinct émis par elle (Cameroun, Norvège, Lettonie...). **Il n'existe pas d'ancre globale unique pour cette branche** : épingler une ancre par pays (jusqu'à ~190) n'apporterait aucune garantie indépendante, puisqu'elle proviendrait de la même donnée que celle qu'elle est censée authentifier.
+
+La règle de sécurité qui en découle, donc jamais d'auto-bootstrap depuis la Master List nationale elle-même :
+
+```
+trusted(countryML) = validCmsSignature(countryML)
+                      AND signerChainsTo(CSCA déjà approuvée pour ce pays)
+JAMAIS : trusted(countryML) = signerChainsTo(CSCA extraite de countryML lui-même)
+```
+
+`verifyCountryMasterListTrust()` (`packages/pki-trust/src/masterList.ts`) implémente cette règle : le signataire doit correspondre — littéralement ou par chaîne courte — à une CSCA déjà présente dans le magasin avec un état de confiance utilisable (voir ci-dessous), jamais à une CSCA extraite du CMS en cours de validation. La primitive de chaîne (`isCertificateTrustedByChain`) est partagée avec `verifyMasterListTrust` et sert aussi au rollover d'une CSCA par certificat de liaison ("Link Certificate", Doc 9303 Part 12) : une nouvelle CSCA signée par une ancienne CSCA déjà approuvée suit exactement la même logique.
+
+### État de confiance par CSCA (`CscaCertificateTrustState`)
+
+Chaque CSCA persistée porte un état explicite (`apps/api/prisma/schema.prisma`), jamais un simple booléen :
+
+| État | Signification | Utilisable comme ancre ? |
+|---|---|---|
+| `DISCOVERED` | Vue dans une donnée PKD, jamais validée | Non |
+| `PKD_OBSERVED` | Reçue du portail/LDAP PKD sans validation de provenance | Non |
+| `ICAO_ML_VALIDATED` | Signataire vérifié contre une ancre épinglée hors bande (Phase A) | **Oui** |
+| `LINK_VALIDATED` | Reliée à une CSCA déjà approuvée pour ce pays (Phase B, ou rollover) | **Oui** |
+| `OUT_OF_BAND_VALIDATED` | Confirmée manuellement (magasin de confiance étendu) | **Oui** |
+| `REVOKED_OR_DISTRUSTED` | Révoquée ou retirée de confiance | Non |
+| `QUARANTINED` | Incohérence détectée, en attente de revue manuelle | Non |
+
+`CscaStoreService.getAnchorsForCountry()` ne sert jamais que les trois états marqués "Oui".
+
+### Pipeline de synchronisation — Phase A (Master List ICAO globale)
 
 `CscaSyncService.sync()`, déclenché quotidiennement (`CscaSyncScheduler`, `@Cron`) ou manuellement (`pnpm --filter @emrtd-verify/api sync-master-list`) :
 
 1. **Récupération** via la source configurée (`PKD_MASTER_LIST_SOURCE=https|ldap`, `packages/pki-trust/src/pkdClient.ts`), avec retry/backoff sur échec transitoire réseau.
 2. **Décodage** CMS + structure ICAO (`decodeMasterList`).
 3. **Vérification de confiance** contre les ancres épinglées (`verifyMasterListTrust`) — échec = arrêt immédiat, aucun état modifié.
-4. **Persistance atomique** : dans une transaction Prisma unique, un nouveau `CscaSyncBatch` (immuable) et ses `CscaCertificateRecord` sont créés, puis le pointeur singleton `CscaTrustState` (id fixe) est basculé vers ce nouveau lot — le tout ou rien garantit qu'il n'existe **jamais d'instant sans confiance valide** : soit l'ancien lot reste actif, soit le nouveau l'est intégralement.
-5. **Rétention** : les lots plus anciens au-delà de `CSCA_SYNC_RETAIN_BATCHES` (défaut 2) sont purgés après bascule réussie, en conservant un court historique pour audit/rollback manuel.
-6. **Traçabilité** : chaque exécution (succès ou échec, avec message d'erreur) est journalisée dans `MasterListSyncRun`.
+4. **Persistance atomique** : dans une transaction Prisma unique, un nouveau `CscaSyncBatch` (immuable) et ses `CscaCertificateRecord` (état `ICAO_ML_VALIDATED`) sont créés, puis le pointeur singleton `CscaTrustState` (id fixe) est basculé vers ce nouveau lot — le tout ou rien garantit qu'il n'existe **jamais d'instant sans confiance valide**.
+5. **Rétention** : les lots plus anciens au-delà de `CSCA_SYNC_RETAIN_BATCHES` (défaut 2) sont purgés après bascule réussie.
+6. **Traçabilité** : chaque exécution est journalisée dans `MasterListSyncRun`.
 
-Toute erreur à n'importe quelle étape est interceptée et journalisée sans jamais toucher le pointeur `CscaTrustState` actif ni faire remonter d'exception au planificateur — une synchronisation échouée dégrade au pire vers "pas de mise à jour", jamais vers "confiance corrompue".
+### Pipeline de synchronisation — Phase B (Master Lists nationales, ingestion LDIF)
+
+`CscaSyncService.syncCountryMasterLists(entries)`, déclenché manuellement (`pnpm --filter @emrtd-verify/api import-pkd-ldif <fichier.ldif>`) : pour chaque entrée `o=ml,c=XX` (extraite par `packages/pki-trust/src/pkdLdif.ts`), vérifie `verifyCountryMasterListTrust` contre les CSCA déjà `ICAO_ML_VALIDATED`/`LINK_VALIDATED`/`OUT_OF_BAND_VALIDATED` de ce pays ; les pays validés voient leurs CSCA (limitées à ce même pays — une Master List nationale peut légitimement en embarquer d'autres, hors périmètre de cette phase) fusionnées en état `LINK_VALIDATED` dans un nouveau lot = copie du lot actif + ajouts, avec la même bascule atomique qu'en Phase A. Un pays sans CSCA déjà approuvée est ignoré (jamais d'auto-bootstrap) plutôt qu'accepté à l'aveugle.
+
+**Pourquoi une ingestion manuelle et non automatisée** : le portail de téléchargement ICAO PKD (https://pkddownload.icao.int/downloads) impose un captcha et consigne l'adresse IP du téléchargement — l'automatiser violerait les conditions d'usage du service. La seule voie ICAO-sanctionnée pour un accès automatisé est un enregistrement LDAP PKD (identifiants fournis à l'inscription, voir Phase A ci-dessus et "Ce qui reste non vérifié" plus bas) ; en son absence, l'import LDIF reste une étape manuelle périodique (l'opérateur télécharge le fichier, puis exécute le script), ce qui reste réaliste pour une mise à jour hebdomadaire/mensuelle plutôt que quotidienne.
+
+Toute erreur à n'importe quelle étape (Phase A ou B) est interceptée et journalisée sans jamais toucher le pointeur `CscaTrustState` actif — une synchronisation échouée dégrade au pire vers "pas de mise à jour", jamais vers "confiance corrompue".
 
 ### Chemin de lecture (validation en cours de vérification)
 
-`CscaStoreService.getAnchorsForCountry(countryCode)` lit uniquement le lot actif (jointure indexée sur `[batchId, countryCode]`, aucun réseau ni calcul cryptographique) et convertit en `CscaTrustAnchor[]` (`source: "icao-pkd"`, `level: "high"`). `PkiTrustService` l'appelle derrière le cache TTL déjà existant (`TrustCacheService`, `TRUST_CACHE_TTL_MS`) — le chemin critique de latence d'une vérification n'est donc jamais impacté par la synchronisation elle-même.
+`CscaStoreService.getAnchorsForCountry(countryCode)` lit uniquement le lot actif, filtré aux états de confiance utilisables (jointure indexée sur `[batchId, countryCode]`, aucun réseau ni calcul cryptographique) et convertit en `CscaTrustAnchor[]` (`source: "icao-pkd"`, `level: "high"`). `PkiTrustService` l'appelle derrière le cache TTL déjà existant (`TrustCacheService`, `TRUST_CACHE_TTL_MS`) — le chemin critique de latence d'une vérification n'est donc jamais impacté par la synchronisation elle-même.
+
+### Vérification de signature CMS : ce qu'une vraie Master List a révélé
+
+Décoder et vérifier le vrai export LDIF ICAO PKD mentionné plus haut a exposé trois bugs réels, tous corrigés et testés (voir `packages/emrtd-core/src/crypto/{cms,signatureVerify}.ts`) :
+
+1. **Sélection du certificat signataire.** `decodeMasterList`/`decodeSod` supposaient à tort que le signataire CMS est toujours le premier certificat listé — faux dès que plusieurs certificats sont présents (Botswana : signataire en position 2). `findCmsSignerCertificate` retrouve désormais le bon certificat via `SignerInfo.sid`, y compris quand `sid` est un `SubjectKeyIdentifier` comparé aux octets **réellement déclarés** par l'extension du certificat (jamais un SHA-1(clé publique) recalculé, qui échoue sur la Master List néerlandaise).
+2. **Courbes ECDSA non-NIST.** Web Crypto ne supporte que P-256/P-384/P-521. 12 des 28 Master List Signers réels utilisent Brainpool (RFC 5639, BSI TR-03110) ou des paramètres de courbe explicites (Angola). `verifyRawSignature` réplie sur un vérificateur `node:crypto` (OpenSSL, supporte les deux nativement) enregistré par `packages/pki-trust/src/nodeCryptoFallback.ts` — `emrtd-core` reste sans dépendance Node directe (compilé comme dépendance source par `apps/mobile`, sans types Node).
+3. **Résolution d'algorithme incomplète.** RSASSA-PSS (RFC 4055, 5 pays réels) et `rsaEncryption` "nu" avec hachage porté par `digestAlgorithm` (France) n'étaient pas gérés — `resolveSignatureScheme` couvre désormais les deux cas.
+
+Après ces correctifs, les 28 entrées du fichier fourni décodent et vérifient avec succès (contre 2/28 avant).
 
 ### Ce qui reste non vérifié en conditions réelles
 
-L'accès à l'annuaire LDAP officiel ICAO PKD n'a pas pu être testé de bout en bout : il nécessite un enregistrement ICAO PKD et des identifiants que ce projet n'a pas. Le client LDAP (`createLdapMasterListSource`, via `ldapjs`) est testé unitairement contre un client LDAP factice injecté (`packages/pki-trust/test/pkdClient.test.ts`), mais jamais contre un vrai serveur ICAO PKD. La source HTTPS est l'option recommandée par défaut tant que cet accès n'est pas obtenu.
+L'accès à l'annuaire LDAP officiel ICAO PKD n'a pas pu être testé de bout en bout : il nécessite un enregistrement ICAO PKD et des identifiants que ce projet n'a pas. Le client LDAP (`createLdapMasterListSource`, via `ldapjs`) est testé unitairement contre un client LDAP factice injecté (`packages/pki-trust/test/pkdClient.test.ts`), mais jamais contre un vrai serveur ICAO PKD. La source HTTPS est l'option recommandée par défaut tant que cet accès n'est pas obtenu. L'ingestion LDIF (Phase B), elle, a été validée contre un vrai export complet.
 
 ## Magasin de confiance étendu (pays hors PKD)
 

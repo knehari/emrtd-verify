@@ -46,17 +46,17 @@ Voir [`docs/architecture.md`](docs/architecture.md) pour le détail des flux de 
 
 ## État du projet
 
-Ce qui est **réellement implémenté et testé** (133 tests automatisés, TypeScript + Python) :
+Ce qui est **réellement implémenté et testé** (151 tests automatisés, TypeScript + Python) :
 - Passive Authentication complète : décodage CMS/SOD, vérification de signature DSC↔CSCA, détection d'altération et d'usurpation (`packages/emrtd-core`, `packages/pki-trust`).
 - Active Authentication (ECDSA) : vérification cryptographique challenge-réponse contre la clé publique DG15, détection de clonage (`packages/emrtd-core`).
 - Dérivation de clé de session BAC, conforme Doc 9303 Part 11 Appendix D (`packages/emrtd-core`).
-- Synchronisation de la CSCA Master List ICAO : récupération (HTTPS/LDAP), vérification cryptographique via ancres de confiance épinglées, persistance avec bascule atomique (`packages/pki-trust`, `apps/api` — voir [docs/pki-trust-model.md](docs/pki-trust-model.md)).
+- Synchronisation de la CSCA Master List ICAO, modèle de confiance à deux niveaux : Master List ICAO globale (récupération HTTPS/LDAP, vérification via ancres épinglées) et Master Lists nationales par pays (ingestion LDIF, vérifiées contre les CSCA déjà approuvées — jamais d'auto-bootstrap), persistance avec bascule atomique et état de confiance explicite par CSCA. Validé contre un vrai export LDIF ICAO PKD (28 pays) (`packages/pki-trust`, `apps/api` — voir [docs/pki-trust-model.md](docs/pki-trust-model.md)).
 - Reconnaissance faciale (détection + embedding + similarité), liveness passive (`services/face-match`).
 - API NestJS de bout en bout : authentification par client KYC (clé API, politique de risque par client), file asynchrone, persistance PostgreSQL/Prisma, cache de confiance PKI, résilience (retry/disjoncteur), rate limiting, purge automatisée de rétention (RGPD), endpoints `/health`/`/ready`, journal d'audit (`apps/api`).
 
 Ce qui reste hors de portée d'un environnement de développement sans matériel/accès réels, documenté précisément dans [docs/roadmap.md](docs/roadmap.md) :
 - Le protocole NFC/APDU bas niveau (lecture effective de la puce) — nécessite un vrai document et un vrai lecteur.
-- L'accès réel à l'annuaire LDAP officiel ICAO PKD (le pipeline de synchronisation est implémenté et testé, mais jamais exercé contre un vrai serveur ICAO PKD) — nécessite un enregistrement/accès officiel.
+- L'accès réel à l'annuaire LDAP officiel ICAO PKD (le pipeline de synchronisation est implémenté et testé, mais jamais exercé contre un vrai serveur ICAO PKD) et le téléchargement automatisé depuis le portail HTTPS (captcha + IP consignée) — nécessite un enregistrement/accès officiel.
 - L'audit indépendant du modèle de reconnaissance faciale (biais démographique, calibration) — condition explicite avant production, voir [SECURITY.md](SECURITY.md).
 
 ## Stack
