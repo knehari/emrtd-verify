@@ -1,19 +1,26 @@
 services:
+  # Identifiants par défaut adaptés à un usage local (docker compose up sans .env supplémentaire) —
+  # surchargeables via POSTGRES_USER/POSTGRES_PASSWORD (voir .env.example). Port lié à 127.0.0.1
+  # uniquement : jamais atteignable depuis le réseau, seulement depuis la machine hôte elle-même,
+  # où tournent les autres services de cette stack (audit sécurité tiers, voir docs/roadmap.md).
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: emrtd
-      POSTGRES_PASSWORD: emrtd
+      POSTGRES_USER: ${POSTGRES_USER:-emrtd}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-emrtd}
       POSTGRES_DB: emrtd_verify
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
+  # Port lié à 127.0.0.1 uniquement, même raisonnement que postgres ci-dessus — Redis transite ici
+  # par les jobs BullMQ (chip/face DTO complet, voir apps/api/src/common/bullmq-connection.factory.ts),
+  # jamais destiné à être atteignable depuis l'extérieur de la machine hôte.
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
 
   face-match:
     build: ./services/face-match

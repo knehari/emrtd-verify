@@ -88,12 +88,22 @@ export class AdminAuthService {
     return { requiresTwoFactor: false, token, admin: { id: admin.id, email: admin.email, role: admin.role } };
   }
 
+  /**
+   * Le JWT (12h) prouve seulement qu'un login a eu lieu, pas que le compte est toujours actif au
+   * rôle qu'il annonce — un administrateur désactivé ou rétrogradé entre-temps resterait sinon
+   * privilégié jusqu'à expiration du cookie. Revalide donc systématiquement `active`/`role` en
+   * base à chaque requête plutôt que de faire confiance au seul contenu signé du jeton.
+   */
   async verifyToken(token: string): Promise<AdminSessionPayload> {
     const payload = await this.jwt.verifyAsync<AdminSessionPayload>(token);
     if (payload.typ !== "admin") {
       throw new UnauthorizedException("Jeton de session invalide");
     }
-    return payload;
+    const admin = await this.prisma.adminUser.findUnique({ where: { id: payload.sub } });
+    if (!admin || !admin.active) {
+      throw new UnauthorizedException("Compte administrateur désactivé");
+    }
+    return { sub: admin.id, email: admin.email, role: admin.role, typ: "admin" };
   }
 
   /**

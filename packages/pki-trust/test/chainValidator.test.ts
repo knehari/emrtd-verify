@@ -4,7 +4,13 @@ import { certificateSerialNumberHex } from "@emrtd-verify/emrtd-core";
 import { validateTrustChain } from "../src/chainValidator";
 import { NationalPkdRegistry } from "../src/nationalPkdAdapter";
 import { ExtendedTrustStore } from "../src/trustStore";
-import { buildSignedSod, cscaToTrustAnchor, encodeLdsSecurityObject, generateCscaAndDsc } from "./support/pkiFixtures";
+import {
+  buildSignedSod,
+  cscaToTrustAnchor,
+  encodeLdsSecurityObject,
+  generateCertificate,
+  generateCscaAndDsc,
+} from "./support/pkiFixtures";
 
 const DG1_CONTENT = new TextEncoder().encode("P<UTOERIKSSON<<ANNA<MARIA...");
 
@@ -62,6 +68,77 @@ describe("validateTrustChain", () => {
 
     expect(result.sodSignatureValid).toBe(true); // le SOD lui-même n'est pas altéré...
     expect(result.dscTrustedByCsca).toBe(false); // ...mais son DSC ne remonte pas à ce CSCA
+    expect(result.sufficientForClientPolicy).toBe(false); // jamais suffisant sans chaîne DSC<-CSCA valide
+  });
+
+  it("rejette un SOD dont la signature ne correspond pas au DSC déclaré, même avec un CSCA de confiance valide", async () => {
+    const { csca, dsc, countryCode } = await buildScenario();
+    // Un second DSC, sans aucun lien avec le premier, dont on emprunte la clé privée pour
+    // signer le SOD — le SOD prétend toujours être signé par `dsc` (certificat embarqué), mais
+    // la signature ne vérifie pas avec sa clé publique réelle.
+    const { dsc: unrelatedDsc } = await generateCscaAndDsc(`${countryCode}2`);
+    const ldsSecurityObjectDer = encodeLdsSecurityObject({
+      version: 0,
+      digestAlgorithm: "SHA-256",
+      dataGroupHashes: [{ dataGroupNumber: 1, hash: new Uint8Array(createHash("sha256").update(DG1_CONTENT).digest()) }],
+    });
+    const sodDer = await buildSignedSod({
+      ldsSecurityObjectDer,
+      signer: { certificateDer: dsc.certificateDer, certificate: dsc.certificate, privateKey: unrelatedDsc.privateKey },
+    });
+    const computedDataGroupHashes = [
+      { dataGroupNumber: 1 as const, hash: new Uint8Array(createHash("sha256").update(DG1_CONTENT).digest()) },
+    ];
+
+    const result = await validateTrustChain({
+      countryCode,
+      sodDer,
+      computedDataGroupHashes,
+      icaoPkdAnchors: [cscaToTrustAnchor(countryCode, csca)],
+      nationalPkdRegistry: new NationalPkdRegistry(),
+      extendedTrustStore: new ExtendedTrustStore([]),
+      clientAcceptedLevels: ["high", "medium"],
+    });
+
+    expect(result.sodSignatureValid).toBe(false);
+    expect(result.dscTrustedByCsca).toBe(true); // le certificat embarqué remonte bien au CSCA...
+    expect(result.sufficientForClientPolicy).toBe(false); // ...mais la signature elle-même est invalide
+  });
+
+  it("rejette un DSC hors de sa période de validité, même signé par un CSCA de confiance", async () => {
+    const { csca } = await buildScenario();
+    const expiredDsc = await generateCertificate({
+      commonName: "DSC expiré",
+      countryCode: "UTO",
+      isCa: false,
+      issuer: { certificate: csca.certificate, privateKey: csca.privateKey },
+      notBefore: new Date(Date.now() - 730 * 24 * 3600 * 1000),
+      notAfter: new Date(Date.now() - 365 * 24 * 3600 * 1000),
+    });
+    const ldsSecurityObjectDer = encodeLdsSecurityObject({
+      version: 0,
+      digestAlgorithm: "SHA-256",
+      dataGroupHashes: [{ dataGroupNumber: 1, hash: new Uint8Array(createHash("sha256").update(DG1_CONTENT).digest()) }],
+    });
+    const sodDer = await buildSignedSod({ ldsSecurityObjectDer, signer: expiredDsc });
+    const computedDataGroupHashes = [
+      { dataGroupNumber: 1 as const, hash: new Uint8Array(createHash("sha256").update(DG1_CONTENT).digest()) },
+    ];
+
+    const result = await validateTrustChain({
+      countryCode: "UTO",
+      sodDer,
+      computedDataGroupHashes,
+      icaoPkdAnchors: [cscaToTrustAnchor("UTO", csca)],
+      nationalPkdRegistry: new NationalPkdRegistry(),
+      extendedTrustStore: new ExtendedTrustStore([]),
+      clientAcceptedLevels: ["high", "medium"],
+    });
+
+    expect(result.sodSignatureValid).toBe(true);
+    expect(result.dscTrustedByCsca).toBe(true);
+    expect(result.dscWithinValidityPeriod).toBe(false);
+    expect(result.sufficientForClientPolicy).toBe(false);
   });
 
   it("signale l'absence de toute ancre de confiance pour le pays", async () => {

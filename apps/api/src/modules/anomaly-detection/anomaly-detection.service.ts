@@ -58,6 +58,44 @@ export class AnomalyDetectionService {
       });
     }
 
+    if (!input.trustChain.sodSignatureValid) {
+      findings.push({
+        code: "SOD_SIGNATURE_INVALID",
+        severity: "critical",
+        message: "La signature du SOD ne vérifie pas avec la clé publique du DSC déclaré (donnée potentiellement falsifiée)",
+      });
+    }
+
+    if (!input.trustChain.noTrustAnchorAvailable && !input.trustChain.dscTrustedByCsca) {
+      findings.push({
+        code: "DSC_NOT_TRUSTED_BY_CSCA",
+        severity: "critical",
+        message: "Le DSC embarqué dans le document n'est pas signé par le CSCA de confiance sélectionné pour ce pays",
+      });
+    }
+
+    if (!input.trustChain.dscWithinValidityPeriod) {
+      findings.push({
+        code: "DSC_EXPIRED",
+        severity: "critical",
+        message: "Le certificat DSC est hors de sa période de validité à la date de vérification",
+      });
+    }
+
+    // La récupération/persistance de CRL n'est pas encore câblée en production (voir
+    // docs/pki-trust-model.md "Révocation" et docs/roadmap.md) : validateTrustChain reçoit alors
+    // toujours revocationChecked:false. Sans ce signal, un DSC révoqué mais non signalé serait
+    // accepté silencieusement — le remonter en avertissement dégrade le verdict (computeVerdict)
+    // au lieu de laisser une révocation potentielle invisible. Omis quand aucune ancre de
+    // confiance n'existe (déjà critique via NO_TRUST_ANCHOR, la révocation y est sans objet).
+    if (!input.trustChain.noTrustAnchorAvailable && !input.trustChain.revocationChecked) {
+      findings.push({
+        code: "REVOCATION_NOT_CHECKED",
+        severity: "warning",
+        message: "Statut de révocation du DSC non vérifiable (aucune CRL disponible) — ne pas traiter comme non révoqué",
+      });
+    }
+
     if (!input.activeAuthentication) {
       if (input.documentExpectedToSupportAaOrCa) {
         findings.push({

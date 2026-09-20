@@ -35,19 +35,26 @@ Vue d'ensemble de tout ce que `VerificationModule` évalue pour produire un `Ver
 Chaque anomalie détectée est ajoutée à `VerificationResult.anomalies[]` avec une sévérité (`info` / `warning` / `critical`) — le système ne bloque pas systématiquement, il **explique** :
 
 - Hash DG ≠ SOD → `critical` (donnée potentiellement altérée après émission)
-- Signature SOD invalide → `critical`
+- Signature SOD invalide (`SOD_SIGNATURE_INVALID`) → `critical`
 - CSCA hors chaîne de confiance connue → `critical` si aucune source de confiance ne le couvre, `warning` si couvert uniquement par le magasin étendu à confiance `low`
-- CSCA révoqué → `critical`
+- DSC non signé par le CSCA de confiance sélectionné (`DSC_NOT_TRUSTED_BY_CSCA`) → `critical`
+- DSC hors de sa période de validité (`DSC_EXPIRED`) → `critical`
+- CSCA/DSC révoqué → `critical`
+- Statut de révocation non vérifiable, faute de CRL récupérée (`REVOCATION_NOT_CHECKED`) → `warning` — voir [pki-trust-model.md](pki-trust-model.md#révocation) pour la limite actuelle (récupération de CRL non câblée en production)
 - Absence d'AA/CA sur un document qui devrait le supporter (selon la version LDS annoncée) → `warning` (indice possible de clonage — le SOD peut être copié même sans clé privée de puce)
 - Incohérence structurelle LDS (DG manquant annoncé présent dans le SOD, DG surnuméraire non signé) → `critical`
 - Incohérence MRZ ↔ DG1 ↔ VIZ → `warning` ou `critical` selon le champ
 - CSCA proche de son expiration (< 90 jours) → `info`
+
+**Aucun de ces quatre premiers signaux (hash DG, signature SOD, chaîne DSC↔CSCA, période de validité DSC) n'était consommé par la logique de verdict avant un audit de sécurité tiers (septembre 2026)** — `sufficientForClientPolicy` ne dépendait que du niveau de l'ancre de confiance. Corrigé : ces quatre conditions sont désormais requises conjointement (voir `packages/pki-trust/src/chainValidator.ts`).
 
 ## 6. Reconnaissance faciale
 
 - [ ] Extraction de la photo DG2
 - [ ] Détection de vivacité sur la capture live (anti-spoofing — photo d'une photo, vidéo rejouée, masque)
 - [ ] Score de similarité DG2 ↔ capture live, comparé au seuil configuré (voir [facial-recognition.md](facial-recognition.md))
+
+Une liveness "réussie" (`livenessPassed: true`) déclenche systématiquement l'anomalie `LIVENESS_PASSIVE_ONLY` (`warning`) : l'implémentation actuelle est purement passive (voir [facial-recognition.md](facial-recognition.md)), jamais assez forte pour justifier à elle seule un verdict `authentic` automatisé — le verdict est dégradé vers `suspicious` (revue possible) jusqu'à l'implémentation d'une liveness active.
 
 ## Verdict global
 

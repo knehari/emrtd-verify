@@ -71,6 +71,31 @@ describe("TenantAuthService.login", () => {
     await expect(service.verifyToken(token)).rejects.toThrow("Jeton de session invalide");
   });
 
+  it("rejette un jeton par ailleurs valide si le compte a été désactivé depuis l'émission (pas de confiance aveugle au JWT)", async () => {
+    const passwordHash = await hashPassword("correct-password-123");
+    const { service, state } = buildService(fakeTenantUser({ passwordHash }));
+
+    const result = await service.login("ops@acme.example", "correct-password-123");
+    if (result.requiresTwoFactor) throw new Error("unreachable");
+
+    state!.active = false; // désactivation postérieure à l'émission du jeton, toujours dans sa fenêtre de 12h
+
+    await expect(service.verifyToken(result.token)).rejects.toThrow("Compte tenant désactivé");
+  });
+
+  it("reflète le rôle courant en base, pas celui figé dans le JWT au moment du login", async () => {
+    const passwordHash = await hashPassword("correct-password-123");
+    const { service, state } = buildService(fakeTenantUser({ passwordHash, role: "OWNER" }));
+
+    const result = await service.login("ops@acme.example", "correct-password-123");
+    if (result.requiresTwoFactor) throw new Error("unreachable");
+
+    state!.role = "MEMBER"; // rétrogradation postérieure à l'émission du jeton
+
+    const payload = await service.verifyToken(result.token);
+    expect(payload.role).toBe("MEMBER");
+  });
+
   it("renvoie un jeton de défi 2FA (sans poser de session) quand totpEnabled est vrai", async () => {
     const passwordHash = await hashPassword("correct-password-123");
     const secret = generateTotpSecret();

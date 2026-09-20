@@ -100,12 +100,20 @@ export class TenantAuthService {
     };
   }
 
+  /**
+   * Même raisonnement qu'AdminAuthService.verifyToken : le JWT (12h) ne doit jamais être la seule
+   * preuve d'un compte actif/de son rôle courant — revalidé en base à chaque requête.
+   */
   async verifyToken(token: string): Promise<TenantSessionPayload> {
     const payload = await this.jwt.verifyAsync<TenantSessionPayload>(token);
     if (payload.typ !== "tenant") {
       throw new UnauthorizedException("Jeton de session invalide");
     }
-    return payload;
+    const tenantUser = await this.prisma.tenantUser.findUnique({ where: { id: payload.sub } });
+    if (!tenantUser || !tenantUser.active) {
+      throw new UnauthorizedException("Compte tenant désactivé");
+    }
+    return { sub: tenantUser.id, email: tenantUser.email, kycClientId: tenantUser.kycClientId, role: tenantUser.role, typ: "tenant" };
   }
 
   /** Profil courant lu en base — même principe qu'AdminAuthService.getProfile. */

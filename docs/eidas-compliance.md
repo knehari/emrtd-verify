@@ -213,8 +213,13 @@ prérequis avant même d'envisager un audit COFRAC.
    `docs/roadmap.md` Phase 5 ; actuellement une variable d'environnement en
    clair, acceptable en développement mais pas pour une certification.
 7. **Audit de sécurité externe** (chaîne de confiance PKI + pipeline
-   biométrique) — déjà identifié dans `docs/roadmap.md` ; prérequis pour toute
-   reconnaissance ETSI/PVID par un organisme d'évaluation accrédité.
+   biométrique) — réalisé depuis (voir [security-audit-2026-09.md](security-audit-2026-09.md)),
+   avec un correctif à sévérité `high` (Passive Authentication qui ne dépendait
+   pas de la validité réelle de la signature SOD/du DSC). **Reste distinct**
+   d'un audit de conformité formel par un organisme d'évaluation de la
+   conformité (CAB) accrédité ETSI/PVID, qui est ce que ETSI/PVID exigent
+   réellement pour une certification — cette revue-ci est un audit de sécurité
+   technique, pas une évaluation de conformité normative.
 8. **AIPD/DPIA complète** — déjà identifié dans `docs/gdpr-compliance.md`/
    `docs/roadmap.md` ; condition transversale pour tout déploiement réel en
    Europe, indépendamment des référentiels d'identité proprement dits.

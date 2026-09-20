@@ -72,6 +72,61 @@ describe("AnomalyDetectionService", () => {
     expect(findings).toContainEqual(expect.objectContaining({ code: "CSCA_REVOKED", severity: "critical" }));
   });
 
+  it("signale une signature SOD invalide en critique", () => {
+    const findings = service.detect({
+      trustChain: { ...baseTrustChain, sodSignatureValid: false },
+      mrzValidation: validMrz,
+      documentExpectedToSupportAaOrCa: false,
+    });
+    expect(findings).toContainEqual(expect.objectContaining({ code: "SOD_SIGNATURE_INVALID", severity: "critical" }));
+  });
+
+  it("signale un DSC non signé par le CSCA de confiance en critique", () => {
+    const findings = service.detect({
+      trustChain: { ...baseTrustChain, dscTrustedByCsca: false },
+      mrzValidation: validMrz,
+      documentExpectedToSupportAaOrCa: false,
+    });
+    expect(findings).toContainEqual(expect.objectContaining({ code: "DSC_NOT_TRUSTED_BY_CSCA", severity: "critical" }));
+  });
+
+  it("ne signale pas DSC_NOT_TRUSTED_BY_CSCA quand aucune ancre de confiance n'est disponible (déjà couvert par NO_TRUST_ANCHOR)", () => {
+    const findings = service.detect({
+      trustChain: { ...baseTrustChain, noTrustAnchorAvailable: true, dscTrustedByCsca: false },
+      mrzValidation: validMrz,
+      documentExpectedToSupportAaOrCa: false,
+    });
+    expect(findings.some((f) => f.code === "DSC_NOT_TRUSTED_BY_CSCA")).toBe(false);
+    expect(findings).toContainEqual(expect.objectContaining({ code: "NO_TRUST_ANCHOR", severity: "critical" }));
+  });
+
+  it("signale un DSC hors période de validité en critique", () => {
+    const findings = service.detect({
+      trustChain: { ...baseTrustChain, dscWithinValidityPeriod: false },
+      mrzValidation: validMrz,
+      documentExpectedToSupportAaOrCa: false,
+    });
+    expect(findings).toContainEqual(expect.objectContaining({ code: "DSC_EXPIRED", severity: "critical" }));
+  });
+
+  it("signale en avertissement l'absence de vérification de révocation (aucune CRL disponible)", () => {
+    const findings = service.detect({
+      trustChain: { ...baseTrustChain, revocationChecked: false },
+      mrzValidation: validMrz,
+      documentExpectedToSupportAaOrCa: false,
+    });
+    expect(findings).toContainEqual(expect.objectContaining({ code: "REVOCATION_NOT_CHECKED", severity: "warning" }));
+  });
+
+  it("ne signale pas REVOCATION_NOT_CHECKED quand aucune ancre de confiance n'est disponible (déjà couvert par NO_TRUST_ANCHOR)", () => {
+    const findings = service.detect({
+      trustChain: { ...baseTrustChain, noTrustAnchorAvailable: true, revocationChecked: false },
+      mrzValidation: validMrz,
+      documentExpectedToSupportAaOrCa: false,
+    });
+    expect(findings.some((f) => f.code === "REVOCATION_NOT_CHECKED")).toBe(false);
+  });
+
   it("signale un chiffre de contrôle composite MRZ invalide en critique", () => {
     const findings = service.detect({
       trustChain: baseTrustChain,

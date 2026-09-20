@@ -92,7 +92,16 @@ export async function validateTrustChain(input: ChainValidationInput): Promise<C
   return {
     source: candidate.source,
     level: candidate.level,
-    sufficientForClientPolicy: input.clientAcceptedLevels.includes(candidate.level),
+    // Le niveau de l'ancre de confiance ne suffit pas : un SOD dont la signature ne vérifie
+    // pas, un DSC qui ne remonte pas au CSCA sélectionné, ou un DSC hors période de validité
+    // doivent chacun, seuls, empêcher un verdict "authentic" — voir AnomalyDetectionService
+    // (SOD_SIGNATURE_INVALID/DSC_NOT_TRUSTED_BY_CSCA/DSC_EXPIRED) pour l'anomalie explicite
+    // correspondante consommée par computeVerdict.
+    sufficientForClientPolicy:
+      input.clientAcceptedLevels.includes(candidate.level) &&
+      sodSignatureValid &&
+      dscTrustedByCsca &&
+      dscWithinValidityPeriod,
     cscaSubject: candidate.subject,
     dscSubject: decoded.document.signerCertificate.subject,
     revocationChecked,

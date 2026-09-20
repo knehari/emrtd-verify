@@ -126,7 +126,8 @@ Principes :
 
 ## Révocation
 
-- **ICAO PKD / PKD nationale** : vérification contre la CRL publiée et la Master List de déviation.
+- `validateTrustChain` (`packages/pki-trust/src/chainValidator.ts`) sait vérifier un DSC contre une CRL fournie (`decodeCrl`/`isSerialNumberRevoked`, `packages/pki-trust/src/crl.ts`, testés) — si elle est présente, un serial révoqué produit `revoked: true`, anomalie `CSCA_REVOKED` (critique) et un verdict `rejected`.
+- **Limite honnête actuelle** : la **récupération et la persistance** des CRL ICAO PKD ne sont **pas encore câblées en production** — `PkiTrustService.validate()` n'appelle jamais `validateTrustChain` avec une `revocationList`, donc `revocationChecked` reste toujours `false` aujourd'hui. Construire ce pipeline (fetch réseau régulier par pays, décodage, persistance, cache) à l'aveugle, sans un vrai point d'accès PKD pour le valider, comporterait le même risque qu'une implémentation BAC/PACE non vérifiable — voir [roadmap.md](roadmap.md). En attendant, `AnomalyDetectionService` remonte explicitement `REVOCATION_NOT_CHECKED` (avertissement) chaque fois que le statut de révocation n'a pas pu être vérifié, ce qui dégrade le verdict (jamais `authentic` silencieusement) plutôt que de traiter l'absence de CRL comme une non-révocation implicite.
 - **Magasin étendu** : pas de CRL fiable disponible dans la plupart des cas → le niveau de confiance en tient déjà compte (`medium`/`low`), et la fraîcheur de l'entrée (`reviewBeforeDate`) fait office de contrôle compensatoire.
 
 ## Ce que l'API expose

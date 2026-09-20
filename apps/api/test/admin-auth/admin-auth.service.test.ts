@@ -144,6 +144,31 @@ describe("AdminAuthService.verifyToken", () => {
 
     await expect(service.verifyToken(foreignToken)).rejects.toThrow();
   });
+
+  it("rejette un jeton par ailleurs valide si le compte a été désactivé depuis l'émission (pas de confiance aveugle au JWT)", async () => {
+    const passwordHash = await hashPassword("correct-password-123");
+    const { service, state } = buildService(fakeAdmin({ passwordHash }));
+
+    const result = await service.login("ops@example.org", "correct-password-123");
+    if (result.requiresTwoFactor) throw new Error("unreachable");
+
+    state!.active = false; // désactivation postérieure à l'émission du jeton, toujours dans sa fenêtre de 12h
+
+    await expect(service.verifyToken(result.token)).rejects.toThrow("Compte administrateur désactivé");
+  });
+
+  it("reflète le rôle courant en base, pas celui figé dans le JWT au moment du login (rétrogradation immédiate)", async () => {
+    const passwordHash = await hashPassword("correct-password-123");
+    const { service, state } = buildService(fakeAdmin({ passwordHash, role: "SUPER_ADMIN" }));
+
+    const result = await service.login("ops@example.org", "correct-password-123");
+    if (result.requiresTwoFactor) throw new Error("unreachable");
+
+    state!.role = "SUPPORT"; // rétrogradation postérieure à l'émission du jeton
+
+    const payload = await service.verifyToken(result.token);
+    expect(payload.role).toBe("SUPPORT");
+  });
 });
 
 describe("AdminAuthService.changePassword", () => {

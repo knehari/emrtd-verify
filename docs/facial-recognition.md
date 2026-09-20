@@ -34,6 +34,12 @@ nécessaire pour les clients KYC à politique de risque plus stricte — voir
 docs/threat-model.md #6. Ne jamais présenter ce module comme une protection
 anti-spoofing forte dans la documentation client ou contractuelle.
 
+Cette honnêteté est désormais appliquée jusque dans le verdict lui-même (suite à un audit de
+sécurité tiers, voir [security-audit-2026-09.md](security-audit-2026-09.md)) : `VerificationProcessor`
+remonte l'anomalie `LIVENESS_PASSIVE_ONLY` (avertissement) chaque fois que `livenessPassed: true`
+provient de ce module, ce qui empêche un verdict `authentic` automatique sur ce seul signal — voir
+[verification-checklist.md](verification-checklist.md#6-reconnaissance-faciale).
+
 ## Isolation et minimisation des données
 
 - Le service ne persiste **aucune image** par défaut : traitement en mémoire, résultat = score + métadonnées de qualité (ex. `face_detected`, `liveness_passed`, `image_quality_warnings[]`), jamais l'image elle-même ni l'embedding brut en retour vers `apps/api`.

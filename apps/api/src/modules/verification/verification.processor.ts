@@ -105,6 +105,21 @@ export class VerificationProcessor extends WorkerHost {
       }
     }
 
+    if (faceMatch?.livenessPassed) {
+      // services/face-match ne fait aujourd'hui QUE de la liveness passive (résolution, netteté,
+      // unicité du visage) — pas de détection anti-spoofing forte contre photo/rejeu/masque/
+      // deepfake (voir docs/facial-recognition.md "Détection de vivacité — périmètre honnête").
+      // Un `livenessPassed: true` de ce module ne doit donc jamais, à lui seul, contribuer à un
+      // verdict "authentic" automatisé : le traiter comme contrôle de qualité seulement, en
+      // dégradant systématiquement vers "suspicious" (revue possible), jusqu'à ce qu'une liveness
+      // active soit implémentée (voir docs/roadmap.md).
+      anomalies.push({
+        code: "LIVENESS_PASSIVE_ONLY",
+        severity: "warning",
+        message: "Liveness validée uniquement par des heuristiques passives (pas une protection anti-spoofing forte)",
+      });
+    }
+
     const allFieldChecksValid =
       decoded.mrzValidation.compositeValid &&
       decoded.mrzValidation.documentNumberValid &&
