@@ -293,6 +293,13 @@ model VerifiedPerson {
   verifications     VerificationRecord[]
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
+  /// Non nul une fois anonymisée par VerifiedPersonRetentionScheduler (voir
+  /// docs/gdpr-compliance.md "Rétention" et docs/tenant-portal.md) — `displayFields` est alors
+  /// vidé, `status`/`matchKey`/compteurs conservés pour les statistiques agrégées. Jamais pour un
+  /// statut WATCHLIST (décision humaine sticky, voir VerifiedPersonService). Opt-in : n'a jamais
+  /// lieu tant que `VERIFIED_PERSON_RETENTION_DAYS` n'est pas configuré — aucune politique par
+  /// défaut sans AIPD/DPIA couvrant explicitement cette rétention.
+  anonymizedAt      DateTime?
 
   @@unique([kycClientId, matchKey])
   @@index([kycClientId, status])

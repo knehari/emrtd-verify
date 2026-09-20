@@ -107,4 +107,32 @@ export class VerifiedPersonService {
       },
     });
   }
+
+  /**
+   * Anonymise les fiches inactives au-delà de `retentionDays` (voir
+   * docs/gdpr-compliance.md "Rétention" et VerifiedPersonRetentionScheduler) : vide
+   * `displayFields` (le seul champ réellement identifiant, `matchKey` étant déjà haché) et
+   * marque `anonymizedAt`. Conserve `status`/`documentType`/`issuingCountry`/compteurs pour que
+   * les statistiques agrégées du portail tenant (`GET /portal/verified-persons/stats`) restent
+   * correctes après anonymisation. Exclut TOUJOURS `WATCHLIST` — décision humaine explicite,
+   * jamais effacée automatiquement (même principe que linkVerification ne l'écrase jamais) — et
+   * les fiches déjà anonymisées (idempotent, sûr à rappeler).
+   */
+  async anonymizeExpired(retentionDays: number): Promise<{ anonymizedCount: number }> {
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+
+    const result = await this.prisma.verifiedPerson.updateMany({
+      where: {
+        lastVerifiedAt: { lt: cutoff },
+        anonymizedAt: null,
+        status: { not: "WATCHLIST" },
+      },
+      data: {
+        displayFields: {},
+        anonymizedAt: new Date(),
+      },
+    });
+
+    return { anonymizedCount: result.count };
+  }
 }

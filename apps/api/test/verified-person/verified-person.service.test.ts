@@ -5,8 +5,9 @@ function buildService(existing: unknown) {
   const findUnique = vi.fn().mockResolvedValue(existing);
   const update = vi.fn().mockResolvedValue(undefined);
   const create = vi.fn().mockResolvedValue(undefined);
-  const prisma = { verifiedPerson: { findUnique, update, create } } as never;
-  return { service: new VerifiedPersonService(prisma), findUnique, update, create };
+  const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+  const prisma = { verifiedPerson: { findUnique, update, create, updateMany } } as never;
+  return { service: new VerifiedPersonService(prisma), findUnique, update, create, updateMany };
 }
 
 describe("VerifiedPersonService.computeMatchKey", () => {
@@ -100,5 +101,54 @@ describe("VerifiedPersonService.linkVerification", () => {
     await service.linkVerification(baseParams);
 
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "WATCHLIST" }) }));
+  });
+});
+
+describe("VerifiedPersonService.anonymizeExpired", () => {
+  it("vide displayFields et marque anonymizedAt pour les fiches inactives non WATCHLIST", async () => {
+    const { service, updateMany } = buildService(null);
+    updateMany.mockResolvedValueOnce({ count: 3 });
+
+    const result = await service.anonymizeExpired(365);
+
+    expect(result).toEqual({ anonymizedCount: 3 });
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        lastVerifiedAt: { lt: expect.any(Date) },
+        anonymizedAt: null,
+        status: { not: "WATCHLIST" },
+      },
+      data: { displayFields: {}, anonymizedAt: expect.any(Date) },
+    });
+  });
+
+  it("exclut explicitement le statut WATCHLIST de la clause where (jamais anonymisé automatiquement)", async () => {
+    const { service, updateMany } = buildService(null);
+    await service.anonymizeExpired(30);
+
+    const call = updateMany.mock.calls[0][0];
+    expect(call.where.status).toEqual({ not: "WATCHLIST" });
+  });
+
+  it("n'anonymise jamais deux fois la même fiche (clause anonymizedAt: null)", async () => {
+    const { service, updateMany } = buildService(null);
+    await service.anonymizeExpired(30);
+
+    const call = updateMany.mock.calls[0][0];
+    expect(call.where.anonymizedAt).toBeNull();
+  });
+
+  it("calcule un cutoff cohérent avec retentionDays", async () => {
+    const { service, updateMany } = buildService(null);
+    const before = Date.now();
+    await service.anonymizeExpired(10);
+    const after = Date.now();
+
+    const call = updateMany.mock.calls[0][0];
+    const cutoff: Date = call.where.lastVerifiedAt.lt;
+    const expectedMin = before - 10 * 24 * 60 * 60 * 1000;
+    const expectedMax = after - 10 * 24 * 60 * 60 * 1000;
+    expect(cutoff.getTime()).toBeGreaterThanOrEqual(expectedMin);
+    expect(cutoff.getTime()).toBeLessThanOrEqual(expectedMax);
   });
 });
