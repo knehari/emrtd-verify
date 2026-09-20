@@ -56,7 +56,7 @@ par référentiel.
 | ETSI TS 119 461 V2.1.1 | Devient la référence technique de facto en Europe pour la vérification d'identité à distance (via 2025/1566, et probablement via l'AMLR 2027) | **Non conforme** — écarts détaillés ci-dessous |
 | Règl. (UE) 2015/1502 (LoA) | Cadre de référence pour situer le niveau d'assurance visé (substantial/high) | **Aucun niveau atteignable actuellement** (lecture NFC absente) ; architecture visant `substantial`→`high` une fois les écarts comblés |
 | ENISA Remote ID Proofing | Bonnes pratiques non contraignantes, mais référence d'état de l'art largement citée par les régulateurs (dont l'ANSSI) | **Écarts sur les 2 pratiques les plus citées** (lecture NFC, interrogation de registres de statut de documents) |
-| PVID (ANSSI) | Non obligatoire au sens strict (Code monétaire et financier R.561-5-1/5-2 offre d'autres voies), mais quasi incontournable commercialement pour vendre à des banques françaises en entrée en relation 100% à distance | **Non qualifiable en l'état** — écarts détaillés ci-dessous |
+| PVID (ANSSI) | Non obligatoire au sens strict (Code monétaire et financier R.561-5-1/5-2 offre d'autres voies), mais quasi incontournable commercialement pour vendre à des banques françaises en entrée en relation 100% à distance | **Non qualifiable en l'état** — suivi dédié dans [pvid-compliance.md](pvid-compliance.md) |
 
 ## 1. eIDAS2 (règlement 910/2014 modifié par UE 2024/1183) — article 24
 
@@ -163,29 +163,14 @@ statut de document perdu/volé est un **gap non identifié dans le roadmap actue
 
 ## 6. PVID — référentiel ANSSI (France)
 
-**Cadre juridique** : le PVID n'est pas une obligation légale nommément
-imposée par le Code monétaire et financier (articles R. 561-5-1/R. 561-5-2, qui
-offrent plusieurs voies de conformité LCB-FT), mais un processus PVID qualifié
-est reconnu comme équivalent à une vérification en face-à-face et devient, en
-pratique, la voie la plus simple pour une banque cliente de justifier sa
-conformité sans construire elle-même un dossier d'équivalence. **De facto
-quasi-incontournable pour vendre ce service en marque blanche à des banques
-françaises pour de l'entrée en relation 100% à distance.**
-
-Exigences déduites du référentiel :
-
-| Exigence PVID | État |
-|---|---|
-| Vérification documentaire + biométrique avec tests d'efficacité poussés | Architecture crypto présente ; lecture NFC absente (bloquant) ; pas de tests d'efficacité indépendants menés |
-| Détection de vivacité (passive ou active) | Passive uniquement, documentée comme insuffisante contre les attaques réalistes |
-| **Validation humaine obligatoire par un opérateur qualifié et formé, en fin de processus** | **Non implémenté comme étape tracée** : le verdict `manual_review_required` existe et le portail tenant permet de consulter/changer un statut, mais rien n'impose ni ne trace formellement "l'opérateur X a validé/invalidé le cas Y le jour Z avec le motif W" comme enregistrement d'assurance qualité distinct de la simple modification de statut |
-| Impartialité du prestataire, fiabilité du SI support | Non évaluable depuis le code (organisationnel) |
-| Conformité RGPD | Couverte (voir `docs/gdpr-compliance.md`), avec un point ouvert (AIPD/DPIA complète non réalisée) |
-| Audit par organisme évaluateur accrédité COFRAC, qualification valable 2 ans | Aucun audit mené — prérequis de certification, pas un écart de code |
-
-**Verdict** : non qualifiable en l'état. Les trois blocages techniques (lecture
-NFC, liveness active, traçabilité de la validation humaine) sont des
-prérequis avant même d'envisager un audit COFRAC.
+**Suivi déplacé vers un document dédié** : [pvid-compliance.md](pvid-compliance.md),
+mis à jour après le [security-audit-2026-09.md](security-audit-2026-09.md) —
+PVID est désormais tracé séparément (eIDAS2/ETSI/LoA/ENISA restant dans ce
+document-ci). Résumé : non qualifiable en l'état, mêmes trois blocages
+techniques (lecture NFC, liveness active, traçabilité de la validation
+humaine), mais le volet "fiabilité du SI support" a été substantiellement
+renforcé par les corrections de sécurité (voir le document dédié pour le
+détail).
 
 ## 7. Écarts transverses — priorisés
 
