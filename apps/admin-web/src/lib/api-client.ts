@@ -11,10 +11,19 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Content-Type: application/json n'est posé que si un corps est réellement envoyé — sinon
+  // Fastify (parseur JSON par défaut) rejette la requête avec "Body cannot be empty when
+  // content-type is set to 'application/json'" dès qu'un fetch() sans body (POST /logout,
+  // /2fa/setup, etc.) envoie tout de même ce header avec Content-Length: 0. Bug réel trouvé en
+  // navigateur lors de la vérification du 2FA (voir docs/admin-web.md "Vérification").
+  const headers: Record<string, string> = { ...(init?.headers as Record<string, string> | undefined) };
+  if (init?.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers,
   });
 
   if (response.status === 204) {
@@ -76,10 +85,21 @@ export interface PaginatedResult<T> {
   records: T[];
 }
 
+export type AdminLoginResponse =
+  | { requiresTwoFactor: true; challengeToken: string }
+  | { requiresTwoFactor: false; admin: { id: string; email: string; role: string } };
+
 export const adminApi = {
-  login: (email: string, password: string) => request<{ admin: { id: string; email: string; role: string } }>("/admin/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  login: (email: string, password: string) => request<AdminLoginResponse>("/admin/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  verifyTwoFactor: (challengeToken: string, code: string) =>
+    request<{ admin: { id: string; email: string; role: string } }>("/admin/auth/2fa/verify", { method: "POST", body: JSON.stringify({ challengeToken, code }) }),
   logout: () => request<void>("/admin/auth/logout", { method: "POST" }),
-  me: () => request<{ admin: { sub: string; email: string; role: "SUPER_ADMIN" | "SUPPORT" } }>("/admin/auth/me"),
+  me: () => request<{ admin: { id: string; email: string; role: "SUPER_ADMIN" | "SUPPORT"; totpEnabled: boolean } | null }>("/admin/auth/me"),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<void>("/admin/auth/change-password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }),
+  setupTwoFactor: () => request<{ secret: string; otpauthUrl: string; qrCodeDataUrl: string }>("/admin/auth/2fa/setup", { method: "POST" }),
+  enableTwoFactor: (code: string) => request<void>("/admin/auth/2fa/enable", { method: "POST", body: JSON.stringify({ code }) }),
+  disableTwoFactor: (password: string) => request<void>("/admin/auth/2fa/disable", { method: "POST", body: JSON.stringify({ password }) }),
 
   dashboardStats: () => request<DashboardStats>("/admin/dashboard/stats"),
 

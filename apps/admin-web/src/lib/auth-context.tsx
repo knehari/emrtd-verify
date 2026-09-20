@@ -2,19 +2,22 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { adminApi, ApiError } from "./api-client";
+import { adminApi, ApiError, type AdminLoginResponse } from "./api-client";
 
 interface AdminSession {
   sub: string;
   email: string;
   role: "SUPER_ADMIN" | "SUPPORT";
+  totpEnabled: boolean;
 }
 
 interface AuthContextValue {
   admin: AdminSession | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<AdminLoginResponse>;
+  verifyTwoFactor: (challengeToken: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
+  refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -24,17 +27,33 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
+  async function refresh() {
+    try {
+      const res = await adminApi.me();
+      setAdmin(res.admin ? { sub: res.admin.id, email: res.admin.email, role: res.admin.role, totpEnabled: res.admin.totpEnabled } : null);
+    } catch {
+      setAdmin(null);
+    }
+  }
+
   useEffect(() => {
-    adminApi
-      .me()
-      .then((res) => setAdmin(res.admin))
-      .catch(() => setAdmin(null))
-      .finally(() => setLoading(false));
+    refresh().finally(() => setLoading(false));
   }, []);
 
-  async function login(email: string, password: string) {
+  async function login(email: string, password: string): Promise<AdminLoginResponse> {
     const res = await adminApi.login(email, password);
-    setAdmin({ sub: res.admin.id, email: res.admin.email, role: res.admin.role as "SUPER_ADMIN" | "SUPPORT" });
+    if (!res.requiresTwoFactor) {
+      // totpEnabled est nécessairement false ici : un compte avec 2FA actif reçoit toujours
+      // requiresTwoFactor=true (voir AdminAuthService.login) — c'est verifyTwoFactor qui pose la
+      // session dans le cas contraire.
+      setAdmin({ sub: res.admin.id, email: res.admin.email, role: res.admin.role as "SUPER_ADMIN" | "SUPPORT", totpEnabled: false });
+    }
+    return res;
+  }
+
+  async function verifyTwoFactor(challengeToken: string, code: string) {
+    const res = await adminApi.verifyTwoFactor(challengeToken, code);
+    setAdmin({ sub: res.admin.id, email: res.admin.email, role: res.admin.role as "SUPER_ADMIN" | "SUPPORT", totpEnabled: true });
   }
 
   async function logout() {
@@ -43,7 +62,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     router.push("/login");
   }
 
-  return <AuthContext.Provider value={{ admin, loading, login, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ admin, loading, login, verifyTwoFactor, logout, refresh }}>{children}</AuthContext.Provider>;
 }
 
 export function useAdminAuth() {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Building2, ShieldCheck, Users, LogOut, ExternalLink } from "lucide-react";
+import { LayoutDashboard, Building2, ShieldCheck, Users, LogOut, ExternalLink, Settings } from "lucide-react";
 import { useAdminAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: "/tenants", label: "Tenants", icon: Building2 },
   { href: "/verifications", label: "Vérifications", icon: ShieldCheck },
   { href: "/admins", label: "Administrateurs", icon: Users, superAdminOnly: true },
+  { href: "/settings", label: "Paramètres", icon: Settings },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {

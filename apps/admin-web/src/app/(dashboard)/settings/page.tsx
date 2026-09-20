@@ -5,16 +5,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ShieldCheck, ShieldOff } from "lucide-react";
-import { useTenantAuth } from "@/lib/auth-context";
-import { tenantApi, ApiError } from "@/lib/api-client";
+import { useAdminAuth } from "@/lib/auth-context";
+import { adminApi, ApiError } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Badge, Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/primitives";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-
-const ROLE_LABEL: Record<string, string> = {
-  OWNER: "Propriétaire",
-  MEMBER: "Membre",
-};
 
 const passwordSchema = z
   .object({
@@ -45,7 +40,7 @@ function PasswordCard() {
     setError(null);
     setSuccess(false);
     try {
-      await tenantApi.changePassword(data.currentPassword, data.newPassword);
+      await adminApi.changePassword(data.currentPassword, data.newPassword);
       setSuccess(true);
       reset();
     } catch (err) {
@@ -98,9 +93,11 @@ function SetupTwoFactorDialog({ open, onOpenChange, onEnabled }: { open: boolean
   } = useForm<CodeForm>({ resolver: zodResolver(codeSchema) });
 
   // useEffect plutôt qu'un chargement dans Dialog.onOpenChange : ce callback Radix ne se
-  // déclenche pas pour un changement programmatique de la prop `open` piloté par le parent —
-  // même bug que celui trouvé et corrigé côté apps/admin-web (voir docs/admin-web.md
-  // "Vérification") et apps/tenant-portal/src/app/(dashboard)/clients/page.tsx.
+  // déclenche pas pour un changement programmatique de la prop `open` piloté par le parent
+  // (setSetupOpen(true) dans TwoFactorCard) — seulement pour les interactions internes
+  // (Échap, clic extérieur). Même bug que celui trouvé et corrigé dans
+  // apps/tenant-portal/src/app/(dashboard)/clients/page.tsx (voir docs/tenant-portal.md
+  // "Vérification").
   useEffect(() => {
     if (!open) {
       setSetupData(null);
@@ -110,7 +107,7 @@ function SetupTwoFactorDialog({ open, onOpenChange, onEnabled }: { open: boolean
     }
     let cancelled = false;
     setError(null);
-    tenantApi
+    adminApi
       .setupTwoFactor()
       .then((result) => {
         if (!cancelled) setSetupData({ secret: result.secret, qrCodeDataUrl: result.qrCodeDataUrl });
@@ -127,7 +124,7 @@ function SetupTwoFactorDialog({ open, onOpenChange, onEnabled }: { open: boolean
   async function onSubmit(data: CodeForm) {
     setError(null);
     try {
-      await tenantApi.enableTwoFactor(data.code);
+      await adminApi.enableTwoFactor(data.code);
       reset();
       setSetupData(null);
       onEnabled();
@@ -186,7 +183,7 @@ function DisableTwoFactorDialog({ open, onOpenChange, onDisabled }: { open: bool
   async function onSubmit(data: DisableForm) {
     setError(null);
     try {
-      await tenantApi.disableTwoFactor(data.password);
+      await adminApi.disableTwoFactor(data.password);
       reset();
       onDisabled();
       onOpenChange(false);
@@ -221,7 +218,7 @@ function DisableTwoFactorDialog({ open, onOpenChange, onDisabled }: { open: bool
 }
 
 function TwoFactorCard() {
-  const { tenantUser, refresh } = useTenantAuth();
+  const { admin, refresh } = useAdminAuth();
   const [setupOpen, setSetupOpen] = useState(false);
   const [disableOpen, setDisableOpen] = useState(false);
 
@@ -233,7 +230,7 @@ function TwoFactorCard() {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center gap-3">
-          {tenantUser?.totpEnabled ? (
+          {admin?.totpEnabled ? (
             <Badge variant="success" className="gap-1">
               <ShieldCheck className="h-3 w-3" /> Activée
             </Badge>
@@ -243,7 +240,7 @@ function TwoFactorCard() {
             </Badge>
           )}
         </div>
-        {tenantUser?.totpEnabled ? (
+        {admin?.totpEnabled ? (
           <Button variant="outline" onClick={() => setDisableOpen(true)}>
             Désactiver le 2FA
           </Button>
@@ -258,13 +255,13 @@ function TwoFactorCard() {
 }
 
 export default function SettingsPage() {
-  const { tenantUser } = useTenantAuth();
+  const { admin } = useAdminAuth();
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Paramètres</h1>
-        <p className="text-sm text-muted-foreground">Informations de votre compte tenant.</p>
+        <p className="text-sm text-muted-foreground">Sécurité de votre compte administrateur.</p>
       </div>
 
       <Card>
@@ -275,17 +272,13 @@ export default function SettingsPage() {
           <dl className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
             <div>
               <dt className="text-xs text-muted-foreground">Email</dt>
-              <dd className="text-sm font-medium">{tenantUser?.email}</dd>
+              <dd className="text-sm font-medium">{admin?.email}</dd>
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">Rôle</dt>
               <dd>
-                <Badge variant="secondary">{tenantUser ? (ROLE_LABEL[tenantUser.role] ?? tenantUser.role) : ""}</Badge>
+                <Badge variant="secondary">{admin?.role === "SUPER_ADMIN" ? "Super administrateur" : "Support"}</Badge>
               </dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Identifiant tenant (clientId)</dt>
-              <dd className="font-mono text-sm">{tenantUser?.kycClientId}</dd>
             </div>
           </dl>
         </CardContent>

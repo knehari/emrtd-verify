@@ -209,6 +209,12 @@ model AdminUser {
   active       Boolean   @default(true)
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
+  /// Secret TOTP (RFC 6238, voir common/security/totp.ts) — présent dès le premier appel à
+  /// /admin/auth/2fa/setup, mais n'entre en vigueur qu'une fois `totpEnabled` passé à true (code
+  /// confirmé) : un setup abandonné laisse un secret orphelin inoffensif, jamais utilisé tant que
+  /// totpEnabled reste false.
+  totpSecret   String?
+  totpEnabled  Boolean   @default(false)
 
   @@map("admin_users")
 }
@@ -237,6 +243,9 @@ model TenantUser {
   active       Boolean        @default(true)
   lastLoginAt  DateTime?
   createdAt    DateTime       @default(now())
+  /// Secret TOTP — même principe que AdminUser.totpSecret ci-dessus.
+  totpSecret   String?
+  totpEnabled  Boolean        @default(false)
 
   @@index([kycClientId])
   @@map("tenant_users")

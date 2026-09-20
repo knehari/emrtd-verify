@@ -11,10 +11,19 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Content-Type: application/json n'est posé que si un corps est réellement envoyé — sinon
+  // Fastify (parseur JSON par défaut) rejette la requête avec "Body cannot be empty when
+  // content-type is set to 'application/json'" dès qu'un fetch() sans body (POST /logout,
+  // /2fa/setup, etc.) envoie tout de même ce header avec Content-Length: 0. Même bug réel que
+  // celui trouvé et corrigé côté apps/admin-web (voir docs/admin-web.md "Vérification").
+  const headers: Record<string, string> = { ...(init?.headers as Record<string, string> | undefined) };
+  if (init?.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers,
   });
 
   if (response.status === 204) {
@@ -66,15 +75,31 @@ export interface PaginatedResult<T> {
   total: number;
 }
 
+export type TenantLoginResponse =
+  | { requiresTwoFactor: true; challengeToken: string }
+  | { requiresTwoFactor: false; tenantUser: { id: string; email: string; kycClientId: string; role: string } };
+
 export const tenantApi = {
   login: (email: string, password: string) =>
-    request<{ tenantUser: { id: string; email: string; kycClientId: string; role: string } }>("/portal/auth/login", {
+    request<TenantLoginResponse>("/portal/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
+  verifyTwoFactor: (challengeToken: string, code: string) =>
+    request<{ tenantUser: { id: string; email: string; kycClientId: string; role: string } }>("/portal/auth/2fa/verify", {
+      method: "POST",
+      body: JSON.stringify({ challengeToken, code }),
+    }),
   logout: () => request<void>("/portal/auth/logout", { method: "POST" }),
   me: () =>
-    request<{ tenantUser: { sub: string; email: string; kycClientId: string; role: "OWNER" | "MEMBER" } }>("/portal/auth/me"),
+    request<{ tenantUser: { id: string; email: string; kycClientId: string; role: "OWNER" | "MEMBER"; totpEnabled: boolean } | null }>(
+      "/portal/auth/me",
+    ),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<void>("/portal/auth/change-password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }),
+  setupTwoFactor: () => request<{ secret: string; otpauthUrl: string; qrCodeDataUrl: string }>("/portal/auth/2fa/setup", { method: "POST" }),
+  enableTwoFactor: (code: string) => request<void>("/portal/auth/2fa/enable", { method: "POST", body: JSON.stringify({ code }) }),
+  disableTwoFactor: (password: string) => request<void>("/portal/auth/2fa/disable", { method: "POST", body: JSON.stringify({ password }) }),
 
   verifiedPersonStats: () => request<VerifiedPersonStats>("/portal/verified-persons/stats"),
 

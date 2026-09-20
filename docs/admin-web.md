@@ -20,6 +20,18 @@ Session par cookie httpOnly (`admin_session`), signé (JWT, `ADMIN_JWT_SECRET`),
 
 **Mots de passe** : hachés par scrypt (`node:crypto`, voir `common/security/password-hasher.ts`) — pas de dépendance native (argon2/bcrypt), cohérent avec le hachage de clé API existant (`KycClientService.hashApiKey`).
 
+## Sécurité du compte (2FA et mot de passe en libre-service)
+
+Voir `common/security/totp.ts` (TOTP RFC 6238 via `otplib`, pas une réimplémentation maison — voir la note de justification dans ce fichier) et `AdminAuthService`/`AdminAuthController`.
+
+- `POST /admin/auth/change-password` — `{ currentPassword, newPassword }` (authentifié) : exige le mot de passe actuel, jamais la seule session.
+- `POST /admin/auth/2fa/setup` — génère et persiste un nouveau secret TOTP (sans l'activer), renvoie `{ secret, otpauthUrl, qrCodeDataUrl }` (QR PNG en data URL, généré côté serveur via `qrcode`).
+- `POST /admin/auth/2fa/enable` — `{ code }` : confirme le secret de `2fa/setup` avec un premier code valide, active `totpEnabled`.
+- `POST /admin/auth/2fa/disable` — `{ password }` : exige le mot de passe (action sensible), efface le secret.
+- `POST /admin/auth/2fa/verify` — seconde étape du login (voir ci-dessous), 5 tentatives/minute/IP comme `login`.
+
+**Flux de connexion à deux étapes** : si `totpEnabled`, `POST /admin/auth/login` ne pose plus de cookie de session et renvoie `{ requiresTwoFactor: true, challengeToken }` (JWT distinct, 5 minutes, jamais accepté par les routes protégées grâce à un champ `typ` différent). Le frontend enchaîne avec `POST /admin/auth/2fa/verify { challengeToken, code }`, qui pose alors le cookie. Un compte sans 2FA garde le comportement à une étape inchangé.
+
 ## Rôles
 
 Deux rôles (`AdminRole`) : `SUPPORT` (lecture seule sur tout, revue des vérifications) et `SUPER_ADMIN` (toute écriture : CRUD tenants, CRUD comptes administrateurs). Appliqué par `AdminRolesGuard`/`@RequireAdminRole("SUPER_ADMIN")`.
@@ -55,11 +67,15 @@ Prometheus et Grafana sont provisionnés dans `docker-compose.yml` (services `pr
 
 ## Vérification
 
-- **Typecheck + build de production** réels (`pnpm --filter @emrtd-verify/admin-web exec tsc --noEmit`, `next build`) — 7 routes compilées sans erreur.
+- **Typecheck + build de production** réels (`pnpm --filter @emrtd-verify/admin-web exec tsc --noEmit`, `next build`) — 8 routes compilées sans erreur (dont `/settings`, nouvelle).
 - **Parcours réel en navigateur** (Chromium headless) contre l'API réelle et un Postgres local : connexion (cookie de session posé), tableau de bord affichant les vrais compteurs, création d'un tenant avec révélation de clé API une seule fois, rafraîchissement automatique de la liste (React Query), page Vérifications (filtres, état vide correct), page Administrateurs (RBAC — un SUPPORT ne peut pas écrire côté API ; côté UI, seul un SUPER_ADMIN voit la page). Aucune erreur ni avertissement dans la console du navigateur sur l'ensemble du parcours.
+- **2FA et mot de passe** : parcours complet en navigateur réel — changement de mot de passe, configuration 2FA (QR code réellement scanné via un code TOTP calculé côté script de test à partir du secret affiché), déconnexion, reconnexion avec le flux à deux étapes (code de vérification requis, code TOTP réellement calculé et accepté), puis désactivation du 2FA (mot de passe requis, rejet d'un mot de passe incorrect confirmé). Trois bugs réels trouvés et corrigés pendant cette vérification :
+  1. La boîte de dialogue de configuration 2FA restait bloquée sur "Chargement…" : le lancement de `2fa/setup` était déclenché dans `Dialog.onOpenChange`, qui ne se déclenche pas pour un changement programmatique de la prop `open` piloté par le parent (même classe de bug que celui déjà documenté dans [tenant-portal.md](tenant-portal.md)) — corrigé avec un `useEffect` sur `open`.
+  2. `POST /admin/auth/2fa/setup` (et `logout`) renvoyait 500 : le client HTTP posait toujours `Content-Type: application/json` même sans corps, que Fastify rejette avec "Body cannot be empty…" — corrigé en ne posant ce header que si un corps est réellement envoyé (`apps/admin-web/src/lib/api-client.ts`).
+  3. Le champ "Code de vérification" de l'étape 2FA du login affichait l'adresse email saisie à l'étape précédente : React réutilisait le nœud DOM de l'`<input>` entre les deux `<form>` conditionnellement rendus (même position dans l'arbre), et la valeur autofill/laissée par le navigateur y persistait — corrigé en donnant une `key` distincte à chaque `<form>`.
 
 ## Limites assumées (v1)
 
-- Pas de changement de mot de passe en libre-service ni de 2FA — à construire avant un déploiement multi-opérateurs réel.
 - Pas de journal d'audit dédié aux actions d'administration (CRUD tenant, rotation de clé) — seul le journal d'audit des vérifications existe (`AuditService`). À ajouter avant production.
 - Pas de tests automatisés (Vitest/React Testing Library) pour `apps/admin-web` — vérifié uniquement par build réel + parcours navigateur manuel dans cette session ; à ajouter avant une évolution non triviale de l'UI.
+- 2FA TOTP uniquement (pas de clé de sécurité WebAuthn/FIDO2, pas de codes de secours imprimables) — suffisant pour un premier facteur additionnel, à étendre avant un déploiement à grande échelle.
