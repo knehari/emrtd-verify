@@ -108,7 +108,7 @@ technique. Exigences déduites (sources secondaires uniquement, cf. avertissemen
 | Vérification de documents d'identité, y compris lecture NFC eMRTD, avec voies "Automated"/"Manual"/"Hybrid Validation" | Toute la crypto en aval (Passive Authentication, Active/Chip Authentication, chaîne CSCA) est implémentée et testée — mais **la lecture NFC elle-même n'existe pas** (`chip-data.decoder.ts`, `emrtdReader.ts` : stubs qui lèvent une erreur) | **Bloquant.** Aucune vérification de bout en bout possible sur un vrai document aujourd'hui |
 | Détection de vivacité / résistance aux attaques de présentation (photo, vidéo, masque, deepfake) — référence implicite ISO/IEC 30107 | `check_liveness()` (`services/face-match/app/liveness.py`) est **passive**, fondée sur résolution/netteté/nombre de visages — documenté explicitement comme "pas une détection anti-spoofing au sens fort", ne détecte ni photo imprimée de qualité, ni rejeu vidéo, ni masque, ni deepfake (voir `docs/facial-recognition.md`) | **Majeur.** Liveness active (challenge de mouvement/clignement) non implémentée ; aucun test PAD documenté |
 | Matching biométrique visage-document | Implémenté (YuNet + SFace, ONNX local, scoring par similarité cosinus, seuil configurable par client) | Fonctionnellement présent, mais seuil non calibré sur données représentatives et aucun audit indépendant des taux de faux positifs/négatifs par sous-groupe démographique (documenté comme limite connue dans `docs/facial-recognition.md`) |
-| Niveaux "Baseline"/"Extended", ce dernier avec supervision humaine ("human-in-the-loop") pour les cas équivalents à la présence physique | Un verdict `manual_review_required` existe et route bien les cas ambigus vers une revue humaine possible (jamais de décision forcée sur un signal isolé, voir `verdict.policy.ts`) — **mais aucune trace formelle d'un opérateur identifié validant/invalidant le cas** : ni `AuditLogEntry` (qui journalise l'événement de vérification, pas l'acteur humain), ni le changement de statut `VerifiedPerson` (`watchlistReason` est un texte libre, sans identifiant d'acteur) ne capturent "qui a tranché, quand, avec quel motif" | **Majeur** pour le niveau "Extended" — pas de piste d'audit de la supervision humaine |
+| Niveaux "Baseline"/"Extended", ce dernier avec supervision humaine ("human-in-the-loop") pour les cas équivalents à la présence physique | **Corrigé depuis** : `VerificationReview` (schema.prisma) trace formellement "quel opérateur a validé/invalidé quel cas, quand, avec quel motif" pour tout verdict `manual_review_required` — voir [pvid-compliance.md](pvid-compliance.md) | Résolu pour le niveau "Extended" |
 | Audit/journalisation des décisions | `AuditLogEntry` journalise verdict, source de confiance, codes d'anomalie par vérification — solide pour la traçabilité *automatisée*, mais absent pour les actions *humaines* (voir ligne au-dessus) | Partiel |
 | Conformité vérifiée par un organisme d'évaluation de la conformité (CAB) | Aucun audit externe mené (item déjà identifié dans `docs/roadmap.md` : "Audit de sécurité externe... non réalisé") | Non fait, prérequis pour toute certification |
 
@@ -181,11 +181,7 @@ détail).
 2. **Détection de vivacité active** (challenge de mouvement/clignement, ou
    solution biométrique certifiée équivalente) — déjà identifié dans
    `docs/roadmap.md`. Condition pour ETSI 119 461, LoA "high", PVID.
-3. **Traçabilité de la revue humaine** (nouveau, non présent dans le roadmap
-   actuel) — ajouter un enregistrement explicite "qui a validé/invalidé quel
-   cas de `manual_review_required`, quand, avec quel motif", distinct du
-   `watchlistReason` texte libre actuel sans identifiant d'acteur. Condition
-   pour ETSI 119 461 (niveau Extended) et PVID (validation humaine obligatoire).
+3. ~~Traçabilité de la revue humaine~~ — **résolu**, voir [pvid-compliance.md](pvid-compliance.md).
 4. **Interrogation de registres de statut de documents perdus/volés** (nouveau,
    non présent dans le roadmap actuel) — bonne pratique ENISA la plus citée
    après la lecture NFC ; aucune source de données de ce type n'est

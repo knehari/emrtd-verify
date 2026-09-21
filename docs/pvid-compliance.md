@@ -31,7 +31,7 @@ françaises pour de l'entrée en relation 100% à distance.
 | Vérification documentaire + biométrique avec tests d'efficacité poussés | Architecture crypto présente mais **`sufficientForClientPolicy` ne dépendait que du niveau de l'ancre de confiance** — un SOD forgé ou un DSC non signé par le CSCA de confiance pouvait passer sans anomalie | **Corrigé** : la validité de la signature SOD, la chaîne DSC↔CSCA et la période de validité du DSC sont désormais toutes requises (`packages/pki-trust/src/chainValidator.ts`), avec anomalies critiques explicites si l'une échoue. Lecture NFC toujours absente (bloquant, voir ci-dessous) ; pas de tests d'efficacité indépendants menés |
 | Détection de vivacité (passive ou active) | Passive uniquement, acceptée par le verdict comme une liveness forte | Toujours passive uniquement (pas de nouvel algorithme), mais **`livenessPassed: true` ne peut plus, à lui seul, produire un verdict `authentic` automatique** — anomalie `LIVENESS_PASSIVE_ONLY` systématique, dégrade vers `suspicious` |
 | Vérification de révocation (CRL) | Jamais vérifiée, silencieusement absente du verdict | **Toujours pas de récupération de CRL en production** (nécessite un pipeline réseau non construit à l'aveugle, voir plus bas), mais l'absence est désormais **signalée explicitement** (`REVOCATION_NOT_CHECKED`, avertissement qui dégrade le verdict) au lieu d'être invisible |
-| **Validation humaine obligatoire par un opérateur qualifié et formé, en fin de processus** | Non implémentée comme étape tracée | **Inchangé** — hors périmètre de l'audit de sécurité (pas une vulnérabilité mais une fonctionnalité absente). Voir blocages restants ci-dessous |
+| **Validation humaine obligatoire par un opérateur qualifié et formé, en fin de processus** | Non implémentée comme étape tracée | **Implémenté** : `VerificationReview` (schema.prisma) trace formellement "quel opérateur (`AdminUser`, SUPPORT ou SUPER_ADMIN) a validé/invalidé quel cas `manual_review_required`, quand, avec quel motif" — `POST /admin/verifications/:verificationId/review`, un seul enregistrement par cas, interface dédiée dans `apps/admin-web`. Vérifié en conditions réelles (HTTP + navigateur, voir [admin-web.md](admin-web.md) "Vérification"). **Ce qui reste hors périmètre technique** : la qualification/formation réelle des opérateurs (volet organisationnel) |
 | Impartialité du prestataire, fiabilité du SI support | Non évaluable depuis le code (volet organisationnel) ; par ailleurs, des failles réelles existaient dans le SI (admin désactivé restant privilégié 12h, `services/face-match` sans authentification, pas de limite de taille d'image) | **Volet technique renforcé** : comptes admin/tenant désactivés/rétrogradés immédiatement privés de leurs droits (revalidation DB à chaque requête), `services/face-match` exige désormais une authentification par clé API, limites de taille/dimension/pixels sur les images reçues (déni de service), ports PostgreSQL/Redis du stack de développement non exposés au réseau. Le volet organisationnel (impartialité contractuelle) reste hors périmètre technique |
 | Conformité RGPD | Couverte (voir `docs/gdpr-compliance.md`), AIPD/DPIA complète non réalisée | Inchangé |
 | Audit par organisme évaluateur accrédité COFRAC, qualification valable 2 ans | Aucun audit mené | **Un audit de sécurité technique tiers a été réalisé et ses constats corrigés** (voir [security-audit-2026-09.md](security-audit-2026-09.md)) — mais **reste distinct** d'un audit de qualification PVID par un organisme accrédité COFRAC (ex. LSTI), qui est ce que le référentiel exige réellement pour la qualification |
@@ -50,18 +50,18 @@ Par ordre de dépendance :
 2. **Détection de vivacité active** (challenge de mouvement/clignement, ou
    solution biométrique certifiée équivalente) — la liveness passive actuelle
    ne satisfera jamais un audit PVID à elle seule.
-3. **Traçabilité de la validation humaine obligatoire** — un enregistrement
-   explicite "quel opérateur a validé/invalidé quel cas, quand, avec quel
-   motif", distinct du `watchlistReason` texte libre actuel sur
-   `VerifiedPerson` (aucun identifiant d'acteur).
-4. **Récupération et persistance des CRL ICAO PKD en production** — le
+3. **Récupération et persistance des CRL ICAO PKD en production** — le
    décodage/la vérification cryptographique existent déjà et sont testés
    (`packages/pki-trust/src/crl.ts`), mais pas le pipeline de récupération
    réseau + persistance. Non construit à l'aveugle sans point d'accès PKD réel
    pour le vérifier (même raison que le point 1).
-5. **Audit de qualification par un organisme évaluateur accrédité COFRAC**
+4. **Audit de qualification par un organisme évaluateur accrédité COFRAC**
    (ex. LSTI) — prérequis final, distinct de l'audit de sécurité technique
    déjà réalisé.
+
+**Traçabilité de la validation humaine obligatoire — résolu.** `VerificationReview`
+trace désormais formellement chaque décision d'un opérateur sur un cas
+`manual_review_required` (voir tableau ci-dessus).
 
 ## Ce que ce document ne couvre pas
 

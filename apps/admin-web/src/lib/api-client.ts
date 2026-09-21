@@ -76,6 +76,17 @@ export interface VerificationListItem {
   trustChainSource: string;
   trustChainLevel: string;
   createdAt: string;
+  /** true si une VerificationReview existe déjà pour ce cas (voir AdminVerificationsService). */
+  reviewed: boolean;
+}
+
+export type VerificationReviewOutcome = "CONFIRMED_AUTHENTIC" | "CONFIRMED_REJECTED" | "ESCALATED";
+
+export interface VerificationReview {
+  outcome: VerificationReviewOutcome;
+  reason: string;
+  reviewedAt: string;
+  reviewer: { id: string; email: string };
 }
 
 export interface PaginatedResult<T> {
@@ -125,5 +136,8 @@ export const adminApi = {
     }
     return request<PaginatedResult<VerificationListItem>>(`/admin/verifications?${query.toString()}`);
   },
-  getVerification: (verificationId: string) => request<Record<string, unknown>>(`/admin/verifications/${encodeURIComponent(verificationId)}`),
+  getVerification: (verificationId: string) =>
+    request<Record<string, unknown> & { review: VerificationReview | null }>(`/admin/verifications/${encodeURIComponent(verificationId)}`),
+  reviewVerification: (verificationId: string, data: { outcome: VerificationReviewOutcome; reason: string }) =>
+    request<VerificationReview>(`/admin/verifications/${encodeURIComponent(verificationId)}/review`, { method: "POST", body: JSON.stringify(data) }),
 };

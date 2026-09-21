@@ -56,8 +56,9 @@ Voir `AdminUsersController`/`AdminUsersService` — `GET /admin/admin-users`, `P
 
 Voir `AdminVerificationsController`/`AdminVerificationsService` — vue opérateur tous tenants confondus, distincte de la revue tenant (scopée à un seul tenant, voir [tenant-portal.md](tenant-portal.md)). Un administrateur voit le `VerificationResult` complet (pas de filtrage `allowedFields` : rôle opérationnel de confiance).
 
-- `GET /admin/verifications?page=&pageSize=&verdict=&clientId=&issuingCountry=` — liste paginée/filtrée.
-- `GET /admin/verifications/:verificationId` — détail complet.
+- `GET /admin/verifications?page=&pageSize=&verdict=&clientId=&issuingCountry=` — liste paginée/filtrée (chaque ligne inclut `reviewed: boolean`).
+- `GET /admin/verifications/:verificationId` — détail complet, inclut `review` (`null` si pas encore revue).
+- `POST /admin/verifications/:verificationId/review` — trace formelle de la revue humaine (voir `VerificationReview`, schema.prisma). Réservé aux vérifications au verdict `manual_review_required` (`422` sinon), un seul enregistrement par cas (`409` en cas de seconde tentative — contrainte unique sur `verificationRecordId`, la revue clôt le cas). Accessible à SUPPORT et SUPER_ADMIN (voir `AdminRole`). Condition pour ETSI TS 119 461 (niveau "Extended") et pour la validation humaine obligatoire du référentiel PVID — voir [pvid-compliance.md](pvid-compliance.md). L'interface (`apps/admin-web/src/app/(dashboard)/verifications/page.tsx`) affiche une colonne "Revue" (badge "À revoir"/"Revue") et, dans le détail, un formulaire (décision + motif obligatoire) pour les cas non encore revus, remplacé par un panneau en lecture seule (décision, motif, opérateur, date) une fois la revue enregistrée.
 
 ## Dashboard Grafana
 
@@ -73,6 +74,7 @@ Prometheus et Grafana sont provisionnés dans `docker-compose.yml` (services `pr
   1. La boîte de dialogue de configuration 2FA restait bloquée sur "Chargement…" : le lancement de `2fa/setup` était déclenché dans `Dialog.onOpenChange`, qui ne se déclenche pas pour un changement programmatique de la prop `open` piloté par le parent (même classe de bug que celui déjà documenté dans [tenant-portal.md](tenant-portal.md)) — corrigé avec un `useEffect` sur `open`.
   2. `POST /admin/auth/2fa/setup` (et `logout`) renvoyait 500 : le client HTTP posait toujours `Content-Type: application/json` même sans corps, que Fastify rejette avec "Body cannot be empty…" — corrigé en ne posant ce header que si un corps est réellement envoyé (`apps/admin-web/src/lib/api-client.ts`).
   3. Le champ "Code de vérification" de l'étape 2FA du login affichait l'adresse email saisie à l'étape précédente : React réutilisait le nœud DOM de l'`<input>` entre les deux `<form>` conditionnellement rendus (même position dans l'arbre), et la valeur autofill/laissée par le navigateur y persistait — corrigé en donnant une `key` distincte à chaque `<form>`.
+- **Revue manuelle formelle (`VerificationReview`)** : vérifiée en conditions réelles contre Postgres via `curl` (cas nominal, double revue rejetée en 409, verdict non éligible rejeté en 422, cas inconnu en 404, requête non authentifiée en 401) puis parcours complet en navigateur réel (login, ouverture du détail d'un cas `manual_review_required`, remplissage du formulaire, soumission, bascule immédiate vers le panneau en lecture seule sans rechargement de page, badge "Revue" mis à jour dans la liste) — aucune erreur console. 6 tests unitaires (`AdminVerificationsService`).
 
 ## Limites assumées (v1)
 

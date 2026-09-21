@@ -37,11 +37,44 @@ model VerificationRecord {
   /// à cause de cette relation, voir RetentionSchedulerService).
   verifiedPerson   VerifiedPerson? @relation(fields: [verifiedPersonId], references: [id], onDelete: SetNull)
   verifiedPersonId String?
+  /// Revue humaine formelle de ce cas, si elle a eu lieu — voir VerificationReview.
+  review           VerificationReview?
 
   @@index([createdAt])
   @@index([clientId])
   @@index([verifiedPersonId])
   @@map("verification_records")
+}
+
+/// Décision d'un opérateur humain clôturant un cas — pas de valeur "en attente" : l'absence
+/// de VerificationReview EST l'état "pas encore revu" (voir VerificationRecord.review, nullable).
+enum VerificationReviewOutcome {
+  CONFIRMED_AUTHENTIC
+  CONFIRMED_REJECTED
+  ESCALATED
+}
+
+/// Trace formelle de la revue humaine d'une vérification "manual_review_required" — distincte
+/// du verdict automatisé (VerificationRecord.verdict) et du changement de statut VerifiedPerson
+/// (watchlistReason, texte libre sans acteur identifié). Un seul enregistrement par
+/// VerificationRecord (contrainte unique via verificationRecordId) : c'est la décision qui clôt
+/// le cas, pas un flux de commentaires. Condition pour ETSI TS 119 461 (niveau "Extended") et
+/// pour la validation humaine obligatoire du référentiel PVID — voir docs/pvid-compliance.md.
+/// Le reviewer est toujours un AdminUser (jamais un TenantUser) : la revue manuelle est réalisée
+/// par l'opérateur interne de la plateforme (SUPPORT ou SUPER_ADMIN, voir AdminRole), pas par le
+/// client KYC lui-même — cohérent avec la conception déjà documentée d'AdminRole.
+model VerificationReview {
+  id                    String                    @id @default(uuid())
+  verificationRecord    VerificationRecord        @relation(fields: [verificationRecordId], references: [id], onDelete: Cascade)
+  verificationRecordId  String                    @unique
+  reviewer              AdminUser                 @relation(fields: [reviewerId], references: [id])
+  reviewerId            String
+  outcome               VerificationReviewOutcome
+  reason                String
+  reviewedAt            DateTime                  @default(now())
+
+  @@index([reviewerId])
+  @@map("verification_reviews")
 }
 
 /// Client autorisé à consommer l'API KYC (voir docs/kyc-integration.md "Authentification").
@@ -215,6 +248,8 @@ model AdminUser {
   /// totpEnabled reste false.
   totpSecret   String?
   totpEnabled  Boolean   @default(false)
+  /// Revues manuelles réalisées par cet administrateur — voir VerificationReview.
+  reviews      VerificationReview[]
 
   @@map("admin_users")
 }
