@@ -45,6 +45,8 @@ Chaque anomalie détectée est ajoutée à `VerificationResult.anomalies[]` avec
 - Incohérence structurelle LDS (DG manquant annoncé présent dans le SOD, DG surnuméraire non signé) → `critical`
 - Incohérence MRZ ↔ DG1 ↔ VIZ → `warning` ou `critical` selon le champ
 - CSCA proche de son expiration (< 90 jours) → `info`
+- Document signalé perdu ou volé dans le registre interrogé (`DOCUMENT_REPORTED_LOST_OR_STOLEN`) → `critical` — voir [pvid-compliance.md](pvid-compliance.md) pour la portée actuelle (registre pluggable, aucune connexion à un registre réel type INTERPOL SLTD en production)
+- Statut perdu/volé non vérifiable, faute de registre configuré ou disponible (`LOST_STOLEN_STATUS_NOT_CHECKED`) → `warning`
 
 **Aucun de ces quatre premiers signaux (hash DG, signature SOD, chaîne DSC↔CSCA, période de validité DSC) n'était consommé par la logique de verdict avant un audit de sécurité tiers (septembre 2026)** — `sufficientForClientPolicy` ne dépendait que du niveau de l'ancre de confiance. Corrigé : ces quatre conditions sont désormais requises conjointement (voir `packages/pki-trust/src/chainValidator.ts`).
 

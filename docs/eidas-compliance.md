@@ -55,7 +55,7 @@ par référentiel.
 | Règl. (UE) 2025/1566 | Indirect — même périmètre QTSP ; rend ETSI TS 119 461 v2.1.1 obligatoire pour ce périmètre | Hors périmètre direct aujourd'hui |
 | ETSI TS 119 461 V2.1.1 | Devient la référence technique de facto en Europe pour la vérification d'identité à distance (via 2025/1566, et probablement via l'AMLR 2027) | **Non conforme** — écarts détaillés ci-dessous |
 | Règl. (UE) 2015/1502 (LoA) | Cadre de référence pour situer le niveau d'assurance visé (substantial/high) | **Aucun niveau atteignable actuellement** (lecture NFC absente) ; architecture visant `substantial`→`high` une fois les écarts comblés |
-| ENISA Remote ID Proofing | Bonnes pratiques non contraignantes, mais référence d'état de l'art largement citée par les régulateurs (dont l'ANSSI) | **Écarts sur les 2 pratiques les plus citées** (lecture NFC, interrogation de registres de statut de documents) |
+| ENISA Remote ID Proofing | Bonnes pratiques non contraignantes, mais référence d'état de l'art largement citée par les régulateurs (dont l'ANSSI) | **Écart restant sur la pratique la plus citée** (lecture NFC) ; interrogation de registres de statut de documents désormais couverte au niveau interface (voir section 5) |
 | PVID (ANSSI) | Non obligatoire au sens strict (Code monétaire et financier R.561-5-1/5-2 offre d'autres voies), mais quasi incontournable commercialement pour vendre à des banques françaises en entrée en relation 100% à distance | **Non qualifiable en l'état** — suivi dédié dans [pvid-compliance.md](pvid-compliance.md) |
 
 ## 1. eIDAS2 (règlement 910/2014 modifié par UE 2024/1183) — article 24
@@ -153,13 +153,14 @@ quand elle existe.
 | Bonne pratique ENISA | État |
 |---|---|
 | Lecture NFC eMRTD | **Absente** (voir section 3) |
-| Interrogation de registres de statut de documents (perdu/volé) | **Absente** — aucune intégration avec un registre national/Interpol de documents perdus/volés dans le dépôt ; seule la révocation CSCA/DSC via CRL PKD est couverte (mécanisme différent : révocation de certificat, pas statut de perte/vol du document physique) |
+| Interrogation de registres de statut de documents (perdu/volé) | **Interface pluggable implémentée et testée** (`DocumentStatusService`/`LostStolenDocumentRegistry`, voir `apps/api/src/modules/document-status/`) — même mécanisme distinct de la révocation CSCA/DSC (CRL) déjà couverte. **Aucune connexion à un registre réel n'existe en production** : accéder à un registre type INTERPOL SLTD nécessite un enregistrement/accord spécifique, non simulable à l'aveugle (même raison que pour la lecture NFC/CRL, voir [pvid-compliance.md](pvid-compliance.md)). Sans `LOST_STOLEN_REGISTRY_URL_TEMPLATE` configuré, chaque vérification produit `LOST_STOLEN_STATUS_NOT_CHECKED` (`warning`) plutôt que de traiter silencieusement le document comme non signalé |
 | Contre-mesures aux attaques par instrument (photo, replay, masque, deepfake, morphing) | Partiellement — la chaîne cryptographique protège contre le clonage/l'altération de la puce, mais la liveness faciale reste passive uniquement (voir section 3) |
 | Approche combinée "best of breed"/"mix-and-match" selon le risque | Le design par client KYC (seuils configurables, politique de risque par client) va dans ce sens, mais reste à compléter par la lecture NFC et la liveness active pour être une combinaison réellement multi-facteurs |
 
-**Verdict** : écart sur les deux pratiques structurantes. La vérification de
-statut de document perdu/volé est un **gap non identifié dans le roadmap actuel**
-— à ajouter (voir section 7).
+**Verdict** : écart restant sur la lecture NFC. La vérification de statut de
+document perdu/volé dispose désormais d'une interface pluggable testée, mais
+reste sans registre réel connecté — un déploiement de production doit encore
+obtenir un accès à un registre effectif (voir section 7).
 
 ## 6. PVID — référentiel ANSSI (France)
 
@@ -182,10 +183,11 @@ détail).
    solution biométrique certifiée équivalente) — déjà identifié dans
    `docs/roadmap.md`. Condition pour ETSI 119 461, LoA "high", PVID.
 3. ~~Traçabilité de la revue humaine~~ — **résolu**, voir [pvid-compliance.md](pvid-compliance.md).
-4. **Interrogation de registres de statut de documents perdus/volés** (nouveau,
-   non présent dans le roadmap actuel) — bonne pratique ENISA la plus citée
-   après la lecture NFC ; aucune source de données de ce type n'est
-   actuellement intégrée (à distinguer de la révocation CSCA/DSC déjà couverte).
+4. ~~Interrogation de registres de statut de documents perdus/volés~~ —
+   **interface pluggable implémentée et testée** (`DocumentStatusService`),
+   reste **sans registre réel connecté** en production (nécessite un
+   enregistrement/accord spécifique auprès d'un opérateur type INTERPOL SLTD,
+   non simulable à l'aveugle — voir section 5).
 5. **Audit indépendant des taux de faux positifs/négatifs par sous-groupe
    démographique et calibration du seuil de décision facial** — déjà identifié
    dans `docs/roadmap.md`. Condition pour LoA "high" et bonne pratique générale

@@ -8,6 +8,7 @@ import { PkiTrustModule } from "../pki/pki-trust.module";
 import { AuditModule } from "../audit/audit.module";
 import { MetricsModule } from "../metrics/metrics.module";
 import { VerifiedPersonModule } from "../verified-person/verified-person.module";
+import { DocumentStatusModule } from "../document-status/document-status.module";
 
 /**
  * Côté worker BullMQ du parcours de vérification : consomme la file "verification" et exécute
@@ -19,7 +20,7 @@ import { VerifiedPersonModule } from "../verified-person/verified-person.module"
  * PKI (`PkiTrustModule`), jamais `CscaSyncModule` (réservé au processus API, voir ce module).
  */
 @Module({
-  imports: [BullModule.registerQueue({ name: "verification" }), PkiTrustModule, AuditModule, MetricsModule, VerifiedPersonModule],
+  imports: [BullModule.registerQueue({ name: "verification" }), PkiTrustModule, AuditModule, MetricsModule, VerifiedPersonModule, DocumentStatusModule],
   providers: [VerificationProcessor, AnomalyDetectionService, FaceMatchClient, ResultSignerService],
 })
 export class VerificationWorkerModule {}

@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type { AnomalyFinding } from "@emrtd-verify/shared-types";
 import type { ChainValidationResult } from "@emrtd-verify/pki-trust";
 import type { ActiveAuthenticationVerification, MrzFieldValidation } from "@emrtd-verify/emrtd-core";
+import type { LostStolenCheckResult } from "../document-status/lost-stolen-registry";
 
 export interface AnomalyDetectionInput {
   trustChain: ChainValidationResult;
@@ -15,6 +16,12 @@ export interface AnomalyDetectionInput {
   activeAuthentication?: ActiveAuthenticationVerification;
   documentExpectedToSupportAaOrCa: boolean;
   cscaExpiresWithinDays?: number;
+  /**
+   * Résultat de DocumentStatusService.checkStatus — jamais optionnel : l'appel est toujours
+   * tenté (voir VerificationProcessor), et son résultat "non vérifiable" (checked: false) doit
+   * lui-même produire un signal explicite, jamais être silencieusement omis.
+   */
+  lostStolenCheck: LostStolenCheckResult;
 }
 
 /**
@@ -134,6 +141,23 @@ export class AnomalyDetectionService {
         code: "CSCA_EXPIRING_SOON",
         severity: "info",
         message: `Le CSCA utilisé expire dans ${input.cscaExpiresWithinDays} jours`,
+      });
+    }
+
+    // Bonne pratique ENISA la plus citée après la lecture NFC (voir docs/pvid-compliance.md) —
+    // un document parfaitement valide cryptographiquement peut avoir été déclaré perdu/volé,
+    // mécanisme distinct de la révocation CSCA/DSC (CRL) ci-dessus.
+    if (input.lostStolenCheck.reported) {
+      findings.push({
+        code: "DOCUMENT_REPORTED_LOST_OR_STOLEN",
+        severity: "critical",
+        message: "Ce document est signalé perdu ou volé dans le registre interrogé",
+      });
+    } else if (!input.lostStolenCheck.checked) {
+      findings.push({
+        code: "LOST_STOLEN_STATUS_NOT_CHECKED",
+        severity: "warning",
+        message: "Statut perdu/volé non vérifiable (registre non configuré ou indisponible) — ne pas traiter comme non signalé",
       });
     }
 

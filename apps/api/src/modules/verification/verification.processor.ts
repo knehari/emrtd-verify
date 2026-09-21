@@ -13,6 +13,7 @@ import { AuditService } from "../audit/audit.service";
 import { ResultSignerService } from "./result-signer.service";
 import { MetricsService } from "../metrics/metrics.service";
 import { VerifiedPersonService } from "../verified-person/verified-person.service";
+import { DocumentStatusService } from "../document-status/document-status.service";
 import type { TrustLevel } from "../kyc/kyc-client.service";
 import { computeVerdict } from "./verdict.policy";
 import { decodeChipData, type DecodedChipData } from "./chip-data.decoder";
@@ -48,6 +49,7 @@ export class VerificationProcessor extends WorkerHost {
     private readonly resultSigner: ResultSignerService,
     private readonly metrics: MetricsService,
     private readonly verifiedPerson: VerifiedPersonService,
+    private readonly documentStatus: DocumentStatusService,
   ) {
     super();
   }
@@ -76,6 +78,14 @@ export class VerificationProcessor extends WorkerHost {
     });
     this.metrics.recordTrustChain(trustChain.source, trustChain.level);
 
+    // Bonne pratique ENISA (voir docs/pvid-compliance.md) — mécanisme distinct de la révocation
+    // CSCA/DSC ci-dessus, jamais bloquant en soi : DocumentStatusService.checkStatus n'échoue
+    // jamais (absorbe toute erreur), voir AnomalyDetectionService pour l'interprétation.
+    const lostStolenCheck = await this.documentStatus.checkStatus({
+      issuingState: decoded.documentIdentity.issuingState,
+      documentNumber: decoded.documentIdentity.documentNumber,
+    });
+
     const anomalies: AnomalyFinding[] = this.anomalyDetection.detect({
       trustChain,
       mrzValidation: decoded.mrzValidation,
@@ -83,6 +93,7 @@ export class VerificationProcessor extends WorkerHost {
       // Doc 9303 Part 11 §5/§6 : AA/CA sont attendues sur les ePassports, pas systématiquement
       // sur les eID/titres de séjour selon le profil national.
       documentExpectedToSupportAaOrCa: dto.documentType === "ePassport",
+      lostStolenCheck,
     });
 
     let faceMatch: FaceMatchResult | undefined;
