@@ -13,6 +13,7 @@
   "dependencies": {
     "@emrtd-verify/shared-types": "workspace:*",
     "asn1js": "^3.0.10",
+    "des.js": "^1.1.0",
     "pkijs": "^3.4.0"
   },
   "devDependencies": {

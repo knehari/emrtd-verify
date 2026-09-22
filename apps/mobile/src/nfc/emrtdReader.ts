@@ -1,7 +1,15 @@
 import NfcManager, { NfcTech } from "react-native-nfc-manager";
-import { deriveBacSessionKeys, type BacAccessKeyInput, type BacSessionKeys } from "@emrtd-verify/emrtd-core";
+import {
+  deriveBacSessionKeys,
+  performBacHandshake,
+  readEmrtdChipData,
+  BacAuthenticationError,
+  ChipReaderError,
+  type ApduTransceiver,
+  type BacAccessKeyInput,
+} from "@emrtd-verify/emrtd-core";
 
-/** Informations lues sur la MRZ imprimée (zone visuelle), nécessaires pour établir BAC/PACE. */
+/** Informations lues sur la MRZ imprimée (zone visuelle), nécessaires pour établir BAC. */
 export type MrzAccessKey = BacAccessKeyInput;
 
 export interface EmrtdReadResult {
@@ -10,36 +18,68 @@ export interface EmrtdReadResult {
   accessProtocolUsed: "BAC" | "PACE";
 }
 
-/**
- * Établit un canal sécurisé avec la puce (PACE si supporté, sinon BAC — Doc 9303 Part 11)
- * et lit les groupes de données + le SOD.
- *
- * État actuel : la dérivation des clés de session BAC (KEnc/KMac) est réelle et testée
- * (packages/emrtd-core/src/mrz/bacKey.ts). Ce qui reste à implémenter est le protocole
- * bas niveau sur la puce elle-même — GET CHALLENGE, construction de la commande MUTUAL
- * AUTHENTICATE (chiffrement 3DES-CBC + retail MAC ISO/IEC 9797-1 MAC Algorithm 3 avec
- * KEnc/KMac), dérivation des clés de session post-authentification (Doc 9303 Part 11
- * §4.3.3/§4.3.4), puis la messagerie sécurisée pour lire chaque DG et le SOD via
- * NfcManager.transceive(). Volontairement non implémenté ici plutôt qu'à moitié : ce
- * protocole n'est vérifiable qu'avec un vrai document et un vrai lecteur NFC, absents de
- * cet environnement — l'implémenter à l'aveugle risquerait d'introduire une faille de
- * sécurité de messagerie chiffrée non détectable par les tests. Voir docs/roadmap.md
- * Phase 4 (issue GitHub dédiée) : c'est la prochaine étape, à valider sur device réel.
- */
-export async function readEmrtdChip(accessKey: MrzAccessKey): Promise<EmrtdReadResult> {
-  const sessionKeys: BacSessionKeys = await deriveBacSessionKeys(accessKey);
+/** NFC absent de l'appareil ou désactivé dans les réglages — à distinguer d'un échec en cours de session (voir EmrtdReadResult ci-dessus et les exports de @emrtd-verify/emrtd-core pour les autres catégories). */
+export class NfcUnavailableError extends Error {}
 
-  await NfcManager.requestTechnology(NfcTech.IsoDep);
+const DEFAULT_DATA_GROUPS = [1, 2, 14, 15]; // MRZ, photo, Chip Authentication (si présent), Active Authentication
+
+/**
+ * Adapte react-native-nfc-manager (`isoDepHandler.transceive`, commun iOS Core NFC / Android
+ * IsoDep derrière une seule API JS — voir index.d.ts du paquet) à `ApduTransceiver`
+ * (@emrtd-verify/emrtd-core) : le protocole BAC/messagerie sécurisée ne connaît que "des octets
+ * qui partent, des octets qui reviennent", jamais react-native-nfc-manager directement — c'est ce
+ * qui permet au même code protocolaire de tourner sans changement sur les deux plateformes.
+ */
+function createIsoDepTransceiver(): ApduTransceiver {
+  return {
+    async transceive(commandApdu: Uint8Array): Promise<Uint8Array> {
+      const responseBytes = await NfcManager.isoDepHandler.transceive(Array.from(commandApdu));
+      return Uint8Array.from(responseBytes);
+    },
+  };
+}
+
+/**
+ * Établit un canal sécurisé BAC avec la puce (Doc 9303 Part 11 §4.3 — protocole implémenté et
+ * testé dans @emrtd-verify/emrtd-core, voir nfc/{apdu,secureMessaging,bac,chipReader}.ts) et lit
+ * le SOD + les groupes de données demandés. `dataGroupNumbers` par défaut : MRZ (DG1), photo
+ * (DG2), et les clés Chip/Active Authentication (DG14/DG15) si présentes — ne demander que les DG
+ * réellement nécessaires réduit le nombre d'échanges NFC (donc la durée de la lecture).
+ *
+ * Erreurs à distinguer côté appelant (UI) :
+ * - `NfcUnavailableError` — NFC absent/désactivé, détecté AVANT d'ouvrir une session : proposer
+ *   d'activer le NFC plutôt que de relancer la lecture.
+ * - `BacAuthenticationError` (@emrtd-verify/emrtd-core) — clé BAC incorrecte (MRZ mal lue à
+ *   l'OCR) ou authentification mutuelle échouée (document non conforme/falsifié) : proposer de
+ *   rescanner la MRZ, PAS de simplement relancer la lecture NFC.
+ * - `ChipReaderError` (@emrtd-verify/emrtd-core) — échec du protocole APDU après un BAC réussi
+ *   (SELECT/READ BINARY), inclut un MAC de messagerie sécurisée invalide (transmission altérée) :
+ *   relancer la lecture NFC est approprié (transitoire).
+ * - Erreurs `NfcError.*` de react-native-nfc-manager (`SessionInvalidated`, `TagConnectionLost`,
+ *   `UserCancel`, `Timeout`) — session NFC interrompue (téléphone éloigné du document, session
+ *   expirée, annulation utilisateur) : relancer la lecture NFC est approprié.
+ */
+export async function readEmrtdChip(accessKey: MrzAccessKey, dataGroupNumbers: number[] = DEFAULT_DATA_GROUPS): Promise<EmrtdReadResult> {
+  const isSupported = await NfcManager.isSupported();
+  if (!isSupported) {
+    throw new NfcUnavailableError("NFC non supporté par cet appareil");
+  }
+  const isEnabled = await NfcManager.isEnabled();
+  if (!isEnabled) {
+    throw new NfcUnavailableError("NFC désactivé — l'activer dans les réglages de l'appareil");
+  }
+
+  const documentKeys = await deriveBacSessionKeys(accessKey);
+
+  await NfcManager.requestTechnology(NfcTech.IsoDep, { alertMessage: "Approchez le document du téléphone" });
   try {
-    throw new Error(
-      "Non implémenté : protocole APDU BAC/PACE (GET CHALLENGE, MUTUAL AUTHENTICATE, messagerie sécurisée) " +
-        "et lecture des DG/SOD sur la puce. Clés de session dérivées avec succès ; voir docs/roadmap.md Phase 4.",
-    );
+    const transceiver = createIsoDepTransceiver();
+    const { smKeys, ssc } = await performBacHandshake(transceiver, documentKeys);
+    const { sod, dataGroups } = await readEmrtdChipData(transceiver, smKeys, ssc, dataGroupNumbers);
+    return { dataGroups, sod, accessProtocolUsed: "BAC" };
   } finally {
-    // Les clés de session ne doivent jamais fuiter au-delà de cette portée (voir
-    // docs/gdpr-compliance.md "Minimisation") ; référencées ici pour satisfaire le typage
-    // en attendant le branchement de la messagerie sécurisée (Phase 4).
-    void sessionKeys;
     await NfcManager.cancelTechnologyRequest();
   }
 }
+
+export { BacAuthenticationError, ChipReaderError };

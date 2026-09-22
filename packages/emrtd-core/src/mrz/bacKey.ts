@@ -81,9 +81,12 @@ function setOddParityByte(byte: number): number {
 /**
  * Fonction de dérivation de clé — Doc 9303 Part 11 Appendix D.1 : K = MSB16(SHA-1(Kseed || c)),
  * ajustée en parité DES. Algorithme identique à celui de référence implémentations largement
- * déployées (ex. pypassport `doc9303/bac.py`).
+ * déployées (ex. pypassport `doc9303/bac.py`). Exportée (pas seulement utilisée pour KEnc/KMac
+ * ci-dessous) : c'est la MÊME fonction générique de dérivation qui sert aussi, avec un seed
+ * différent (Kifd XOR Kic), à dériver les clés de session post-authentification KSenc/KSmac —
+ * voir nfc/bac.ts. Éviter de la dupliquer réduit le risque de divergence entre les deux usages.
  */
-async function deriveDesKey(seed: Uint8Array, counter: 1 | 2): Promise<Uint8Array> {
+export async function deriveKeyFromSeed(seed: Uint8Array, counter: 1 | 2): Promise<Uint8Array> {
   const material = new Uint8Array(seed.length + 4);
   material.set(seed, 0);
   material.set([0, 0, 0, counter], seed.length);
@@ -99,6 +102,6 @@ async function deriveDesKey(seed: Uint8Array, counter: 1 | 2): Promise<Uint8Arra
 /** Dérive les clés de session BAC (KEnc, KMac) à partir des données lues sur la MRZ imprimée. */
 export async function deriveBacSessionKeys(input: BacAccessKeyInput): Promise<BacSessionKeys> {
   const seed = await deriveBacSeed(input);
-  const [kEnc, kMac] = await Promise.all([deriveDesKey(seed, 1), deriveDesKey(seed, 2)]);
+  const [kEnc, kMac] = await Promise.all([deriveKeyFromSeed(seed, 1), deriveKeyFromSeed(seed, 2)]);
   return { kEnc, kMac };
 }

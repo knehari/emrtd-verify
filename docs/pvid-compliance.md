@@ -41,10 +41,19 @@ françaises pour de l'entrée en relation 100% à distance.
 
 Par ordre de dépendance :
 
-1. **Lecture NFC réelle de la puce (BAC/PACE, APDU)** — bloquant absolu.
-   `apps/api/src/modules/verification/chip-data.decoder.ts` et
-   `apps/mobile/src/nfc/emrtdReader.ts` sont des stubs qui lèvent une erreur.
-   Sans cette étape, aucune vérification de bout en bout sur un document réel
+1. **Validation en conditions réelles de la lecture NFC BAC (contre un vrai document et un vrai
+   lecteur NFC)** — bloquant absolu. Le protocole APDU (GET CHALLENGE, MUTUAL AUTHENTICATE,
+   messagerie sécurisée, lecture SELECT/READ BINARY des DG/SOD) est désormais implémenté et testé
+   (`packages/emrtd-core/src/nfc/{apdu,secureMessaging,bac,chipReader}.ts`, branché dans
+   `apps/mobile/src/nfc/emrtdReader.ts`), mais uniquement validé par simulation logicielle
+   (round-trip, rejet sur falsification, interopérabilité entre deux implémentations
+   indépendantes du protocole) — aucun vecteur de test ICAO officiel byte-exact n'a pu être
+   récupéré dans cet environnement (icao.int/forge.etsi.org bloqués par le proxy réseau), et
+   aucun test contre un document/lecteur réel n'a été mené. PACE n'est pas implémenté (BAC
+   uniquement). `crypto.subtle.digest` (SHA-1, requis par la dérivation de clé BAC) n'est pas
+   nativement disponible sur React Native/Hermes — reste à combler avant toute exécution sur
+   device (seul `crypto.getRandomValues` l'est, via `react-native-get-random-values`). Sans cette
+   validation réelle, aucune vérification de bout en bout sur un document réel
    n'est possible — tout le reste de cette évaluation est conditionnel à sa
    complétion (voir `docs/roadmap.md` Phase 4, volontairement non tentée à
    l'aveugle).
