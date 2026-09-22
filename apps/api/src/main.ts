@@ -1,4 +1,8 @@
 import "reflect-metadata";
+// Enregistre le repli ECDSA Brainpool (node:crypto) — plus importé automatiquement par
+// @emrtd-verify/pki-trust (son point d'entrée est désormais portable, voir
+// packages/pki-trust/src/index.ts et docs/pki-trust-model.md "Vérification hors ligne").
+import "@emrtd-verify/pki-trust/src/nodeCryptoFallback";
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";

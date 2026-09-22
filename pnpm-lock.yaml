@@ -211,12 +211,18 @@ importers:
       '@emrtd-verify/emrtd-core':
         specifier: workspace:*
         version: link:../../packages/emrtd-core
+      '@emrtd-verify/pki-trust':
+        specifier: workspace:*
+        version: link:../../packages/pki-trust
       '@emrtd-verify/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
       expo:
         specifier: ~51.0.0
         version: 51.0.39(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(react-native@0.74.5(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.2.79)(react@18.2.0))(react@18.2.0)
+      expo-file-system:
+        specifier: ~17.0.1
+        version: 17.0.1(expo@51.0.39(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(react-native@0.74.5(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.2.79)(react@18.2.0))(react@18.2.0))
       react:
         specifier: 18.2.0
         version: 18.2.0
@@ -309,6 +315,9 @@ importers:
 
   packages/emrtd-core:
     dependencies:
+      '@babel/runtime':
+        specifier: ^7.25.0
+        version: 7.29.7
       '@emrtd-verify/shared-types':
         specifier: workspace:*
         version: link:../shared-types
@@ -337,6 +346,9 @@ importers:
 
   packages/pki-trust:
     dependencies:
+      '@babel/runtime':
+        specifier: ^7.25.0
+        version: 7.29.7
       '@emrtd-verify/emrtd-core':
         specifier: workspace:*
         version: link:../emrtd-core
@@ -367,6 +379,10 @@ importers:
         version: 2.1.9(@types/node@20.19.43)(terser@5.51.2)
 
   packages/shared-types:
+    dependencies:
+      '@babel/runtime':
+        specifier: ^7.25.0
+        version: 7.29.7
     devDependencies:
       typescript:
         specifier: ^5.6.0
@@ -1278,7 +1294,7 @@ packages:
 
   '@expo/bunyan@4.0.1':
     resolution: {integrity: sha512-+Lla7nYSiHZirgK+U/uYzsLv/X+HaJienbD5AKX1UQZHYfWaP+9uuQluRB4GrEVWF0GZ7vEVp/jzaOT9k/SQlg==}
-    engines: {'0': node >=0.10.0}
+    engines: {node: '>=0.10.0'}
 
   '@expo/cli@0.18.31':
     resolution: {integrity: sha512-v9llw9fT3Uv+TCM6Xllo54t672CuYtinEQZ2LPJ2EJsCwuTc4Cd2gXQaouuIVD21VoeGQnr5JtJuWbF97sBKzQ==}

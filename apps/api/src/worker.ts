@@ -1,4 +1,10 @@
 import "reflect-metadata";
+// Enregistre le repli ECDSA Brainpool (node:crypto) — plus importé automatiquement par
+// @emrtd-verify/pki-trust (son point d'entrée est désormais portable, voir
+// packages/pki-trust/src/index.ts et docs/pki-trust-model.md "Vérification hors ligne"). Ce
+// processus worker exécute la Passive Authentication (VerificationProcessor), qui peut rencontrer
+// un CSCA/DSC signé en Brainpool.
+import "@emrtd-verify/pki-trust/src/nodeCryptoFallback";
 import { createServer } from "node:http";
 import { NestFactory } from "@nestjs/core";
 import { Logger } from "nestjs-pino";

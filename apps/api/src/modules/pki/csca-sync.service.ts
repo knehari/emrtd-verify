@@ -14,11 +14,18 @@ import {
   verifyMasterListTrust,
   verifyCountryMasterListTrust,
   masterListCertificatesToTrustAnchors,
+  type PkdLdifMasterListEntry,
+} from "@emrtd-verify/pki-trust";
+// Import profond délibéré : `createHttpsMasterListSource`/`createLdapMasterListSource` (et le type
+// `MasterListSource` qu'elles retournent) dépendent de `ldapjs` (Node uniquement) et ont été
+// retirés du point d'entrée portable du package pour que apps/mobile puisse importer
+// `@emrtd-verify/pki-trust` sans casser le bundling Metro — voir packages/pki-trust/src/index.ts
+// et docs/pki-trust-model.md "Vérification hors ligne".
+import {
   createHttpsMasterListSource,
   createLdapMasterListSource,
   type MasterListSource,
-  type PkdLdifMasterListEntry,
-} from "@emrtd-verify/pki-trust";
+} from "@emrtd-verify/pki-trust/src/pkdClient";
 import { PrismaService } from "../prisma/prisma.service";
 import { retryWithBackoff } from "../../common/resilience/retry";
 

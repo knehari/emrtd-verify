@@ -12,8 +12,10 @@
   },
   "dependencies": {
     "@emrtd-verify/emrtd-core": "workspace:*",
+    "@emrtd-verify/pki-trust": "workspace:*",
     "@emrtd-verify/shared-types": "workspace:*",
     "expo": "~51.0.0",
+    "expo-file-system": "~17.0.1",
     "react": "18.2.0",
     "react-native": "0.74.5",
     "react-native-get-random-values": "^1.11.0",
