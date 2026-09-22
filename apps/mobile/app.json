@@ -25,7 +25,8 @@
             "deploymentTarget": "15.1"
           }
         }
-      ]
+      ],
+      "./plugins/withPodDeploymentTargetFix"
     ]
   }
 }
