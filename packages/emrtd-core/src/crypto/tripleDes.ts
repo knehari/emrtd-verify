@@ -25,6 +25,8 @@ function toNumberArray(bytes: Uint8Array): number[] {
  * canonique en 3DES "EDE" à trois clés consiste à répéter K1 comme troisième clé (K1||K2||K1),
  * équivalent mathématique standard (FIPS 46-3/SP 800-67) et propriété qu'utilise `des.js`, dont
  * l'implémentation EDE exige explicitement 24 octets (voir des.js lib/des/ede.js `EDEState`).
+ * Confirmé indépendamment par la suite de conformité ETSI (STF400, `ePassport_Functions.ttcn`
+ * `f_build3DesKey` : "return p_keyPair & v_ka; // Ka || Kb || Ka").
  */
 function expandTwoKeyToThreeKey(key16: Uint8Array): Uint8Array {
   if (key16.length !== 16) {

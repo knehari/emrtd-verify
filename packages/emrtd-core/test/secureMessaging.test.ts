@@ -189,6 +189,57 @@ describe("unwrapResponseApdu", () => {
   });
 });
 
+describe("exemple travaillé officiel ICAO (Doc 9303 Part 11 Appendix D.4 — lecture d'EF.COM après BAC)", () => {
+  // Toutes les valeurs ci-dessous sont confirmées byte-exact contre les pages scannées de la
+  // spécification (App D-6/D-7, fournies par l'utilisateur) — KSenc/KSmac proviennent d'une
+  // transcription texte de l'Appendix D.3 (jamais capturée en image), mais sont validées ici de
+  // façon extrêmement robuste : elles reproduisent EXACTEMENT chaque octet chiffré/MAC de cet
+  // exemple officiel sur deux échanges complets (SELECT + READ BINARY), ce qu'une clé incorrecte
+  // ne pourrait pas produire par hasard.
+  const officialKeys: SecureMessagingKeys = {
+    ksEnc: Uint8Array.from(Buffer.from("979EC13B1CBFE9DCD01AB0FED307EAE5", "hex")),
+    ksMac: Uint8Array.from(Buffer.from("F1CB1F1FB5ADF208806B89DC579DC1F8", "hex")),
+  };
+  const initialSsc = Uint8Array.from(Buffer.from("887022120C06C226", "hex"));
+
+  it("SELECT EF.COM : la commande protégée reproduit exactement l'exemple officiel", () => {
+    const { wrapped, nextSsc } = wrapCommandApdu(
+      { cla: 0x00, ins: 0xa4, p1: 0x02, p2: 0x0c, data: Uint8Array.from(Buffer.from("011E", "hex")) },
+      officialKeys,
+      initialSsc,
+    );
+    expect(Buffer.from(wrapped).toString("hex").toUpperCase()).toBe("0CA4020C158709016375432908C044F68E08BF8B92D635FF24F800");
+    expect(Buffer.from(nextSsc).toString("hex").toUpperCase()).toBe("887022120C06C227");
+  });
+
+  it("SELECT EF.COM : la réponse officielle est acceptée (MAC valide) et ne renvoie aucune donnée (juste 9000)", () => {
+    const sscAfterCommand = Uint8Array.from(Buffer.from("887022120C06C227", "hex"));
+    const rawResponse = Uint8Array.from(Buffer.from("990290008E08FA855A5D4C50A8ED9000", "hex"));
+    const { response, nextSsc } = unwrapResponseApdu(rawResponse, officialKeys, sscAfterCommand);
+    expect(response.data).toHaveLength(0);
+    expect(response.sw1).toBe(0x90);
+    expect(response.sw2).toBe(0x00);
+    expect(Buffer.from(nextSsc).toString("hex").toUpperCase()).toBe("887022120C06C228");
+  });
+
+  it("READ BINARY (4 premiers octets) : la commande protégée reproduit exactement l'exemple officiel", () => {
+    const sscAfterSelect = Uint8Array.from(Buffer.from("887022120C06C228", "hex"));
+    const { wrapped, nextSsc } = wrapCommandApdu({ cla: 0x00, ins: 0xb0, p1: 0x00, p2: 0x00, le: 4 }, officialKeys, sscAfterSelect);
+    expect(Buffer.from(wrapped).toString("hex").toUpperCase()).toBe("0CB000000D9701048E08ED6705417E96BA5500");
+    expect(Buffer.from(nextSsc).toString("hex").toUpperCase()).toBe("887022120C06C229");
+  });
+
+  it("READ BINARY : la réponse officielle est acceptée et déchiffrée exactement (DecryptedData = 60145F01)", () => {
+    const sscAfterCommand = Uint8Array.from(Buffer.from("887022120C06C229", "hex"));
+    const rawResponse = Uint8Array.from(Buffer.from("8709019FF0EC34F99226519902900" + "08E08AD55CC17140B2DED9000", "hex"));
+    const { response, nextSsc } = unwrapResponseApdu(rawResponse, officialKeys, sscAfterCommand);
+    expect(Buffer.from(response.data).toString("hex").toUpperCase()).toBe("60145F01");
+    expect(response.sw1).toBe(0x90);
+    expect(response.sw2).toBe(0x00);
+    expect(Buffer.from(nextSsc).toString("hex").toUpperCase()).toBe("887022120C06C22A");
+  });
+});
+
 describe("round-trip complet wrap→(analyse indépendante)→unwrap", () => {
   it("une commande construite par wrapCommandApdu peut être authentifiée et déchiffrée par une implémentation indépendante, et sa réponse simulée redonne les mêmes données via unwrapResponseApdu", () => {
     const keys = randomKeys();

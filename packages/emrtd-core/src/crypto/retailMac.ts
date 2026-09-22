@@ -35,7 +35,10 @@ function xorBlocks(a: Uint8Array, b: Uint8Array): Uint8Array {
 
 /**
  * Retail MAC — ISO/IEC 9797-1 MAC Algorithm 3 (dit "ANSI retail MAC"), tel qu'imposé par Doc 9303
- * Part 11 Appendix E.1 pour KMac. `data` DOIT déjà être paddée (padIso9797Method2) et alignée sur
+ * Part 11 Appendix E.1 pour KMac. Confirmé indépendamment par la suite de conformité ETSI
+ * (STF400, `ePassport_Functions.ttcn` `f_cryptographicChecksum` : "Compute a cryptographic
+ * checksum using ISO/IEC 9797-1 MAC algorithm 3 with block cipher DES, zero IV (8 bytes) and
+ * ISO9797-1 padding method 2"). `data` DOIT déjà être paddée (padIso9797Method2) et alignée sur
  * 8 octets ; `key16` = K1||K2 (16 octets, les deux moitiés de KMac). Algorithme :
  *   H_0 = 0 (8 octets nuls)
  *   H_i = DES_encrypt(K1, H_{i-1} XOR bloc_i)  pour chaque bloc de 8 octets, y compris le dernier

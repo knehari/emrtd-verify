@@ -5,11 +5,13 @@ import { tripleDesCbcDecrypt, tripleDesCbcEncrypt } from "../crypto/tripleDes";
 /**
  * Messagerie sécurisée BAC (Doc 9303 Part 11 §4.3/Appendix D.3, structure BER-TLV ISO/IEC 7816-4
  * §8.2) : chiffre/authentifie chaque APDU échangée avec la puce après l'établissement du canal
- * (bac.ts). Structure implémentée d'après la description normative — voir docs/roadmap.md
- * Phase 4 pour la mise en garde méthodologique (aucun vecteur officiel ICAO byte-exact vérifié
- * dans cet environnement, réseau bloqué vers icao.int/forge.etsi.org) : validée ici par
- * round-trip et par une simulation à deux côtés indépendants (bac.test.ts), pas par
- * correspondance à un exemple publié.
+ * (bac.ts). Confirmée byte-exact contre l'exemple travaillé officiel ICAO (Doc 9303 Part 11
+ * Appendix D.4, pages scannées fournies par l'utilisateur) : wrapCommandApdu/unwrapResponseApdu
+ * reproduisent EXACTEMENT chaque octet (CmdHeader, DO87, N, MAC, DO8E, ProtectedAPDU, SSC à
+ * chaque étape) de la lecture protégée d'EF.COM (SELECT puis READ BINARY) — voir
+ * secureMessaging.test.ts "exemple travaillé officiel ICAO". Également validée par round-trip
+ * et par une simulation à deux côtés indépendants pour les propriétés de sécurité (rejet sur
+ * falsification, désynchronisation SSC).
  */
 
 export interface SecureMessagingKeys {

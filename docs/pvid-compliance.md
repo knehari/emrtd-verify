@@ -43,20 +43,22 @@ Par ordre de dépendance :
 
 1. **Validation en conditions réelles de la lecture NFC BAC (contre un vrai document et un vrai
    lecteur NFC)** — bloquant absolu. Le protocole APDU (GET CHALLENGE, MUTUAL AUTHENTICATE,
-   messagerie sécurisée, lecture SELECT/READ BINARY des DG/SOD) est désormais implémenté et testé
+   messagerie sécurisée, lecture SELECT/READ BINARY des DG/SOD) est implémenté
    (`packages/emrtd-core/src/nfc/{apdu,secureMessaging,bac,chipReader}.ts`, branché dans
-   `apps/mobile/src/nfc/emrtdReader.ts`), mais uniquement validé par simulation logicielle
-   (round-trip, rejet sur falsification, interopérabilité entre deux implémentations
-   indépendantes du protocole) — aucun vecteur de test ICAO officiel byte-exact n'a pu être
-   récupéré dans cet environnement (icao.int/forge.etsi.org bloqués par le proxy réseau), et
-   aucun test contre un document/lecteur réel n'a été mené. PACE n'est pas implémenté (BAC
-   uniquement). `crypto.subtle.digest` (SHA-1, requis par la dérivation de clé BAC) n'est pas
-   nativement disponible sur React Native/Hermes — reste à combler avant toute exécution sur
-   device (seul `crypto.getRandomValues` l'est, via `react-native-get-random-values`). Sans cette
-   validation réelle, aucune vérification de bout en bout sur un document réel
-   n'est possible — tout le reste de cette évaluation est conditionnel à sa
-   complétion (voir `docs/roadmap.md` Phase 4, volontairement non tentée à
-   l'aveugle).
+   `apps/mobile/src/nfc/emrtdReader.ts`) et **validé byte-exact contre l'exemple travaillé
+   officiel ICAO Doc 9303 Part 11 Appendix D.2/D.3/D.4** (pages scannées de la spécification
+   fournies par l'utilisateur : `deriveBacSessionKeys` reproduit exactement Kseed/KEnc/KMac,
+   `tripleDesCbcEncrypt` reproduit exactement E_IFD, `wrapCommandApdu`/`unwrapResponseApdu`
+   reproduisent exactement chaque octet de la lecture protégée d'EF.COM documentée), en plus du
+   round-trip/rejet sur falsification/interopérabilité entre implémentations indépendantes déjà
+   en place. Ce qui manque encore n'est donc plus la conformité à la spécification, mais
+   uniquement un **test contre un document et un lecteur NFC physiques réels** — aucun n'a été
+   mené ici. PACE n'est pas implémenté (BAC uniquement). `crypto.subtle.digest` (SHA-1, requis
+   par la dérivation de clé BAC) n'est pas nativement disponible sur React Native/Hermes — reste
+   à combler avant toute exécution sur device (seul `crypto.getRandomValues` l'est, via
+   `react-native-get-random-values`). Sans cette validation matérielle réelle, aucune
+   vérification de bout en bout sur un document réel n'est possible — tout le reste de cette
+   évaluation est conditionnel à sa complétion (voir `docs/roadmap.md` Phase 4).
 2. **Détection de vivacité active** (challenge de mouvement/clignement, ou
    solution biométrique certifiée équivalente) — la liveness passive actuelle
    ne satisfera jamais un audit PVID à elle seule.

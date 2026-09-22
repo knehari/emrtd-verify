@@ -2,10 +2,11 @@ import { describe, it, expect } from "vitest";
 import { createCipheriv, randomBytes } from "node:crypto";
 import { singleDesDecryptBlock, singleDesEncryptBlock, tripleDesCbcDecrypt, tripleDesCbcEncrypt } from "../src/crypto/tripleDes";
 
-// Vecteurs FIPS 46-3/SP 800-67 génériques (mêmes valeurs que des.js@1.1.0 test/ede-test.js), PAS
-// l'exemple travaillé BAC de l'ICAO Doc 9303 (icao.int et forge.etsi.org sont bloqués par le
-// proxy réseau de cet environnement — voir docs/roadmap.md Phase 4 pour la mise en garde
-// méthodologique). Ici, on vérifie seulement que notre wrapper produit un 3DES-CBC correct.
+// Vecteurs FIPS 46-3/SP 800-67 génériques (mêmes valeurs que des.js@1.1.0 test/ede-test.js) —
+// vérifient seulement que notre wrapper produit un 3DES-CBC correct en général. L'exemple
+// travaillé BAC officiel de l'ICAO Doc 9303 Part 11 Appendix D.2/D.3 (byte-exact, confirmé
+// contre les pages scannées de la spécification fournies par l'utilisateur) est couvert par
+// bac.test.ts (E_IFD = 3DES-CBC(KEnc, RND.IFD||RND.IC||K.IFD)) et bacKey.test.ts.
 const genericKey16 = Uint8Array.from(Buffer.from("133457799bbcdff1" + "0000000000000000", "hex"));
 const genericIv8 = Uint8Array.from(Buffer.from("0102030405060708", "hex"));
 const genericData16 = Uint8Array.from(Buffer.from("0123456789abcdeffedcba9876543210", "hex"));

@@ -4,11 +4,16 @@ import type { ApduTransceiver } from "./bac";
 
 /**
  * Lecture des fichiers eMRTD (EF.SOD + groupes de données) via SELECT/READ BINARY protégés par
- * messagerie sécurisée, une fois le canal BAC établi (bac.ts). AID et identifiants de fichier
- * (FID) — Doc 9303 Part 10 §4 — et conventions SELECT P1/P2 : structure normative, pas un
- * matériel/vecteur externe, donc vérifiable par construction (voir chipReader.test.ts). La
- * stratégie de lecture (sonder l'en-tête ASN.1 DER pour connaître la longueur exacte, puis lire
- * par blocs de `maxChunkSize`) minimise les allers-retours NFC — voir `ChipReaderConfig`.
+ * messagerie sécurisée, une fois le canal BAC établi (bac.ts). AID, identifiants de fichier (FID)
+ * et conventions SELECT P1/P2 confirmés byte-exact indépendamment contre la suite de conformité
+ * officielle ETSI (STF400, `ePassport-master.zip` fourni par l'utilisateur) :
+ * - `ePassport_Values.ttcn` : AID = a0000002471001, FID identiques pour DG1..DG16/EF.SOD/EF.COM.
+ * - `ePassport_Templates.ttcn`/`ePassport_Types.ttcn` : SELECT AID → P1=0x04 (`e_selectByDFName`),
+ *   SELECT EF → P1=0x02 (`e_selectEFUnderCurrentDF`), P2=0x0C dans les deux cas
+ *   (`e_noResponseOrProprietary`<<2 | `e_firstOrOnlyOccurrence`).
+ * Voir chipReader.test.ts pour la vérification par construction. La stratégie de lecture (sonder
+ * l'en-tête ASN.1 DER pour connaître la longueur exacte, puis lire par blocs de `maxChunkSize`)
+ * minimise les allers-retours NFC — voir `ChipReaderConfig`.
  */
 
 const EMRTD_APPLICATION_AID = Uint8Array.of(0xa0, 0x00, 0x00, 0x02, 0x47, 0x10, 0x01);

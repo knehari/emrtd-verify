@@ -1,9 +1,17 @@
 import { describe, it, expect } from "vitest";
 import { buildMrzInformation, deriveBacSeed, deriveBacSessionKeys } from "../src/mrz/bacKey";
 
-// Exemple de référence ICAO Doc 9303 Part 11 Appendix D.2 (même personne que l'exemple TD3
-// de Part 4 Appendix B, réutilisé pour l'exemple de dérivation de clé BAC).
-const referenceInput = { documentNumber: "L898902C3", dateOfBirth: "690806", dateOfExpiry: "940623" };
+// Exemple de référence ICAO Doc 9303 Part 11 Appendix D.2 ("TD2 MRZ, document number 9
+// characters", passeport d'Anna Maria Eriksson) — CONFIRMÉ byte-exact contre les pages
+// scannées de la spécification (App D-2/D-3, fournies par l'utilisateur) : le numéro de
+// document réel est "L898902C<" (8 caractères + un caractère de bourrage '<' pour atteindre 9),
+// chiffre de contrôle 3 — PAS "L898902C3" (9 caractères, chiffre de contrôle 6) comme
+// précédemment supposé ici sans accès à la source primaire.
+const referenceInput = { documentNumber: "L898902C<", dateOfBirth: "690806", dateOfExpiry: "940623" };
+
+function hex(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString("hex").toUpperCase();
+}
 
 function hasOddParity(byte: number): boolean {
   let ones = 0;
@@ -16,10 +24,8 @@ function hasOddParity(byte: number): boolean {
 }
 
 describe("buildMrzInformation", () => {
-  it("construit la chaîne de 24 caractères de l'exemple de référence ICAO", () => {
-    // Numéro de document (9) + son chiffre de contrôle (déjà validé : 6, cf checkDigit.test.ts)
-    // + date de naissance (6) + son chiffre de contrôle + date d'expiration (6) + son chiffre de contrôle.
-    expect(buildMrzInformation(referenceInput)).toBe("L898902C3669080619406236");
+  it("construit la chaîne de 24 caractères de l'exemple de référence ICAO (Appendix D.2, confirmé byte-exact)", () => {
+    expect(buildMrzInformation(referenceInput)).toBe("L898902C<369080619406236");
   });
 
   it("bourre un numéro de document plus court avec '<'", () => {
@@ -29,6 +35,11 @@ describe("buildMrzInformation", () => {
 });
 
 describe("deriveBacSeed", () => {
+  it("produit le Kseed exact de l'exemple ICAO Appendix D.2 (confirmé contre la spécification scannée)", async () => {
+    const seed = await deriveBacSeed(referenceInput);
+    expect(hex(seed)).toBe("239AB9CB282DAF66231DC5A4DF6BFBAE");
+  });
+
   it("produit 16 octets, de façon déterministe", async () => {
     const seed1 = await deriveBacSeed(referenceInput);
     const seed2 = await deriveBacSeed(referenceInput);
@@ -38,6 +49,12 @@ describe("deriveBacSeed", () => {
 });
 
 describe("deriveBacSessionKeys", () => {
+  it("produit KEnc/KMac exacts de l'exemple ICAO Appendix D.2 (confirmé contre la spécification scannée)", async () => {
+    const { kEnc, kMac } = await deriveBacSessionKeys(referenceInput);
+    expect(hex(kEnc)).toBe("AB94FDECF2674FDFB9B391F85D7F76F2");
+    expect(hex(kMac)).toBe("7962D9ECE03D1ACD4C76089DCE131543");
+  });
+
   it("produit deux clés de 16 octets, chacune à parité DES impaire", async () => {
     const { kEnc, kMac } = await deriveBacSessionKeys(referenceInput);
     expect(kEnc).toHaveLength(16);

@@ -7,12 +7,20 @@ import { deriveKeyFromSeed, type BacSessionKeys } from "../mrz/bacKey";
 /**
  * Établissement du canal BAC (Doc 9303 Part 11 §4.3.3/§4.3.4) : GET CHALLENGE, construction/envoi
  * de MUTUAL AUTHENTICATE, vérification de l'authentification mutuelle, dérivation des clés de
- * session. Implémenté d'après la description structurelle normative (voir docs/roadmap.md Phase
- * 4 pour la mise en garde méthodologique : icao.int et forge.etsi.org sont bloqués par le proxy
- * réseau de cet environnement — aucun vecteur officiel byte-exact n'a donc pu être vérifié ici).
- * Validé par une simulation de puce indépendante (bac.test.ts), qui exerce en particulier les
- * propriétés de sécurité (rejet sur MAC invalide, rejet sur échec de l'authentification mutuelle)
- * — pas seulement le chemin nominal.
+ * session. Double confirmation indépendante :
+ * - Structure : suite de conformité officielle ETSI (STF400, `ePassport-master.zip` fourni par
+ *   l'utilisateur, `ePassport_Functions.ttcn` fonction `f_basicAccessControl`) — S envoyé par le
+ *   lecteur = RND.IFD||RND.IC||Kifd, R renvoyé par la puce = RND.IC||RND.IFD||Kic,
+ *   Kseed' = Kifd XOR Kic, SSC = 4 octets de poids faible de RND.IC || 4 octets de poids faible
+ *   de RND.IFD.
+ * - Byte-exact : exemple travaillé officiel ICAO Doc 9303 Part 11 Appendix D.2/D.3 (pages
+ *   scannées fournies par l'utilisateur) — E_IFD = 3DES-CBC(KEnc, RND.IFD||RND.IC||K.IFD)
+ *   reproduit EXACTEMENT l'exemple documenté (RND.IC=4608F91988702212, K.IFD confirmé, KEnc
+ *   dérivé de la MRZ de référence) — voir bac.test.ts "exemple travaillé officiel ICAO" et
+ *   bacKey.test.ts.
+ * Validé aussi par une simulation de puce indépendante (bac.test.ts), qui exerce en particulier
+ * les propriétés de sécurité (rejet sur MAC invalide, rejet sur échec de l'authentification
+ * mutuelle) — pas seulement le chemin nominal.
  */
 
 /** Puce ISO 7816 générique — seule dépendance envers le matériel/la plateforme (voir apps/mobile/src/nfc/emrtdReader.ts pour l'implémentation react-native-nfc-manager). */

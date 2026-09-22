@@ -202,3 +202,62 @@ describe("performBacHandshake", () => {
     expect(Array.from(result1.smKeys.ksEnc)).not.toEqual(Array.from(result2.smKeys.ksEnc));
   });
 });
+
+describe("performBacHandshake — exemple travaillé officiel ICAO (Doc 9303 Part 11 Appendix D.2/D.3)", () => {
+  // Toutes les valeurs ci-dessous sont confirmées byte-exact contre les pages scannées de la
+  // spécification (App D-2/D-3, fournies par l'utilisateur), à l'exception de K.ICC/Kseed' :
+  // ces deux-là ne provenaient que d'une transcription texte (Appendix D.3, jamais capturée en
+  // image) et se sont révélées incohérentes entre elles (Kseed' ≠ Kifd XOR Kicc calculé) —
+  // elles sont donc volontairement absentes d'ici plutôt que supposées correctes.
+  const documentKeys: BacSessionKeys = {
+    kEnc: Uint8Array.from(Buffer.from("AB94FDECF2674FDFB9B391F85D7F76F2", "hex")),
+    kMac: Uint8Array.from(Buffer.from("7962D9ECE03D1ACD4C76089DCE131543", "hex")),
+  };
+  const officialRndIc = Uint8Array.from(Buffer.from("4608F91988702212", "hex"));
+  const officialRndIfd = Uint8Array.from(Buffer.from("781723860C06C226", "hex"));
+  const officialKIfd = Uint8Array.from(Buffer.from("0B795240CB7049B01C19B33E32804F0B", "hex"));
+  const officialEIfd = "72C29C2371CC9BDB65B779B8E8D37B29ECC154AA56A8799FAE2F498F76ED92F2";
+
+  it("construit une commande MUTUAL AUTHENTICATE dont E_IFD est un chiffré 3DES-CBC valide de 32 octets face au RND.IC officiel", async () => {
+    let capturedEIfdHex: string | undefined;
+    const chip: ApduTransceiver = {
+      async transceive(apdu) {
+        if (apdu[1] === 0x84) {
+          return concat(officialRndIc, Uint8Array.of(0x90, 0x00));
+        }
+        if (apdu[1] === 0x82) {
+          const lc = apdu[4];
+          const data = apdu.subarray(5, 5 + lc);
+          const eIfd = data.subarray(0, 32);
+          capturedEIfdHex = Buffer.from(eIfd).toString("hex").toUpperCase();
+          // Comme une vraie puce : déchiffre EIFD avec KEnc pour récupérer le RND.IFD réellement
+          // généré par le client (aléatoire, différent à chaque exécution — pas la valeur
+          // documentée ICAO, qui n'apparaît que pour le RND.IFD spécifique de l'exemple travaillé).
+          const decrypted = tripleDesCbcDecrypt(documentKeys.kEnc, ZERO_IV, eIfd);
+          const actualRndIfd = decrypted.subarray(0, 8);
+          const kIcc = Uint8Array.from(randomBytes(16));
+          const r = concat(officialRndIc, actualRndIfd, kIcc);
+          const eIcc = tripleDesCbcEncrypt(documentKeys.kEnc, ZERO_IV, r);
+          const mIcc = computeRetailMac(documentKeys.kMac, padIso9797Method2(eIcc));
+          return concat(eIcc, mIcc, Uint8Array.of(0x90, 0x00));
+        }
+        return Uint8Array.of(0x6d, 0x00);
+      },
+    };
+
+    // RND.IFD est généré aléatoirement par performBacHandshake (crypto.getRandomValues) — non
+    // déterministe, donc ce test ne peut pas forcer RND.IFD=officialRndIfd. Il vérifie à la place
+    // que le protocole aboutit et produit un E_IFD de la bonne forme ; le test suivant vérifie
+    // indépendamment que l'algorithme de chiffrement lui-même reproduit exactement l'exemple
+    // ICAO officiel pour le RND.IFD documenté.
+    await performBacHandshake(chip, documentKeys);
+    expect(capturedEIfdHex).toBeDefined();
+    expect(capturedEIfdHex).toHaveLength(64);
+  });
+
+  it("E_IFD = 3DES-CBC(KEnc, RND.IFD||RND.IC||K.IFD) reproduit exactement l'exemple ICAO officiel pour le RND.IFD documenté", () => {
+    const s = concat(officialRndIfd, officialRndIc, officialKIfd);
+    const eIfd = tripleDesCbcEncrypt(documentKeys.kEnc, ZERO_IV, s);
+    expect(Buffer.from(eIfd).toString("hex").toUpperCase()).toBe(officialEIfd);
+  });
+});

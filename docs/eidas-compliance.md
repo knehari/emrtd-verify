@@ -105,7 +105,7 @@ technique. Exigences déduites (sources secondaires uniquement, cf. avertissemen
 
 | Exigence ETSI TS 119 461 v2 | État dans le dépôt | Écart |
 |---|---|---|
-| Vérification de documents d'identité, y compris lecture NFC eMRTD, avec voies "Automated"/"Manual"/"Hybrid Validation" | Toute la crypto en aval (Passive Authentication, Active/Chip Authentication, chaîne CSCA) est implémentée et testée. Le protocole de lecture NFC BAC lui-même (APDU, messagerie sécurisée) est désormais implémenté et testé par simulation logicielle (`packages/emrtd-core/src/nfc/`, branché dans `apps/mobile/src/nfc/emrtdReader.ts`) — voir [pvid-compliance.md](pvid-compliance.md) pour le détail | **Bloquant, mais réduit.** Aucun test contre un document/lecteur NFC réel n'a encore été mené (network bloqué vers icao.int, aucun vecteur officiel vérifié) ; PACE non implémenté ; le polyfill `crypto.subtle.digest` (SHA-1) manque encore côté React Native — aucune vérification de bout en bout sur un vrai document possible avant ces trois points |
+| Vérification de documents d'identité, y compris lecture NFC eMRTD, avec voies "Automated"/"Manual"/"Hybrid Validation" | Toute la crypto en aval (Passive Authentication, Active/Chip Authentication, chaîne CSCA) est implémentée et testée. Le protocole de lecture NFC BAC lui-même (APDU, messagerie sécurisée) est implémenté et **validé byte-exact contre l'exemple travaillé officiel ICAO Doc 9303 Part 11 Appendix D.2/D.3/D.4** (`packages/emrtd-core/src/nfc/`, branché dans `apps/mobile/src/nfc/emrtdReader.ts`) — voir [pvid-compliance.md](pvid-compliance.md) pour le détail | **Bloquant, mais réduit à un seul point.** La conformité à la spécification est désormais confirmée byte-exact ; seul manque un test contre un document/lecteur NFC réel. PACE non implémenté ; le polyfill `crypto.subtle.digest` (SHA-1) manque encore côté React Native — aucune vérification de bout en bout sur un vrai document possible avant ces points |
 | Détection de vivacité / résistance aux attaques de présentation (photo, vidéo, masque, deepfake) — référence implicite ISO/IEC 30107 | `check_liveness()` (`services/face-match/app/liveness.py`) est **passive**, fondée sur résolution/netteté/nombre de visages — documenté explicitement comme "pas une détection anti-spoofing au sens fort", ne détecte ni photo imprimée de qualité, ni rejeu vidéo, ni masque, ni deepfake (voir `docs/facial-recognition.md`) | **Majeur.** Liveness active (challenge de mouvement/clignement) non implémentée ; aucun test PAD documenté |
 | Matching biométrique visage-document | Implémenté (YuNet + SFace, ONNX local, scoring par similarité cosinus, seuil configurable par client) | Fonctionnellement présent, mais seuil non calibré sur données représentatives et aucun audit indépendant des taux de faux positifs/négatifs par sous-groupe démographique (documenté comme limite connue dans `docs/facial-recognition.md`) |
 | Niveaux "Baseline"/"Extended", ce dernier avec supervision humaine ("human-in-the-loop") pour les cas équivalents à la présence physique | **Corrigé depuis** : `VerificationReview` (schema.prisma) trace formellement "quel opérateur a validé/invalidé quel cas, quand, avec quel motif" pour tout verdict `manual_review_required` — voir [pvid-compliance.md](pvid-compliance.md) | Résolu pour le niveau "Extended" |
@@ -152,7 +152,7 @@ quand elle existe.
 
 | Bonne pratique ENISA | État |
 |---|---|
-| Lecture NFC eMRTD | **Protocole BAC implémenté et testé (simulation logicielle), non validé contre un document/lecteur réel** (voir section 3) |
+| Lecture NFC eMRTD | **Protocole BAC implémenté et validé byte-exact contre l'exemple travaillé officiel ICAO (Doc 9303 Part 11 Appendix D), non encore testé contre un document/lecteur réel** (voir section 3) |
 | Interrogation de registres de statut de documents (perdu/volé) | **Interface pluggable implémentée et testée** (`DocumentStatusService`/`LostStolenDocumentRegistry`, voir `apps/api/src/modules/document-status/`) — même mécanisme distinct de la révocation CSCA/DSC (CRL) déjà couverte. **Aucune connexion à un registre réel n'existe en production** : accéder à un registre type INTERPOL SLTD nécessite un enregistrement/accord spécifique, non simulable à l'aveugle (même raison que pour la lecture NFC/CRL, voir [pvid-compliance.md](pvid-compliance.md)). Sans `LOST_STOLEN_REGISTRY_URL_TEMPLATE` configuré, chaque vérification produit `LOST_STOLEN_STATUS_NOT_CHECKED` (`warning`) plutôt que de traiter silencieusement le document comme non signalé |
 | Contre-mesures aux attaques par instrument (photo, replay, masque, deepfake, morphing) | Partiellement — la chaîne cryptographique protège contre le clonage/l'altération de la puce, mais la liveness faciale reste passive uniquement (voir section 3) |
 | Approche combinée "best of breed"/"mix-and-match" selon le risque | Le design par client KYC (seuils configurables, politique de risque par client) va dans ce sens, mais reste à compléter par la lecture NFC et la liveness active pour être une combinaison réellement multi-facteurs |
@@ -177,10 +177,10 @@ détail).
 
 1. **Validation en conditions réelles de la lecture NFC BAC** — bloquant pour
    les six référentiels. Le protocole (APDU, messagerie sécurisée) est
-   désormais implémenté et testé par simulation logicielle (voir
-   `docs/roadmap.md` Phase 4) ; reste : test contre un vrai document/lecteur
-   NFC, PACE (non implémenté), et le polyfill `crypto.subtle.digest` manquant
-   côté React Native.
+   implémenté et validé byte-exact contre l'exemple travaillé officiel ICAO
+   Doc 9303 Part 11 Appendix D (voir `docs/roadmap.md` Phase 4) ; reste : test
+   contre un vrai document/lecteur NFC, PACE (non implémenté), et le polyfill
+   `crypto.subtle.digest` manquant côté React Native.
 2. **Détection de vivacité active** (challenge de mouvement/clignement, ou
    solution biométrique certifiée équivalente) — déjà identifié dans
    `docs/roadmap.md`. Condition pour ETSI 119 461, LoA "high", PVID.
