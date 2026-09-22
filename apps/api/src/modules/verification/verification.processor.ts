@@ -74,10 +74,10 @@ export class VerificationProcessor extends WorkerHost {
 
     let decoded: DecodedChipData;
     try {
-      decoded = decodeChipData(dto.chipData);
+      decoded = await decodeChipData(dto.chipData, dto.documentType);
     } catch (error) {
       this.logger.warn(
-        `Extraction des données de puce indisponible pour ${verificationId} (voir docs/roadmap.md Phase 4) : ${String(error)}`,
+        `Extraction des données de puce échouée pour ${verificationId} (chipData structurellement invalide ou illisible) : ${String(error)}`,
       );
       await this.persistUnprocessable(verificationId, dto, clientId, String(error));
       this.metrics.observeProcessingDuration(elapsedSeconds(startedAt));

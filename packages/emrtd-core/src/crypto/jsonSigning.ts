@@ -2,13 +2,16 @@
  * Signature ECDSA P-256 d'un objet JSON-sérialisable, avec sérialisation canonique (clés triées
  * récursivement) pour que la signature soit reproductible indépendamment de l'ordre d'insertion
  * des propriétés en JavaScript. Générique — pas spécifique à `VerificationResult` — utilisé par
- * apps/api pour signer les résultats de vérification (voir docs/kyc-integration.md "Vérification
- * de la signature").
+ * apps/api pour signer les résultats de vérification et le bundle CSCA hors ligne (voir
+ * docs/kyc-integration.md "Vérification de la signature"), et par apps/mobile pour vérifier ce
+ * dernier localement (voir docs/pki-trust-model.md "Vérification hors ligne").
  *
  * P-256 (pas Brainpool) : cette clé est générée et détenue par la plateforme elle-même (jamais un
  * certificat tiers dont on ne choisit pas l'algorithme), donc aucune raison de sortir de ce que
- * Web Crypto supporte nativement — reste portable navigateur/mobile si un jour utile côté client.
+ * Web Crypto supporte nativement.
  */
+import { base64ToBytes, bytesToBase64 } from "./base64";
+import { toArrayBuffer } from "./bytes";
 
 /** Sérialise `value` en JSON avec les clés d'objet triées récursivement (ordre des tableaux préservé). */
 export function canonicalJsonStringify(value: unknown): string {
@@ -31,11 +34,11 @@ function canonicalize(value: unknown): unknown {
 }
 
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)).buffer;
+  return toArrayBuffer(base64ToBytes(base64));
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+  return bytesToBase64(new Uint8Array(buffer));
 }
 
 export async function importEcdsaP256PrivateKeyFromPkcs8Base64(pkcs8Base64: string): Promise<CryptoKey> {

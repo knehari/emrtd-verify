@@ -1,44 +1,23 @@
-import type { ActiveAuthenticationVerification, DataGroupHash } from "@emrtd-verify/emrtd-core";
-import type { MrzFieldValidation } from "@emrtd-verify/emrtd-core";
-import type { DocumentIdentity } from "@emrtd-verify/shared-types";
+import { decodeChipDataEnvelope, parseChipDataEnvelope, type DecodedChipData } from "@emrtd-verify/emrtd-core";
+import type { DocumentType } from "@emrtd-verify/shared-types";
 
 /**
- * Résultat de l'extraction des données de puce, prêt à alimenter la Passive Authentication
- * (PkiTrustService.validate), la détection d'anomalies et la comparaison faciale.
+ * Résultat de l'extraction des données de puce — alias de `DecodedChipData`
+ * (packages/emrtd-core/src/lds/chipDataEnvelope.ts), la source de vérité unique partagée avec
+ * apps/mobile pour que le décodage soit identique en ligne (ici) et hors ligne (voir
+ * docs/pki-trust-model.md "Vérification hors ligne").
  */
-export interface DecodedChipData {
-  sodDer: Uint8Array;
-  computedDataGroupHashes: DataGroupHash[];
-  documentIdentity: DocumentIdentity;
-  mrzValidation: MrzFieldValidation;
-  /** Image DG2 (visage), si présente. */
-  faceImage?: Uint8Array;
-  /**
-   * Résultat de `verifyActiveAuthenticationResponse` (packages/emrtd-core/src/lds/
-   * activeAuthentication.ts, réellement implémentée et testée) — undefined si le document
-   * n'a pas présenté de challenge/réponse AA/CA du tout. Cette fonction attend un défi et la
-   * réponse signée par la puce (obtenus via l'échange APDU décrit ci-dessous) ; une fois cet
-   * échange câblé, l'appeler ici suffit — aucune autre modification requise en aval
-   * (voir AnomalyDetectionService, qui sait déjà interpréter ce résultat).
-   */
-  activeAuthentication?: ActiveAuthenticationVerification;
-}
+export type { DecodedChipData };
 
 /**
- * Seul maillon du pipeline de vérification qui n'est PAS branché sur une implémentation réelle :
- * extraire EF.SOD et les DG (DG1 MRZ, DG2 photo, DG14/DG15 AA/CA) depuis le blob `chipData` brut
- * nécessite une session de lecture ICC authentifiée (APDU ISO/IEC 7816, BAC — Doc 9303 Part 11
- * §4 — ou PACE §9). `packages/emrtd-core` fournit déjà la dérivation des clés de session BAC
- * (bacKey.ts), le décodage du SOD une fois obtenu (lds/sod.ts) et la vérification cryptographique
- * Active Authentication une fois le défi/réponse obtenus (lds/activeAuthentication.ts), mais pas
- * la couche de transport NFC/APDU elle-même : c'est la Phase 4 de docs/roadmap.md ("Mobile"), non
- * couverte par ce ticket. Toute la suite du pipeline (validation de chaîne, anomalies, face-match,
- * verdict, persistance — voir VerificationProcessor) est réellement branchée et s'exécutera
- * sans modification dès que cette fonction sera implémentée.
+ * Extrait EF.SOD + les DG (DG1 MRZ, DG2 photo, DG14/DG15 AA/CA) depuis `chipData`
+ * (`SubmitVerificationDto.chipData`, produit par apps/mobile — voir
+ * packages/emrtd-core/src/lds/chipDataEnvelope.ts pour le format d'échange exact et
+ * apps/mobile/src/nfc/emrtdReader.ts pour la lecture NFC BAC/PACE qui l'alimente). Toute la suite
+ * du pipeline (validation de chaîne, anomalies, face-match, verdict, persistance — voir
+ * VerificationProcessor) consomme le résultat sans modification.
  */
-export function decodeChipData(_chipDataBase64: string): DecodedChipData {
-  throw new Error(
-    "Non implémenté : extraction EF.SOD + DG depuis les données de puce brutes (nécessite une session " +
-      "BAC/PACE authentifiée sur la puce, Doc 9303 Part 11 §4/§9). Voir docs/roadmap.md Phase 4.",
-  );
+export async function decodeChipData(chipDataBase64: string, documentType: DocumentType): Promise<DecodedChipData> {
+  const envelope = parseChipDataEnvelope(chipDataBase64);
+  return decodeChipDataEnvelope(envelope, documentType);
 }
