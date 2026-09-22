@@ -19,3 +19,7 @@ export * from "./nfc/apdu";
 export * from "./nfc/secureMessaging";
 export * from "./nfc/bac";
 export * from "./nfc/chipReader";
+export * from "./liveness/types";
+export * from "./liveness/challenge";
+export * from "./liveness/verify";
+export * from "./liveness/session";

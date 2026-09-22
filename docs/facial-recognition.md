@@ -37,8 +37,69 @@ anti-spoofing forte dans la documentation client ou contractuelle.
 Cette honnêteté est désormais appliquée jusque dans le verdict lui-même (suite à un audit de
 sécurité tiers, voir [security-audit-2026-09.md](security-audit-2026-09.md)) : `VerificationProcessor`
 remonte l'anomalie `LIVENESS_PASSIVE_ONLY` (avertissement) chaque fois que `livenessPassed: true`
-provient de ce module, ce qui empêche un verdict `authentic` automatique sur ce seul signal — voir
+provient de ce module, ce qui empêche un verdict `authentic` automatique sur ce seul signal —
+**sauf si une liveness ACTIVE a réellement été exécutée et validée pour la même capture (voir
+section suivante), auquel cas cet avertissement passif devient redondant** — voir
 [verification-checklist.md](verification-checklist.md#6-reconnaissance-faciale).
+
+## Détection de vivacité active
+
+Protocole de challenge-réponse à séquence d'actions aléatoire, conçu pour être robuste contre les
+attaques par présentation étudiées par l'ENISA (photo imprimée, écran rejoué, masque, deepfake
+pré-rendu) — voir `packages/emrtd-core/src/liveness/`.
+
+**Principe** : le serveur émet un challenge signé (HMAC-SHA256, `LivenessChallengeService`)
+contenant une séquence ALÉATOIRE de 2-3 actions parmi { clignement, rotation de tête à gauche/à
+droite, ouverture de bouche, sourire }, chacune assignée à une fenêtre temporelle précise et non
+chevauchante (`generateLivenessChallenge`, `packages/emrtd-core/src/liveness/challenge.ts`). Le
+mobile capture une série temporelle de coefficients de forme faciale (calqués sur les
+`ARFaceAnchor.blendShapes` d'ARKit) et la soumet ; le serveur revérifie systématiquement
+(`verifyLivenessResponse`, `packages/emrtd-core/src/liveness/verify.ts`) — **jamais de confiance
+en un booléen envoyé par le client**, même discipline que la vérification du MAC avant déchiffrement
+dans `nfc/bac.ts`. La vérification rejette : une action jamais détectée dans sa fenêtre, une action
+détectée hors de sa fenêtre assignée, une montée de coefficient instantanée (plus rapide qu'un
+clignement humain réel — signale une injection directe de valeur plutôt qu'un mouvement capturé),
+un minutage mécaniquement identique entre plusieurs actions (signal probable de génération
+synthétique), des horodatages non chronologiques, ou un challenge expiré.
+
+**Choix technologique côté capture — ARKit TrueDepth** : `ARFaceTrackingConfiguration`
+(iPhone X et ultérieurs) est la seule techno grand public qui produit une véritable carte de
+profondeur 3D du visage, ce qui élimine STRUCTURELLEMENT le rejeu d'une photo, d'une vidéo ou d'un
+deepfake pré-rendu affiché sur un écran plat (aucune carte de profondeur plausible n'en résulte) —
+une approche purement 2D (simple détection de landmarks sur une caméra RGB classique) ne peut pas
+offrir cette garantie et aurait été malhonnête à présenter comme "robuste contre le deepfake".
+
+**Périmètre honnête — ce que ce protocole protège, et ce qu'il NE protège PAS** : la combinaison
+"challenge imprévisible + preuve de profondeur 3D réelle" élimine le rejeu d'un contenu
+pré-enregistré ou pré-rendu (photo, vidéo, deepfake généré à l'avance). Elle ne prétend **pas**
+détecter un deepfake piloté en temps réel par un opérateur humain qui répondrait spontanément aux
+instructions à l'écran (scénario "deepfake en direct via un flux vidéo détourné", explicitement
+identifié par l'ENISA comme une menace distincte, plus coûteuse à monter mais réelle) — ce
+scénario nécessiterait des mesures complémentaires hors périmètre de ce protocole (attestation
+matérielle certifiée de bout en bout, détection d'anomalies du flux vidéo lui-même, revue humaine
+systématique pour les profils à risque élevé).
+
+**État d'implémentation** :
+- Génération/vérification du challenge : implémentées et testées en TypeScript pur, sans aucune
+  dépendance matérielle ou réseau (22 tests, `packages/emrtd-core/test/liveness{Challenge,Verify,Session}.test.ts`)
+  — même approche de test que le protocole BAC (voir `docs/roadmap.md` Phase 4).
+- Émission/vérification côté serveur : `apps/api` (`LivenessChallengeService`,
+  `POST /v1/verifications/liveness-challenge`, `VerificationProcessor`, anomalies
+  `ACTIVE_LIVENESS_CHALLENGE_INVALID`/`ACTIVE_LIVENESS_FAILED`) — implémentées et testées.
+- Orchestration côté mobile (émission du challenge, capture, soumission) :
+  `apps/mobile/src/screens/LivenessChallengeScreen.tsx`, branché dans `App.tsx`.
+- **Capture native ARKit elle-même : délibérément NON implémentée.** Contrairement à l'adaptateur
+  NFC (`isoDepHandler.transceive`, un passe-plat trivial autour de `react-native-nfc-manager`,
+  bibliothèque déjà installée et testée), la capture ARKit nécessite d'écrire un module natif
+  Swift complet (cycle de vie `ARSession`, délégué, threading, pont vers React Native) — impossible
+  à compiler ou exécuter dans cet environnement (pas de Xcode, pas de simulateur TrueDepth, pas
+  d'appareil physique confirmé, pas de compte Apple Developer payant). L'écrire à l'aveugle
+  produirait une fausse impression d'achèvement sur un mécanisme anti-fraude qui mérite mieux
+  qu'un code jamais vérifié. La spécification exacte de ce qu'il reste à construire (structure du
+  module natif, noms exacts des coefficients ARKit à extraire, convention d'horodatage) est
+  documentée dans `apps/mobile/src/liveness/faceLivenessSession.ts`. En attendant,
+  `createMockFaceLivenessSession` (`packages/emrtd-core`) permet de développer/tester tout le reste
+  du parcours (écran, protocole réseau, vérification serveur) sans matériel réel.
 
 ## Isolation et minimisation des données
 

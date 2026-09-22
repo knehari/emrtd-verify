@@ -2,15 +2,17 @@ import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Logger } from "@nestjs/common";
 import type { Job } from "bullmq";
 import type { Prisma } from "@prisma/client";
-import type { AnomalyFinding, FaceMatchResult, FieldCheck, VerificationResult } from "@emrtd-verify/shared-types";
+import type { ActiveLivenessResult, AnomalyFinding, FaceMatchResult, FieldCheck, VerificationResult } from "@emrtd-verify/shared-types";
 import type { DocumentIdentity } from "@emrtd-verify/shared-types";
 import type { MrzFieldValidation } from "@emrtd-verify/emrtd-core";
+import { verifyLivenessResponse } from "@emrtd-verify/emrtd-core";
 import { PrismaService } from "../prisma/prisma.service";
 import { PkiTrustService } from "../pki/pki-trust.service";
 import { AnomalyDetectionService } from "../anomaly-detection/anomaly-detection.service";
 import { FaceMatchClient } from "../face-match/face-match.client";
 import { AuditService } from "../audit/audit.service";
 import { ResultSignerService } from "./result-signer.service";
+import { LivenessChallengeService } from "./liveness-challenge.service";
 import { MetricsService } from "../metrics/metrics.service";
 import { VerifiedPersonService } from "../verified-person/verified-person.service";
 import { DocumentStatusService } from "../document-status/document-status.service";
@@ -50,6 +52,7 @@ export class VerificationProcessor extends WorkerHost {
     private readonly metrics: MetricsService,
     private readonly verifiedPerson: VerifiedPersonService,
     private readonly documentStatus: DocumentStatusService,
+    private readonly livenessChallenge: LivenessChallengeService,
   ) {
     super();
   }
@@ -116,14 +119,44 @@ export class VerificationProcessor extends WorkerHost {
       }
     }
 
-    if (faceMatch?.livenessPassed) {
+    // Liveness ACTIVE (challenge-réponse à séquence d'actions aléatoire — voir
+    // packages/emrtd-core/src/liveness/ et docs/facial-recognition.md "Détection de vivacité
+    // active"). Toujours revérifiée ici, jamais faite confiance à un booléen envoyé par le mobile :
+    // même discipline que la vérification du MAC avant déchiffrement dans nfc/bac.ts.
+    let activeLiveness: ActiveLivenessResult | undefined;
+    if (dto.activeLiveness) {
+      if (!this.livenessChallenge.verifyChallengeIntegrity(dto.activeLiveness)) {
+        // Signature HMAC invalide : le challenge soumis ne correspond pas à celui émis par ce
+        // serveur (fenêtres temporelles/expiry potentiellement forgées) — signal de falsification
+        // sans ambiguïté, jamais une simple imperfection utilisateur.
+        anomalies.push({
+          code: "ACTIVE_LIVENESS_CHALLENGE_INVALID",
+          severity: "critical",
+          message: "Le challenge de liveness active soumis ne correspond pas à un challenge émis par ce serveur (signature invalide)",
+        });
+        activeLiveness = { performed: true, passed: false, method: "active_challenge_response" };
+      } else {
+        const livenessResult = verifyLivenessResponse(dto.activeLiveness.challenge, dto.activeLiveness.samples);
+        activeLiveness = { performed: true, passed: livenessResult.passed, method: "active_challenge_response" };
+        if (!livenessResult.passed) {
+          anomalies.push({
+            code: "ACTIVE_LIVENESS_FAILED",
+            severity: "warning",
+            message: `Challenge de liveness active échoué : ${livenessResult.reasons.join(", ") || "au moins une action non détectée dans sa fenêtre"}`,
+          });
+        }
+      }
+    }
+
+    if (faceMatch?.livenessPassed && !activeLiveness?.passed) {
       // services/face-match ne fait aujourd'hui QUE de la liveness passive (résolution, netteté,
       // unicité du visage) — pas de détection anti-spoofing forte contre photo/rejeu/masque/
       // deepfake (voir docs/facial-recognition.md "Détection de vivacité — périmètre honnête").
       // Un `livenessPassed: true` de ce module ne doit donc jamais, à lui seul, contribuer à un
       // verdict "authentic" automatisé : le traiter comme contrôle de qualité seulement, en
-      // dégradant systématiquement vers "suspicious" (revue possible), jusqu'à ce qu'une liveness
-      // active soit implémentée (voir docs/roadmap.md).
+      // dégradant systématiquement vers "suspicious" (revue possible) — SAUF si une liveness
+      // active a réellement été exécutée et validée pour ce même live capture, auquel cas cette
+      // preuve plus forte rend l'avertissement redondant.
       anomalies.push({
         code: "LIVENESS_PASSIVE_ONLY",
         severity: "warning",
@@ -137,7 +170,7 @@ export class VerificationProcessor extends WorkerHost {
       decoded.mrzValidation.dateOfBirthValid &&
       decoded.mrzValidation.dateOfExpiryValid;
 
-    const verdict = computeVerdict({ trustChain, anomalies, faceMatch, allFieldChecksValid });
+    const verdict = computeVerdict({ trustChain, anomalies, faceMatch, activeLiveness, allFieldChecksValid });
     for (const anomaly of anomalies) {
       this.metrics.recordAnomaly(anomaly.code, anomaly.severity);
     }
@@ -157,6 +190,7 @@ export class VerificationProcessor extends WorkerHost {
       },
       trustChain,
       faceMatch,
+      activeLiveness,
       anomalies,
       verifiedAt: new Date().toISOString(),
     };

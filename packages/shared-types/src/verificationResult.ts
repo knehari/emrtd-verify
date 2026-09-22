@@ -33,6 +33,19 @@ export interface FaceMatchResult {
   qualityWarnings: string[];
 }
 
+/**
+ * Résultat de la liveness ACTIVE (challenge-réponse à séquence d'actions aléatoire, voir
+ * packages/emrtd-core/src/liveness/ et docs/facial-recognition.md) — distincte de
+ * `FaceMatchResult.livenessPassed` qui reste une heuristique passive sur une seule image.
+ * `performed: false` signifie qu'aucune réponse n'a été soumise (mobile non mis à jour, refus
+ * utilisateur, etc.) — ne jamais interpréter l'absence comme un succès implicite.
+ */
+export interface ActiveLivenessResult {
+  performed: boolean;
+  passed: boolean;
+  method: "active_challenge_response";
+}
+
 export type AnomalySeverity = "info" | "warning" | "critical";
 
 export interface AnomalyFinding {
@@ -52,6 +65,7 @@ export interface VerificationResult {
   };
   trustChain: TrustChainResult;
   faceMatch?: FaceMatchResult;
+  activeLiveness?: ActiveLivenessResult;
   anomalies: AnomalyFinding[];
   verifiedAt: string; // ISO 8601
   /** Signature du résultat par la plateforme (voir docs/kyc-integration.md). */

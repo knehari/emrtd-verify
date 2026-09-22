@@ -3,6 +3,7 @@ import type { FastifyRequest } from "fastify";
 import { KycApiKeyGuard } from "../kyc/kyc-api-key.guard";
 import { VerificationService } from "./verification.service";
 import { ResultSignerService } from "./result-signer.service";
+import { LivenessChallengeService } from "./liveness-challenge.service";
 import { SubmitVerificationDto } from "./dto/submit-verification.dto";
 
 /**
@@ -16,6 +17,7 @@ export class VerificationController {
   constructor(
     private readonly verificationService: VerificationService,
     private readonly resultSigner: ResultSignerService,
+    private readonly livenessChallenge: LivenessChallengeService,
   ) {}
 
   @Post()
@@ -23,6 +25,19 @@ export class VerificationController {
   submit(@Body() dto: SubmitVerificationDto, @Req() request: FastifyRequest) {
     // KycApiKeyGuard a déjà authentifié la requête et rempli request.kycClient.
     return this.verificationService.submit(dto, request.kycClient!);
+  }
+
+  /**
+   * Émet un challenge de liveness active signé (voir LivenessChallengeService et
+   * packages/emrtd-core/src/liveness/challenge.ts) — à appeler par le mobile juste avant de
+   * démarrer la capture (`FaceLivenessSession.start`), puis à renvoyer tel quel (avec la réponse
+   * capturée) dans `SubmitVerificationDto.activeLiveness`. Route statique déclarée AVANT
+   * `:verificationId` pour ne pas être interprétée comme un identifiant de vérification.
+   */
+  @Post("liveness-challenge")
+  @HttpCode(HttpStatus.OK)
+  issueLivenessChallenge() {
+    return this.livenessChallenge.issue();
   }
 
   /**

@@ -3,6 +3,7 @@ import { BullModule } from "@nestjs/bullmq";
 import { VerificationController } from "./verification.controller";
 import { VerificationService } from "./verification.service";
 import { ResultSignerService } from "./result-signer.service";
+import { LivenessChallengeService } from "./liveness-challenge.service";
 import { KycModule } from "../kyc/kyc.module";
 
 /**
@@ -17,7 +18,7 @@ import { KycModule } from "../kyc/kyc.module";
 @Module({
   imports: [BullModule.registerQueue({ name: "verification" }), KycModule],
   controllers: [VerificationController],
-  providers: [VerificationService, ResultSignerService],
-  exports: [VerificationService, ResultSignerService],
+  providers: [VerificationService, ResultSignerService, LivenessChallengeService],
+  exports: [VerificationService, ResultSignerService, LivenessChallengeService],
 })
 export class VerificationModule {}

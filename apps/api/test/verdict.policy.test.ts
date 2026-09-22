@@ -72,4 +72,37 @@ describe("computeVerdict", () => {
       }),
     ).toBe("manual_review_required");
   });
+
+  it("retourne manual_review_required si la liveness active a été tentée mais a échoué", () => {
+    expect(
+      computeVerdict({
+        trustChain: baseTrustChain,
+        anomalies: [{ code: "ACTIVE_LIVENESS_FAILED", severity: "warning", message: "x" }],
+        allFieldChecksValid: true,
+        activeLiveness: { performed: true, passed: false, method: "active_challenge_response" },
+      }),
+    ).toBe("manual_review_required");
+  });
+
+  it("retourne authentic quand la liveness active a été tentée et validée (tout le reste valide)", () => {
+    expect(
+      computeVerdict({
+        trustChain: baseTrustChain,
+        anomalies: [],
+        allFieldChecksValid: true,
+        activeLiveness: { performed: true, passed: true, method: "active_challenge_response" },
+      }),
+    ).toBe("authentic");
+  });
+
+  it("l'absence de liveness active (non tentée) ne dégrade pas le verdict à elle seule", () => {
+    expect(
+      computeVerdict({
+        trustChain: baseTrustChain,
+        anomalies: [],
+        allFieldChecksValid: true,
+        activeLiveness: undefined,
+      }),
+    ).toBe("authentic");
+  });
 });
