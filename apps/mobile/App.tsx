@@ -7,10 +7,10 @@ import React, { useState } from "react";
 import { SafeAreaView } from "react-native";
 import { ScanScreen } from "./src/screens/ScanScreen";
 import { LivenessChallengeScreen } from "./src/screens/LivenessChallengeScreen";
+import { appConfig } from "./src/config";
 
-// TODO(roadmap Phase 4) : sourcer depuis la configuration de build plutôt qu'en dur.
-const API_BASE_URL = "https://api.example.invalid";
-const API_KEY = "";
+const API_BASE_URL = appConfig.apiBaseUrl;
+const API_KEY = appConfig.apiKey;
 
 type Step = "scan" | "liveness";
 

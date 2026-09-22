@@ -9,6 +9,7 @@
  * voir packages/pki-trust/test/pkdLdif.test.ts pour la couverture avec des données synthétiques
  * (aucune donnée ICAO PKD réelle n'est committée dans ce dépôt).
  */
+import { base64ToBytes } from "@emrtd-verify/emrtd-core";
 
 export interface PkdLdifMasterListEntry {
   /** DN complet de l'entrée LDAP (utile pour le diagnostic/l'audit). */
@@ -104,7 +105,7 @@ export function parsePkdLdifMasterLists(ldifText: string): PkdLdifMasterListEntr
     entries.push({
       dn: rawEntry.dn,
       countryCode: countryMatch[1].toUpperCase(),
-      masterListCmsDer: new Uint8Array(Buffer.from(contentValues[0], "base64")),
+      masterListCmsDer: base64ToBytes(contentValues[0]),
     });
   }
 
