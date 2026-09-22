@@ -17,6 +17,16 @@
       "package": "com.authentik.mobile",
       "permissions": ["android.permission.NFC"]
     },
-    "plugins": ["react-native-nfc-manager"]
+    "plugins": [
+      "react-native-nfc-manager",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
+        }
+      ]
+    ]
   }
 }
