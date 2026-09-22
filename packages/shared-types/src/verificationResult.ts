@@ -46,6 +46,19 @@ export interface ActiveLivenessResult {
   method: "active_challenge_response";
 }
 
+/**
+ * Résumé de la vérification d'intégrité de l'application/l'appareil (App Attest iOS / Play
+ * Integrity Android) — voir docs/facial-recognition.md "Intégrité de l'application et de
+ * l'appareil". `verified: false` ne dégrade PAS le verdict à lui seul aujourd'hui (voir
+ * `DEVICE_ATTESTATION_NOT_VERIFIED`, anomalie de sévérité "info") : la vérification
+ * cryptographique réelle n'étant pas encore implémentée côté serveur, un `false` reflète
+ * honnêtement cet état actuel plutôt qu'un signal de fraude.
+ */
+export interface DeviceAttestationSummary {
+  platform: "ios" | "android";
+  verified: boolean;
+}
+
 export type AnomalySeverity = "info" | "warning" | "critical";
 
 export interface AnomalyFinding {
@@ -66,6 +79,7 @@ export interface VerificationResult {
   trustChain: TrustChainResult;
   faceMatch?: FaceMatchResult;
   activeLiveness?: ActiveLivenessResult;
+  deviceAttestation?: DeviceAttestationSummary;
   anomalies: AnomalyFinding[];
   verifiedAt: string; // ISO 8601
   /** Signature du résultat par la plateforme (voir docs/kyc-integration.md). */

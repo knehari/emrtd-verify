@@ -66,4 +66,25 @@ describe("generateLivenessChallenge", () => {
     const b = generateLivenessChallenge({ now: 0 });
     expect(a.nonce).not.toBe(b.nonce);
   });
+
+  it("n'inclut pas de lightSequence par défaut", () => {
+    const challenge = generateLivenessChallenge({ now: 0, randomBytes: deterministicRandomBytes([1, 2, 3]) });
+    expect(challenge.lightSequence).toBeUndefined();
+  });
+
+  it("requireLightChallenge produit une séquence de couleurs sans deux valeurs consécutives identiques", () => {
+    const challenge = generateLivenessChallenge({
+      now: 0,
+      stepCount: 3,
+      requireLightChallenge: true,
+      randomBytes: deterministicRandomBytes([0, 1, 2, 0, 0, 1, 2]),
+    });
+    expect(challenge.lightSequence).toBeDefined();
+    expect(challenge.lightSequence!.length).toBeGreaterThan(0);
+    for (let i = 1; i < challenge.lightSequence!.length; i++) {
+      const previous = challenge.lightSequence![i - 1].color;
+      const current = challenge.lightSequence![i].color;
+      expect(current).not.toEqual(previous);
+    }
+  });
 });

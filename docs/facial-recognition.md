@@ -81,11 +81,13 @@ systématique pour les profils à risque élevé).
 
 **État d'implémentation** :
 - Génération/vérification du challenge : implémentées et testées en TypeScript pur, sans aucune
-  dépendance matérielle ou réseau (22 tests, `packages/emrtd-core/test/liveness{Challenge,Verify,Session}.test.ts`)
-  — même approche de test que le protocole BAC (voir `docs/roadmap.md` Phase 4).
+  dépendance matérielle ou réseau (`packages/emrtd-core/test/liveness{Challenge,Verify,Session}.test.ts`,
+  `frameIntegrity.test.ts`, `sha256.test.ts`) — même approche de test que le protocole BAC (voir
+  `docs/roadmap.md` Phase 4).
 - Émission/vérification côté serveur : `apps/api` (`LivenessChallengeService`,
   `POST /v1/verifications/liveness-challenge`, `VerificationProcessor`, anomalies
-  `ACTIVE_LIVENESS_CHALLENGE_INVALID`/`ACTIVE_LIVENESS_FAILED`) — implémentées et testées.
+  `ACTIVE_LIVENESS_CHALLENGE_INVALID`/`ACTIVE_LIVENESS_FAILED`/`ACTIVE_LIVENESS_REPLAYED`) —
+  implémentées et testées.
 - Orchestration côté mobile (émission du challenge, capture, soumission) :
   `apps/mobile/src/screens/LivenessChallengeScreen.tsx`, branché dans `App.tsx`.
 - **Capture native ARKit elle-même : délibérément NON implémentée.** Contrairement à l'adaptateur
@@ -96,10 +98,93 @@ systématique pour les profils à risque élevé).
   d'appareil physique confirmé, pas de compte Apple Developer payant). L'écrire à l'aveugle
   produirait une fausse impression d'achèvement sur un mécanisme anti-fraude qui mérite mieux
   qu'un code jamais vérifié. La spécification exacte de ce qu'il reste à construire (structure du
-  module natif, noms exacts des coefficients ARKit à extraire, convention d'horodatage) est
-  documentée dans `apps/mobile/src/liveness/faceLivenessSession.ts`. En attendant,
-  `createMockFaceLivenessSession` (`packages/emrtd-core`) permet de développer/tester tout le reste
-  du parcours (écran, protocole réseau, vérification serveur) sans matériel réel.
+  module natif, noms exacts des coefficients ARKit à extraire, convention d'horodatage, chaînage
+  des frames, canal lumineux) est documentée dans `apps/mobile/src/liveness/faceLivenessSession.ts`.
+  En attendant, `createMockFaceLivenessSession` (`packages/emrtd-core`) permet de développer/tester
+  tout le reste du parcours (écran, protocole réseau, vérification serveur) sans matériel réel.
+
+## Sécurisation du flux caméra contre l'injection — priorité selon l'ENISA/OWASP MASVS
+
+Un excellent algorithme d'analyse faciale ne sert à rien si l'attaquant peut injecter une vidéo
+synthétique directement dans le flux traité par l'application (caméra virtuelle, appareil
+rooté/jailbreaké, instrumentation dynamique type Frida, hook de l'API caméra, émulateur,
+remplacement des frames après capture). Ce périmètre est traité en plusieurs contre-mesures
+indépendantes, chacune avec un état d'implémentation honnête distinct :
+
+- **Continuité de la séquence de frames** — `packages/emrtd-core/src/liveness/frameIntegrity.ts` :
+  chaque frame capturée est chaînée cryptographiquement à la précédente (SHA-256, même principe
+  que le compteur SSC de la messagerie sécurisée BAC, voir `nfc/secureMessaging.ts`), et la
+  première frame est liée au nonce du challenge lui-même (`genesisHash`). Le serveur revérifie
+  systématiquement cette chaîne (`verifyFrameChain`, intégrée dans `verifyLivenessResponse`) :
+  toute frame substituée, réordonnée, dupliquée ou manquante après coup casse la chaîne dès ce
+  point — un attaquant qui veut injecter une frame synthétique au milieu du flux doit recalculer
+  tout le reste de la chaîne. **Implémenté et testé** (`test/frameIntegrity.test.ts`, 9 tests).
+  Limite honnête : ce hash-chaînage est calculé côté client, sur des données qu'un attaquant qui
+  compromet totalement l'application contrôle in fine — il ne prouve donc pas à lui seul qu'une
+  frame provient physiquement du capteur ; combiné à la brièveté de la session
+  (`LivenessChallenge.expiresAt`) et à l'attestation d'intégrité ci-dessous, il élève
+  significativement le coût d'une injection sans l'éliminer structurellement.
+- **Protection contre le rejeu du challenge** — `apps/api` `LivenessReplayGuardService` : chaque
+  nonce de challenge ne peut être consommé qu'une seule fois, via une contrainte de clé primaire
+  Postgres (table `consumed_liveness_challenges`, migration réelle appliquée et vérifiée contre
+  une instance Postgres locale). Une tentative de rejeu (même challenge, même signature, soumis
+  deux fois) produit l'anomalie critique `ACTIVE_LIVENESS_REPLAYED`. **Implémenté et testé**
+  (mocks + smoke test direct contre Postgres démontrant la violation de contrainte P2002).
+- **Durée de vie courte de la session** — chaque challenge expire peu après la fin de sa dernière
+  fenêtre d'action (`SUBMISSION_GRACE_PERIOD_MS`, `challenge.ts`), et toute soumission après
+  `expiresAt` est rejetée (`challenge_expired`). **Implémenté et testé.**
+- **Attestation d'intégrité de l'application/l'appareil (App Attest iOS / Play Integrity
+  Android)** — `apps/api` `DeviceAttestationService` : interface pluggable et testée qui reçoit un
+  jeton d'attestation et un nonce attendu, mais **ne réalise PAS la vérification cryptographique
+  réelle** (`verified` reste toujours `false`, anomalie `DEVICE_ATTESTATION_NOT_VERIFIED` de
+  sévérité "info", jamais interprétée comme un signal de fraude tant que la vérification réelle
+  n'existe pas). Une vérification réelle nécessiterait soit le certificat racine "Apple App
+  Attestation Root CA" — jamais reconstruit de mémoire sans l'avoir confirmé byte-exact contre
+  developer.apple.com, même discipline que `config/master-list-signer-trust-anchors.json` (vide
+  par conception, voir `docs/pki-trust-model.md`) — soit un appel à l'API Google Play Integrity ou
+  la récupération de son JWKS (accès réseau requis, même limite que la synchronisation CSCA/PKD,
+  voir `docs/roadmap.md` Phase 6). La spécification exacte de ce qui reste à construire est
+  documentée dans `device-attestation.service.ts`.
+- **Détection root/jailbreak/hooking/émulation, acquisition caméra native uniquement (jamais
+  depuis la galerie)** — non implémentées : ce sont des contrôles côté application mobile native
+  (détection au niveau OS/binaire) hors du périmètre de ce qui peut être écrit et vérifié dans cet
+  environnement sans appareil physique, même raison que la capture ARKit ci-dessus.
+
+## Techniques explicitement hors périmètre de cette implémentation
+
+Les techniques suivantes, mentionnées dans les bonnes pratiques 2026 de détection de deepfake pour
+la vérification d'identité mobile, nécessitent des modèles de machine learning entraînés, des jeux
+de données calibrés, ou une infrastructure live que ce projet n'a pas — les inclure sans un modèle
+réel et une évaluation indépendante des biais serait aussi malhonnête que d'avoir prétendu, plus
+tôt, qu'une simple analyse 2D "protège contre le deepfake" :
+
+- **Reconstruction 3D/cohérence géométrique multi-frames, détection spatio-temporelle par modèle
+  vidéo (dérive des traits faciaux, analyse fréquentielle temporelle)** — nécessite un modèle
+  entraîné (ex. adaptation de CLIP, modèles fondamentaux faciaux CVPR 2025) et une évaluation
+  indépendante de sa dégradation face à de nouveaux générateurs/appareils, absents ici. Le canal
+  challenge lumineux (ci-dessus) et le hash-chaînage des frames couvrent une partie de ce que ces
+  modèles ciblent (cohérence temporelle) par une approche protocolaire plutôt que par apprentissage.
+- **Signaux physiologiques (rPPG — photopléthysmographie distante)** — nécessite un pipeline de
+  traitement du signal calibré et une mesure explicite des biais démographiques/faux rejets avant
+  toute utilisation en production (variations connues selon le générateur, la lumière, la couleur
+  de peau, la qualité de caméra) ; non implémenté.
+- **Cohérence audio-lèvres-environnement (synchronisation phonème-visème, détection de synthèse
+  vocale)** — nécessite un pipeline audio complet (capture, transcription, analyse spectrale) non
+  construit ici ; le protocole actuel n'implique aucune capture audio.
+- **Suivi oculaire d'un point animé, rapprochement/éloignement du téléphone** — variantes
+  d'actions supplémentaires pour le canal de liveness active, non ajoutées à `LIVENESS_ACTION_TYPES`
+  faute de pouvoir les tester sur un appareil réel (suivi de trajectoire, mesure de distance) ; le
+  jeu d'actions actuel (clignement, rotation de tête, ouverture de bouche, sourire) reste
+  extensible sans changement d'architecture si elles sont ajoutées plus tard.
+
+**Liaison avec le document eMRTD** (déjà implémentée, voir la section Pipeline ci-dessus) : le
+parcours compare déjà la capture live à la photo DG2 signée extraite de la puce
+(`FaceMatchClient.compare`), pas seulement à une photo prise du document — c'est l'avantage que
+l'architecture eMRTD Verify a par construction sur un KYC ne lisant pas la puce.
+
+**Évaluation formelle (ISO/IEC 30107-3, campagne d'attaques par injection dédiée)** : non menée —
+nécessite un laboratoire de test biométrique indépendant, hors périmètre de ce dépôt de code (même
+limite que l'audit de qualification PVID, voir `docs/pvid-compliance.md`).
 
 ## Isolation et minimisation des données
 

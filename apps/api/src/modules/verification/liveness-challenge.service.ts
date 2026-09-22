@@ -2,17 +2,21 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { canonicalJsonStringify, generateLivenessChallenge, type LivenessChallenge } from "@emrtd-verify/emrtd-core";
+import type { TrustLevel } from "../kyc/kyc-client.service";
+
+/** Nombre d'actions pour un client dont la politique de risque accepte le niveau "low" — la plupart des clients KYC. */
+const RELAXED_STEP_COUNT = 3;
+/** Nombre d'actions + challenge lumineux requis pour un client dont la politique de risque exige "medium"/"high" uniquement — la variante la plus stricte du protocole (voir docs/facial-recognition.md "Détection de vivacité active"). */
+const STRICT_STEP_COUNT = 4;
 
 export interface SignedLivenessChallenge {
   challenge: LivenessChallenge;
   /** HMAC-SHA256 hexadécimal du challenge, calculé avec le secret serveur — empêche un client de
    * forger ses propres fenêtres temporelles/expiry avant de soumettre sa réponse (voir verify()).
-   * Stateless par conception (pas de stockage Redis/DB du challenge émis) : la propriété de
-   * sécurité vérifiée est "ce challenge est bien celui émis par ce serveur, non modifié", pas
-   * l'usage unique (single-use) du nonce — une protection anti-rejeu par nonce nécessiterait un
-   * cache partagé multi-instance, non implémenté ici (même limite honnête que
-   * docs/pvid-compliance.md pour la CRL/PKD : pas construit à l'aveugle sans le composant
-   * d'infrastructure partagée réel pour le vérifier). */
+   * La propriété de sécurité vérifiée ICI est "ce challenge est bien celui émis par ce serveur, non
+   * modifié" — l'usage unique (single-use) du nonce est une propriété DISTINCTE, désormais vérifiée
+   * séparément par `LivenessReplayGuardService` (table Postgres `ConsumedLivenessChallenge`), pas
+   * par ce service. */
   signature: string;
 }
 
@@ -30,8 +34,21 @@ export class LivenessChallengeService {
 
   constructor(private readonly config: ConfigService) {}
 
-  issue(): SignedLivenessChallenge {
-    const challenge = generateLivenessChallenge();
+  /**
+   * `acceptedTrustLevels` (politique de risque du client KYC appelant, voir
+   * `AuthenticatedKycClient`/`request.kycClient`) module la difficulté du challenge : un client qui
+   * n'accepte PAS le niveau "low" (politique de risque stricte) reçoit davantage d'actions ET le
+   * canal challenge lumineux, un client plus permissif reçoit la variante par défaut. Un client
+   * anonyme (`acceptedTrustLevels` omis) reçoit la variante par défaut — jamais la plus stricte par
+   * défaut, pour ne pas bloquer silencieusement un appelant qui n'a pas encore cette information.
+   */
+  issue(acceptedTrustLevels?: TrustLevel[]): SignedLivenessChallenge {
+    const requiresStrictPolicy = acceptedTrustLevels !== undefined && !acceptedTrustLevels.includes("low");
+    const challenge = generateLivenessChallenge(
+      requiresStrictPolicy
+        ? { stepCount: STRICT_STEP_COUNT, requireLightChallenge: true }
+        : { stepCount: RELAXED_STEP_COUNT },
+    );
     return { challenge, signature: this.sign(challenge) };
   }
 

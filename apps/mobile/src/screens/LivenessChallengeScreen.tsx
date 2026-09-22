@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from "react";
 import { Button, StyleSheet, Text, View } from "react-native";
-import type { LivenessActionType, LivenessChallenge, LivenessSignalFrame } from "@emrtd-verify/emrtd-core";
+import type { LightSignalSample, LivenessActionType, LivenessChallenge, LivenessSignalFrame } from "@emrtd-verify/emrtd-core";
 import { FaceLivenessSessionUnavailableError, createFaceLivenessSession, type FaceLivenessSession } from "../liveness/faceLivenessSession";
 
 /** Exactement la forme attendue par `ActiveLivenessResponseDto` côté apps/api (voir SubmitVerificationDto.activeLiveness). */
@@ -8,6 +8,8 @@ export interface ActiveLivenessSubmission {
   challenge: LivenessChallenge;
   signature: string;
   samples: LivenessSignalFrame[];
+  /** Présent uniquement si `challenge.lightSequence` a été émis — voir verifyLightChallenge (packages/emrtd-core). */
+  lightSamples?: LightSignalSample[];
 }
 
 interface SignedChallengeResponse {
@@ -77,10 +79,10 @@ export function LivenessChallengeScreen({ apiBaseUrl, apiKey, onComplete, onSkip
       await session.start(signed.challenge);
       const totalDurationMs = signed.challenge.steps.length > 0 ? signed.challenge.steps[signed.challenge.steps.length - 1].windowEndMs : 0;
       await new Promise((resolve) => setTimeout(resolve, totalDurationMs));
-      const samples = await session.stop();
+      const { samples, lightSamples } = await session.stop();
 
       setStatus("submitting");
-      onComplete({ challenge: signed.challenge, signature: signed.signature, samples });
+      onComplete({ challenge: signed.challenge, signature: signed.signature, samples, lightSamples });
       setStatus("idle");
     } catch (error) {
       setStatus("error");

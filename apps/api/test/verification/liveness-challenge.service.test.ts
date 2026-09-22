@@ -59,4 +59,32 @@ describe("LivenessChallengeService", () => {
     const signed = service.issue();
     expect(service.verifyChallengeIntegrity(signed)).toBe(true);
   });
+
+  it("émet la variante par défaut (3 actions, pas de challenge lumineux) quand aucune politique de risque n'est fournie", () => {
+    const service = new LivenessChallengeService(configWith({ LIVENESS_CHALLENGE_SIGNING_SECRET: "test-secret" }));
+    const signed = service.issue();
+    expect(signed.challenge.steps).toHaveLength(3);
+    expect(signed.challenge.lightSequence).toBeUndefined();
+  });
+
+  it("émet la variante par défaut quand la politique de risque accepte le niveau low", () => {
+    const service = new LivenessChallengeService(configWith({ LIVENESS_CHALLENGE_SIGNING_SECRET: "test-secret" }));
+    const signed = service.issue(["high", "medium", "low"]);
+    expect(signed.challenge.steps).toHaveLength(3);
+    expect(signed.challenge.lightSequence).toBeUndefined();
+  });
+
+  it("émet la variante stricte (4 actions + challenge lumineux) quand la politique de risque n'accepte PAS le niveau low", () => {
+    const service = new LivenessChallengeService(configWith({ LIVENESS_CHALLENGE_SIGNING_SECRET: "test-secret" }));
+    const signed = service.issue(["high"]);
+    expect(signed.challenge.steps).toHaveLength(4);
+    expect(signed.challenge.lightSequence).toBeDefined();
+    expect(signed.challenge.lightSequence!.length).toBeGreaterThan(0);
+  });
+
+  it("une signature émise pour la variante stricte reste vérifiable normalement", () => {
+    const service = new LivenessChallengeService(configWith({ LIVENESS_CHALLENGE_SIGNING_SECRET: "test-secret" }));
+    const signed = service.issue(["high"]);
+    expect(service.verifyChallengeIntegrity(signed)).toBe(true);
+  });
 });

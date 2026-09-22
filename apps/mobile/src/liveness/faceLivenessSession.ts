@@ -35,9 +35,19 @@ import { FaceLivenessSessionUnavailableError, createMockFaceLivenessSession, typ
  * 3. Émettre chaque échantillon vers JS via un événement natif (`NativeEventEmitter` ou Turbo
  *    Module), horodaté en epoch ms (`Date().timeIntervalSince1970 * 1000`, PAS le temps ARKit
  *    relatif à la session) pour rester comparable aux fenêtres de `LivenessChallenge`.
- * 4. Adapter cette fonction pour retourner un objet conforme à `FaceLivenessSession` construit
+ * 4. Chaîner chaque frame AVANT de l'envoyer à JS : `frameIndex` séquentiel depuis 0,
+ *    `frameHash` calculé via `computeFrameHash`/`chainFrames` (packages/emrtd-core/src/liveness/
+ *    frameIntegrity.ts) — jamais laissés à une valeur arbitraire côté natif, voir la doc de
+ *    `FaceLivenessSession.onSample` (session.ts). Le module natif doit conserver le hash de la
+ *    frame précédente en mémoire (état de session) pour calculer celui de la suivante.
+ * 5. Si `challenge.lightSequence` est présent (voir `LivenessChallenge.lightSequence`, canal
+ *    indépendant du challenge lumineux) : échantillonner la couleur perçue/reflétée (ex. zone
+ *    peau/yeux du buffer caméra) en synchronisation avec les changements d'écran pilotés par
+ *    `LightChallengeStep.atMs`, et l'émettre via `onLightSample` (`LightSignalSample`,
+ *    `perceivedColor` en composantes [0, 1] mêmes conventions que `LightChallengeStep.color`).
+ * 6. Adapter cette fonction pour retourner un objet conforme à `FaceLivenessSession` construit
  *    sur ce module natif, au lieu de lever `FaceLivenessSessionUnavailableError`.
- * 5. Validation en conditions réelles sur un iPhone X+ physique AVANT tout déploiement — aucune
+ * 7. Validation en conditions réelles sur un iPhone X+ physique AVANT tout déploiement — aucune
  *    des étapes ci-dessus n'est vérifiable sans matériel réel.
  */
 export function createFaceLivenessSession(): FaceLivenessSession {

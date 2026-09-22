@@ -36,8 +36,10 @@ export class VerificationController {
    */
   @Post("liveness-challenge")
   @HttpCode(HttpStatus.OK)
-  issueLivenessChallenge() {
-    return this.livenessChallenge.issue();
+  issueLivenessChallenge(@Req() request: FastifyRequest) {
+    // La difficulté du challenge s'adapte à la politique de risque du client KYC appelant (voir
+    // LivenessChallengeService.issue) — jamais devinée côté mobile.
+    return this.livenessChallenge.issue(request.kycClient!.acceptedTrustLevels);
   }
 
   /**

@@ -1,10 +1,12 @@
-import type { LivenessActionType, LivenessChallenge, LivenessChallengeStep } from "./types";
+import type { LivenessActionType, LivenessChallenge, LivenessChallengeStep, LightChallengeStep } from "./types";
 import { LIVENESS_ACTION_TYPES } from "./types";
 
 export interface GenerateLivenessChallengeOptions {
   now?: number;
   /** Nombre d'actions demandées (2-5, bornées par la taille de LIVENESS_ACTION_TYPES). Par défaut 3 : un compromis entre robustesse (plus d'actions = plus difficile à deviner/rejouer) et durée d'expérience utilisateur. */
   stepCount?: number;
+  /** Ajoute un canal indépendant de challenge lumineux (voir verifyLightChallenge, verify.ts) — recommandé pour les politiques de risque élevées (voir apps/api `LivenessChallengeService`, adapté au risque client). Par défaut désactivé : nécessite un contrôle de l'écran ET une lecture de la lumière perçue côté capture, non disponible tant que le module natif ARKit n'est pas écrit (voir apps/mobile/src/liveness/faceLivenessSession.ts). */
+  requireLightChallenge?: boolean;
   /** Source d'aléa injectable — permet des tests déterministes et reste portable React Native (voir defaultRandomBytes ci-dessous, même contrainte que nfc/bac.ts `generateRandomBytes`). */
   randomBytes?: (length: number) => Uint8Array;
 }
@@ -47,6 +49,36 @@ function pickDistinctActions(count: number, randomBytes: (length: number) => Uin
   return picked;
 }
 
+// Intervalle entre deux changements de couleur : ~0.67 Hz, largement sous le seuil de 3 Hz cité par
+// les recommandations de sécurité visuelle pour le contenu clignotant (WCAG 2.3.1). Intensité
+// modérée (0.85, pas 1.0) plutôt qu'un plein blanc/couleur pure — confort visuel, pas un flash.
+const LIGHT_STEP_INTERVAL_MS = 1500;
+const LIGHT_STEP_INTENSITY = 0.85;
+const LIGHT_STEP_LOW_CHANNEL = 0.05;
+const LIGHT_COLOR_PALETTE: ReadonlyArray<{ r: number; g: number; b: number }> = [
+  { r: LIGHT_STEP_INTENSITY, g: LIGHT_STEP_LOW_CHANNEL, b: LIGHT_STEP_LOW_CHANNEL }, // rouge
+  { r: LIGHT_STEP_LOW_CHANNEL, g: LIGHT_STEP_INTENSITY, b: LIGHT_STEP_LOW_CHANNEL }, // vert
+  { r: LIGHT_STEP_LOW_CHANNEL, g: LIGHT_STEP_LOW_CHANNEL, b: LIGHT_STEP_INTENSITY }, // bleu
+  { r: LIGHT_STEP_INTENSITY, g: LIGHT_STEP_INTENSITY, b: LIGHT_STEP_LOW_CHANNEL }, // jaune
+  { r: LIGHT_STEP_INTENSITY, g: LIGHT_STEP_LOW_CHANNEL, b: LIGHT_STEP_INTENSITY }, // magenta
+  { r: LIGHT_STEP_LOW_CHANNEL, g: LIGHT_STEP_INTENSITY, b: LIGHT_STEP_INTENSITY }, // cyan
+];
+
+/** Séquence de couleurs aléatoire et imprévisible, indépendante des fenêtres d'action — voir `LightChallengeStep`. Jamais deux couleurs consécutives identiques (garantit une variation mesurable, voir verify.ts "light_challenge_perceived_color_static"). */
+function generateLightSequence(totalDurationMs: number, randomBytes: (length: number) => Uint8Array): LightChallengeStep[] {
+  const steps: LightChallengeStep[] = [];
+  let previousColorIndex = -1;
+  for (let atMs = 0; atMs <= totalDurationMs; atMs += LIGHT_STEP_INTERVAL_MS) {
+    let colorIndex = randomBytes(1)[0] % LIGHT_COLOR_PALETTE.length;
+    if (colorIndex === previousColorIndex) {
+      colorIndex = (colorIndex + 1) % LIGHT_COLOR_PALETTE.length;
+    }
+    steps.push({ atMs, color: LIGHT_COLOR_PALETTE[colorIndex] });
+    previousColorIndex = colorIndex;
+  }
+  return steps;
+}
+
 /**
  * Génère un challenge de liveness active : une séquence ALÉATOIRE et IMPRÉVISIBLE d'actions
  * (clignement, rotation de tête, ouverture de bouche, sourire), chacune assignée à une fenêtre
@@ -78,6 +110,7 @@ export function generateLivenessChallenge(options: GenerateLivenessChallengeOpti
   return {
     nonce: bytesToHex(randomBytes(16)),
     steps,
+    lightSequence: options.requireLightChallenge ? generateLightSequence(totalDurationMs, randomBytes) : undefined,
     issuedAt: now,
     expiresAt: now + totalDurationMs + SUBMISSION_GRACE_PERIOD_MS,
   };

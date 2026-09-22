@@ -2,6 +2,7 @@ import { Type } from "class-transformer";
 import { IsArray, IsBase64, IsEnum, IsOptional, IsString, ValidateNested } from "class-validator";
 import type { DocumentType } from "@emrtd-verify/shared-types";
 import { ActiveLivenessResponseDto } from "./active-liveness-response.dto";
+import { DeviceAttestationRequestDto } from "./device-attestation-request.dto";
 
 export class SubmitVerificationDto {
   @IsEnum(["eID", "ePassport", "eResidenceCard"])
@@ -24,4 +25,10 @@ export class SubmitVerificationDto {
   @ValidateNested()
   @Type(() => ActiveLivenessResponseDto)
   activeLiveness?: ActiveLivenessResponseDto;
+
+  /** Attestation d'intégrité de l'application/l'appareil (App Attest iOS / Play Integrity Android) — voir DeviceAttestationService pour ce qui est réellement vérifié aujourd'hui. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DeviceAttestationRequestDto)
+  deviceAttestation?: DeviceAttestationRequestDto;
 }

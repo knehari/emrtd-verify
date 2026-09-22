@@ -3,6 +3,8 @@ import { BullModule } from "@nestjs/bullmq";
 import { VerificationProcessor } from "./verification.processor";
 import { ResultSignerService } from "./result-signer.service";
 import { LivenessChallengeService } from "./liveness-challenge.service";
+import { LivenessReplayGuardService } from "./liveness-replay-guard.service";
+import { DeviceAttestationService } from "./device-attestation.service";
 import { AnomalyDetectionService } from "../anomaly-detection/anomaly-detection.service";
 import { FaceMatchClient } from "../face-match/face-match.client";
 import { PkiTrustModule } from "../pki/pki-trust.module";
@@ -22,6 +24,14 @@ import { DocumentStatusModule } from "../document-status/document-status.module"
  */
 @Module({
   imports: [BullModule.registerQueue({ name: "verification" }), PkiTrustModule, AuditModule, MetricsModule, VerifiedPersonModule, DocumentStatusModule],
-  providers: [VerificationProcessor, AnomalyDetectionService, FaceMatchClient, ResultSignerService, LivenessChallengeService],
+  providers: [
+    VerificationProcessor,
+    AnomalyDetectionService,
+    FaceMatchClient,
+    ResultSignerService,
+    LivenessChallengeService,
+    LivenessReplayGuardService,
+    DeviceAttestationService,
+  ],
 })
 export class VerificationWorkerModule {}

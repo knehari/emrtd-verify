@@ -340,3 +340,21 @@ model VerifiedPerson {
   @@index([kycClientId, status])
   @@map("verified_persons")
 }
+
+/// Empêche la réutilisation d'un même challenge de liveness active (nonce) — condition de sécurité
+/// DISTINCTE de l'intégrité HMAC du challenge (LivenessChallengeService.verifyChallengeIntegrity) :
+/// un challenge signé authentique mais déjà consommé (rejeu d'une réponse précédemment soumise,
+/// même si elle avait échoué) doit être rejeté. `nonce` en clé primaire rend la consommation
+/// atomique (violation de contrainte unique = déjà consommé, voir LivenessReplayGuardService) sans
+/// verrou explicite. Minimisation : seul le nonce est stocké, jamais le contenu du challenge ni la
+/// réponse (biométrie) — voir docs/facial-recognition.md.
+model ConsumedLivenessChallenge {
+  nonce      String   @id
+  consumedAt DateTime @default(now())
+  /// Recopié depuis LivenessChallenge.expiresAt au moment de la consommation — permet une purge
+  /// périodique des entrées obsolètes sans avoir à reparser le challenge d'origine.
+  expiresAt  DateTime
+
+  @@index([expiresAt])
+  @@map("consumed_liveness_challenges")
+}

@@ -2,7 +2,14 @@ import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Logger } from "@nestjs/common";
 import type { Job } from "bullmq";
 import type { Prisma } from "@prisma/client";
-import type { ActiveLivenessResult, AnomalyFinding, FaceMatchResult, FieldCheck, VerificationResult } from "@emrtd-verify/shared-types";
+import type {
+  ActiveLivenessResult,
+  AnomalyFinding,
+  DeviceAttestationSummary,
+  FaceMatchResult,
+  FieldCheck,
+  VerificationResult,
+} from "@emrtd-verify/shared-types";
 import type { DocumentIdentity } from "@emrtd-verify/shared-types";
 import type { MrzFieldValidation } from "@emrtd-verify/emrtd-core";
 import { verifyLivenessResponse } from "@emrtd-verify/emrtd-core";
@@ -13,6 +20,8 @@ import { FaceMatchClient } from "../face-match/face-match.client";
 import { AuditService } from "../audit/audit.service";
 import { ResultSignerService } from "./result-signer.service";
 import { LivenessChallengeService } from "./liveness-challenge.service";
+import { LivenessReplayGuardService } from "./liveness-replay-guard.service";
+import { DeviceAttestationService } from "./device-attestation.service";
 import { MetricsService } from "../metrics/metrics.service";
 import { VerifiedPersonService } from "../verified-person/verified-person.service";
 import { DocumentStatusService } from "../document-status/document-status.service";
@@ -53,6 +62,8 @@ export class VerificationProcessor extends WorkerHost {
     private readonly verifiedPerson: VerifiedPersonService,
     private readonly documentStatus: DocumentStatusService,
     private readonly livenessChallenge: LivenessChallengeService,
+    private readonly livenessReplayGuard: LivenessReplayGuardService,
+    private readonly deviceAttestation: DeviceAttestationService,
   ) {
     super();
   }
@@ -135,8 +146,25 @@ export class VerificationProcessor extends WorkerHost {
           message: "Le challenge de liveness active soumis ne correspond pas à un challenge émis par ce serveur (signature invalide)",
         });
         activeLiveness = { performed: true, passed: false, method: "active_challenge_response" };
+      } else if (
+        !(await this.livenessReplayGuard.tryConsume(
+          dto.activeLiveness.challenge.nonce,
+          new Date(dto.activeLiveness.challenge.expiresAt),
+        ))
+      ) {
+        // Nonce déjà consommé : ce challenge (pourtant signé authentique) a déjà servi pour une
+        // soumission précédente — rejeu sans ambiguïté, distinct d'une falsification du contenu.
+        anomalies.push({
+          code: "ACTIVE_LIVENESS_REPLAYED",
+          severity: "critical",
+          message: "Ce challenge de liveness active a déjà été soumis (rejeu détecté)",
+        });
+        activeLiveness = { performed: true, passed: false, method: "active_challenge_response" };
       } else {
-        const livenessResult = verifyLivenessResponse(dto.activeLiveness.challenge, dto.activeLiveness.samples);
+        const livenessResult = verifyLivenessResponse(dto.activeLiveness.challenge, {
+          samples: dto.activeLiveness.samples,
+          lightSamples: dto.activeLiveness.lightSamples,
+        });
         activeLiveness = { performed: true, passed: livenessResult.passed, method: "active_challenge_response" };
         if (!livenessResult.passed) {
           anomalies.push({
@@ -145,6 +173,26 @@ export class VerificationProcessor extends WorkerHost {
             message: `Challenge de liveness active échoué : ${livenessResult.reasons.join(", ") || "au moins une action non détectée dans sa fenêtre"}`,
           });
         }
+      }
+    }
+
+    // Intégrité de l'application/l'appareil (App Attest iOS / Play Integrity Android) — voir
+    // DeviceAttestationService. Signal complémentaire, jamais décisif à lui seul aujourd'hui : la
+    // vérification cryptographique réelle (chaîne de certificats Apple / clés publiques Google)
+    // n'est pas implémentée dans cet environnement (voir la documentation de ce service), donc
+    // `verified` y est toujours `false` — traité comme "non vérifié" (sévérité info, n'affecte pas
+    // le verdict), jamais comme un signal de fraude actif tant que la vérification réelle n'existe
+    // pas. Ne jamais confondre "non vérifié" et "verdict dégradé" ici.
+    let deviceAttestation: DeviceAttestationSummary | undefined;
+    if (dto.deviceAttestation) {
+      const attestationResult = await this.deviceAttestation.verify(dto.deviceAttestation);
+      deviceAttestation = { platform: attestationResult.platform, verified: attestationResult.verified };
+      if (!attestationResult.verified) {
+        anomalies.push({
+          code: "DEVICE_ATTESTATION_NOT_VERIFIED",
+          severity: "info",
+          message: `Intégrité de l'application/l'appareil non vérifiée (${attestationResult.reason})`,
+        });
       }
     }
 
@@ -191,6 +239,7 @@ export class VerificationProcessor extends WorkerHost {
       trustChain,
       faceMatch,
       activeLiveness,
+      deviceAttestation,
       anomalies,
       verifiedAt: new Date().toISOString(),
     };
