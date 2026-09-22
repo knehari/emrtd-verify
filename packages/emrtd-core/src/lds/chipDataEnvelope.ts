@@ -31,13 +31,18 @@ export interface ChipDataEnvelope {
   };
 }
 
-/** Encode les octets bruts lus sur la puce dans le format `chipData` attendu par POST /v1/verifications. */
-export function encodeChipDataEnvelope(input: {
+/**
+ * Construit l'objet `ChipDataEnvelope` à partir des octets bruts lus sur la puce — séparé
+ * d'`encodeChipDataEnvelope` pour permettre un usage purement local (voir apps/mobile
+ * src/verification/localVerification.ts) sans passer par le format fil (base64 de JSON), qui n'a
+ * de sens que pour la transmission réseau vers apps/api.
+ */
+export function buildChipDataEnvelope(input: {
   sod: Uint8Array;
   dataGroups: Record<number, Uint8Array>;
   activeAuthentication?: { challenge: Uint8Array; responseDer: Uint8Array };
-}): string {
-  const envelope: ChipDataEnvelope = {
+}): ChipDataEnvelope {
+  return {
     formatVersion: 1,
     sodDerBase64: bytesToBase64(input.sod),
     dataGroups: Object.fromEntries(Object.entries(input.dataGroups).map(([number, bytes]) => [number, bytesToBase64(bytes)])),
@@ -48,6 +53,15 @@ export function encodeChipDataEnvelope(input: {
         }
       : undefined,
   };
+}
+
+/** Encode les octets bruts lus sur la puce dans le format `chipData` attendu par POST /v1/verifications. */
+export function encodeChipDataEnvelope(input: {
+  sod: Uint8Array;
+  dataGroups: Record<number, Uint8Array>;
+  activeAuthentication?: { challenge: Uint8Array; responseDer: Uint8Array };
+}): string {
+  const envelope = buildChipDataEnvelope(input);
   // Le JSON produit ici ne contient que des chaînes base64/nombres/clés ASCII — TextEncoder
   // (déjà utilisé ailleurs dans ce package, voir mrz/bacKey.ts) suffit, pas besoin d'un codec dédié.
   return bytesToBase64(new TextEncoder().encode(JSON.stringify(envelope)));

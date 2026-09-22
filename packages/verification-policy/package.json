@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@babel/runtime": "^7.25.0",
     "@emrtd-verify/emrtd-core": "workspace:*",
     "@emrtd-verify/pki-trust": "workspace:*",
     "@emrtd-verify/shared-types": "workspace:*"
