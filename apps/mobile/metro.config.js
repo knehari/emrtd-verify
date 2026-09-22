@@ -26,4 +26,17 @@ config.resolver.nodeModulesPaths = [
 // plutôt que les résoudre vers leur cible réelle.
 config.resolver.unstable_enableSymlinks = true;
 
+// Le monorepo contient une AUTRE version de react (18.3.1, utilisée par apps/admin-web et
+// apps/tenant-portal en Next.js) en plus de celle que ce projet mobile déclare (18.2.0, requise
+// par react-native@0.74.5). `nodeModulesPaths` ci-dessus fait chercher Metro jusqu'à la racine du
+// monorepo (nécessaire pour résoudre packages/*), ce qui laisse fuiter cette autre copie de react
+// dans le bundle mobile selon le module qui l'importe — constaté par exécution réelle
+// (`Cannot read property 'useId' of null` dans `withDevTools(App)`/`useKeepAwake`, deux instances
+// de React avec des dispatchers de hooks distincts). Fixe la résolution de `react`/`react-native`
+// sur la copie de ce projet, quelle que soit l'origine de l'import.
+config.resolver.extraNodeModules = {
+  react: path.resolve(projectRoot, "node_modules/react"),
+  "react-native": path.resolve(projectRoot, "node_modules/react-native"),
+};
+
 module.exports = config;
