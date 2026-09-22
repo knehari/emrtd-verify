@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "expo start --dev-client",
+    "postinstall": "node scripts/patch-expo-keep-awake.js",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
