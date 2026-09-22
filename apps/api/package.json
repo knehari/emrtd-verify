@@ -19,7 +19,8 @@
     "create-tenant-user": "node -r ts-node/register/transpile-only scripts/create-tenant-user.ts",
     "sync-master-list": "node -r ts-node/register/transpile-only scripts/sync-master-list.ts",
     "import-pkd-ldif": "node -r ts-node/register/transpile-only scripts/import-pkd-ldif.ts",
-    "generate-signing-key": "node -r ts-node/register/transpile-only scripts/generate-signing-key.ts"
+    "generate-signing-key": "node -r ts-node/register/transpile-only scripts/generate-signing-key.ts",
+    "generate-csca-bundle-signing-key": "node -r ts-node/register/transpile-only scripts/generate-csca-bundle-signing-key.ts"
   },
   "dependencies": {
     "@emrtd-verify/emrtd-core": "workspace:*",

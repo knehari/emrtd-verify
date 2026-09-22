@@ -11,6 +11,7 @@ import { AuditModule } from "./modules/audit/audit.module";
 import { PrismaModule } from "./modules/prisma/prisma.module";
 import { PkiTrustModule } from "./modules/pki/pki-trust.module";
 import { CscaSyncModule } from "./modules/pki/csca-sync.module";
+import { CscaBundleModule } from "./modules/pki/csca-bundle.module";
 import { HealthModule } from "./modules/health/health.module";
 import { MetricsModule } from "./modules/metrics/metrics.module";
 import { AdminAuthModule } from "./modules/admin-auth/admin-auth.module";
@@ -52,6 +53,7 @@ import { bullmqConnectionFactory } from "./common/bullmq-connection.factory";
     PrismaModule,
     PkiTrustModule,
     CscaSyncModule,
+    CscaBundleModule,
     HealthModule,
     MetricsModule,
     VerificationModule,
