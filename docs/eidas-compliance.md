@@ -105,7 +105,7 @@ technique. Exigences déduites (sources secondaires uniquement, cf. avertissemen
 
 | Exigence ETSI TS 119 461 v2 | État dans le dépôt | Écart |
 |---|---|---|
-| Vérification de documents d'identité, y compris lecture NFC eMRTD, avec voies "Automated"/"Manual"/"Hybrid Validation" | Toute la crypto en aval (Passive Authentication, Active/Chip Authentication, chaîne CSCA) est implémentée et testée. Le protocole de lecture NFC BAC lui-même (APDU, messagerie sécurisée) est implémenté et **validé byte-exact contre l'exemple travaillé officiel ICAO Doc 9303 Part 11 Appendix D.2/D.3/D.4** (`packages/emrtd-core/src/nfc/`, branché dans `apps/mobile/src/nfc/emrtdReader.ts`) — voir [pvid-compliance.md](pvid-compliance.md) pour le détail | **Bloquant, mais réduit à un seul point.** La conformité à la spécification est désormais confirmée byte-exact ; seul manque un test contre un document/lecteur NFC réel. PACE non implémenté ; le polyfill `crypto.subtle.digest` (SHA-1) manque encore côté React Native — aucune vérification de bout en bout sur un vrai document possible avant ces points |
+| Vérification de documents d'identité, y compris lecture NFC eMRTD, avec voies "Automated"/"Manual"/"Hybrid Validation" | Toute la crypto en aval (Passive Authentication, Active/Chip Authentication, chaîne CSCA) est implémentée et testée. Le protocole de lecture NFC BAC lui-même (APDU, messagerie sécurisée) est implémenté, **validé byte-exact contre l'exemple travaillé officiel ICAO Doc 9303 Part 11 Appendix D.2/D.3/D.4**, et entièrement portable React Native (`packages/emrtd-core/src/nfc/`, branché dans `apps/mobile/src/nfc/emrtdReader.ts`) — voir [pvid-compliance.md](pvid-compliance.md) pour le détail | **Bloquant, mais réduit à un seul point.** La conformité à la spécification est désormais confirmée byte-exact ; seul manque un test contre un document/lecteur NFC réel. PACE non implémenté |
 | Détection de vivacité / résistance aux attaques de présentation (photo, vidéo, masque, deepfake) — référence implicite ISO/IEC 30107 | `check_liveness()` (`services/face-match/app/liveness.py`) est **passive**, fondée sur résolution/netteté/nombre de visages — documenté explicitement comme "pas une détection anti-spoofing au sens fort", ne détecte ni photo imprimée de qualité, ni rejeu vidéo, ni masque, ni deepfake (voir `docs/facial-recognition.md`) | **Majeur.** Liveness active (challenge de mouvement/clignement) non implémentée ; aucun test PAD documenté |
 | Matching biométrique visage-document | Implémenté (YuNet + SFace, ONNX local, scoring par similarité cosinus, seuil configurable par client) | Fonctionnellement présent, mais seuil non calibré sur données représentatives et aucun audit indépendant des taux de faux positifs/négatifs par sous-groupe démographique (documenté comme limite connue dans `docs/facial-recognition.md`) |
 | Niveaux "Baseline"/"Extended", ce dernier avec supervision humaine ("human-in-the-loop") pour les cas équivalents à la présence physique | **Corrigé depuis** : `VerificationReview` (schema.prisma) trace formellement "quel opérateur a validé/invalidé quel cas, quand, avec quel motif" pour tout verdict `manual_review_required` — voir [pvid-compliance.md](pvid-compliance.md) | Résolu pour le niveau "Extended" |
@@ -177,10 +177,10 @@ détail).
 
 1. **Validation en conditions réelles de la lecture NFC BAC** — bloquant pour
    les six référentiels. Le protocole (APDU, messagerie sécurisée) est
-   implémenté et validé byte-exact contre l'exemple travaillé officiel ICAO
-   Doc 9303 Part 11 Appendix D (voir `docs/roadmap.md` Phase 4) ; reste : test
-   contre un vrai document/lecteur NFC, PACE (non implémenté), et le polyfill
-   `crypto.subtle.digest` manquant côté React Native.
+   implémenté, validé byte-exact contre l'exemple travaillé officiel ICAO
+   Doc 9303 Part 11 Appendix D, et entièrement portable React Native (voir
+   `docs/roadmap.md` Phase 4) ; reste : test contre un vrai document/lecteur
+   NFC, et PACE (non implémenté).
 2. **Détection de vivacité active** (challenge de mouvement/clignement, ou
    solution biométrique certifiée équivalente) — déjà identifié dans
    `docs/roadmap.md`. Condition pour ETSI 119 461, LoA "high", PVID.

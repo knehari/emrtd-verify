@@ -14,6 +14,7 @@ export * from "./crypto/cms";
 export * from "./crypto/jsonSigning";
 export * from "./crypto/tripleDes";
 export * from "./crypto/retailMac";
+export * from "./crypto/sha1";
 export * from "./nfc/apdu";
 export * from "./nfc/secureMessaging";
 export * from "./nfc/bac";

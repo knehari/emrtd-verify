@@ -1,5 +1,5 @@
 import { computeCheckDigit } from "./checkDigit";
-import { toArrayBuffer } from "../crypto/bytes";
+import { sha1 } from "../crypto/sha1";
 
 /** Données lues sur la MRZ imprimée, nécessaires à l'établissement du canal BAC. */
 export interface BacAccessKeyInput {
@@ -37,27 +37,10 @@ export function buildMrzInformation(input: BacAccessKeyInput): string {
   );
 }
 
-/**
- * SHA-1 via le Web Crypto global (`globalThis.crypto.subtle`) plutôt que `node:crypto` :
- * disponible nativement depuis Node 20, dans tout navigateur, et polyfillable en React
- * Native — condition pour que ce module reste réellement réutilisable côté mobile
- * (voir docs/architecture.md). SHA-1 n'est plus recommandé pour la signature, mais reste
- * l'algorithme imposé ici par Doc 9303 Part 11 Appendix D.1 pour la dérivation de clé BAC.
- */
-async function sha1(data: Uint8Array): Promise<Uint8Array> {
-  if (typeof globalThis.crypto?.subtle === "undefined") {
-    throw new Error(
-      "Web Crypto API indisponible (globalThis.crypto.subtle) : requis pour la dérivation de clé BAC.",
-    );
-  }
-  const digest = await globalThis.crypto.subtle.digest("SHA-1", toArrayBuffer(data));
-  return new Uint8Array(digest);
-}
-
 /** Kseed = 16 premiers octets de SHA-1(MRZ_information) — Doc 9303 Part 11 Appendix D.2. */
 export async function deriveBacSeed(input: BacAccessKeyInput): Promise<Uint8Array> {
   const mrzInformation = buildMrzInformation(input);
-  const digest = await sha1(new TextEncoder().encode(mrzInformation));
+  const digest = sha1(new TextEncoder().encode(mrzInformation));
   return digest.subarray(0, 16);
 }
 
@@ -91,10 +74,10 @@ export async function deriveKeyFromSeed(seed: Uint8Array, counter: 1 | 2): Promi
   material.set(seed, 0);
   material.set([0, 0, 0, counter], seed.length);
 
-  const hash = await sha1(material);
+  const digest = sha1(material);
   const key = new Uint8Array(16);
   for (let i = 0; i < 16; i++) {
-    key[i] = setOddParityByte(hash[i]);
+    key[i] = setOddParityByte(digest[i]);
   }
   return key;
 }

@@ -53,11 +53,10 @@ Par ordre de dépendance :
    round-trip/rejet sur falsification/interopérabilité entre implémentations indépendantes déjà
    en place. Ce qui manque encore n'est donc plus la conformité à la spécification, mais
    uniquement un **test contre un document et un lecteur NFC physiques réels** — aucun n'a été
-   mené ici. PACE n'est pas implémenté (BAC uniquement). `crypto.subtle.digest` (SHA-1, requis
-   par la dérivation de clé BAC) n'est pas nativement disponible sur React Native/Hermes — reste
-   à combler avant toute exécution sur device (seul `crypto.getRandomValues` l'est, via
-   `react-native-get-random-values`). Sans cette validation matérielle réelle, aucune
-   vérification de bout en bout sur un document réel n'est possible — tout le reste de cette
+   mené ici. PACE n'est pas implémenté (BAC uniquement). `bacKey.ts` est désormais entièrement
+   portable React Native (SHA-1 via `crypto/sha1.ts`/`hash.js`, `crypto.getRandomValues` via
+   `react-native-get-random-values` — plus aucune dépendance à Web Crypto). Sans cette validation
+   matérielle réelle, aucune vérification de bout en bout sur un document réel n'est possible — tout le reste de cette
    évaluation est conditionnel à sa complétion (voir `docs/roadmap.md` Phase 4).
 2. **Détection de vivacité active** (challenge de mouvement/clignement, ou
    solution biométrique certifiée équivalente) — la liveness passive actuelle
