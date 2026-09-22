@@ -10,7 +10,10 @@
       "buildNumber": "1",
       "infoPlist": {
         "NFCReaderUsageDescription": "Lecture de la puce du document d'identité (BAC/PACE) pour vérifier son authenticité.",
-        "NSCameraUsageDescription": "Capture de la zone lisible du document et du visage du porteur pour la vérification d'identité."
+        "NSCameraUsageDescription": "Capture de la zone lisible du document et du visage du porteur pour la vérification d'identité.",
+        "UIApplicationSceneManifest": {
+          "UIApplicationSupportsMultipleScenes": false
+        }
       }
     },
     "android": {
