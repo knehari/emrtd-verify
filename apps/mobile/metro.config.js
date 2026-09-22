@@ -39,4 +39,16 @@ config.resolver.extraNodeModules = {
   "react-native": path.resolve(projectRoot, "node_modules/react-native"),
 };
 
+// Patching expo-keep-awake's useId() call (see scripts/patch-expo-keep-awake.js) only moved the
+// crash to the next hook in the same function (useEffect), confirmed by real device logs — every
+// hook called from useKeepAwake(), invoked from expo's own withDevTools(App) root wrapper (active
+// in every dev build), fails with a null dispatcher, not just useId specifically. expo's
+// withDevTools.ios.js already wraps its `require('expo-keep-awake')` in try/catch specifically to
+// fall back to a no-op when the package is unavailable — nothing else in this project or in expo
+// itself requires expo-keep-awake (confirmed: `grep -rl "expo-keep-awake"` under expo's own
+// package only matches withDevTools.*.js). Blocking it here removes the entire crashing code path
+// regardless of the underlying dispatcher issue, at the cost of the dev-only "keep screen awake
+// while the app is in the foreground during development" convenience.
+config.resolver.blockList = [/\/node_modules\/expo-keep-awake\//];
+
 module.exports = config;
