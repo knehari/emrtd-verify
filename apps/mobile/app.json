@@ -1,15 +1,20 @@
 {
   "expo": {
-    "name": "emrtd-verify",
+    "name": "Authentik",
     "slug": "emrtd-verify",
     "version": "0.1.0",
     "orientation": "portrait",
+    "userInterfaceStyle": "light",
     "ios": {
+      "bundleIdentifier": "com.authentik.mobile",
+      "buildNumber": "1",
       "infoPlist": {
-        "NFCReaderUsageDescription": "Lecture de la puce du document d'identité (BAC/PACE) pour vérifier son authenticité."
+        "NFCReaderUsageDescription": "Lecture de la puce du document d'identité (BAC/PACE) pour vérifier son authenticité.",
+        "NSCameraUsageDescription": "Capture de la zone lisible du document et du visage du porteur pour la vérification d'identité."
       }
     },
     "android": {
+      "package": "com.authentik.mobile",
       "permissions": ["android.permission.NFC"]
     },
     "plugins": ["react-native-nfc-manager"]

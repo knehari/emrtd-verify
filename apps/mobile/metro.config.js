@@ -17,5 +17,13 @@ config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, "node_modules"),
   path.resolve(workspaceRoot, "node_modules"),
 ];
+// pnpm installe `expo` comme un lien symbolique vers le store global — sans ceci, Metro résout
+// AppEntry.js vers son chemin réel (hors de `projectRoot`) avant de calculer son import relatif
+// `../../App`, qui atterrit alors dans le store pnpm au lieu de `apps/mobile/App.tsx` (constaté par
+// exécution réelle : `expo export --platform ios` échouait avec "Unable to resolve module ../../App
+// from .../node_modules/.pnpm/expo@.../node_modules/expo/AppEntry.js"). Fix documenté pour Metro
+// avec des gestionnaires de paquets à liens symboliques (pnpm/Yarn PnP) : préserver les liens
+// plutôt que les résoudre vers leur cible réelle.
+config.resolver.unstable_enableSymlinks = true;
 
 module.exports = config;

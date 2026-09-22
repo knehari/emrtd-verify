@@ -3,50 +3,18 @@
 // dont bac.ts en a besoin pour générer RND.IFD/K.IFD) ne puisse l'utiliser — React Native/Hermes
 // ne l'expose pas nativement, contrairement à Node/aux navigateurs.
 import "react-native-get-random-values";
-import React, { useState } from "react";
-import { SafeAreaView } from "react-native";
-import { ScanScreen } from "./src/screens/ScanScreen";
-import { LivenessChallengeScreen } from "./src/screens/LivenessChallengeScreen";
-import { appConfig } from "./src/config";
+import React from "react";
+import { AuthentikApp } from "./src/authentik/AuthentikApp";
 
-const API_BASE_URL = appConfig.apiBaseUrl;
-const API_KEY = appConfig.apiKey;
-
-type Step = "scan" | "liveness";
-
+/**
+ * Racine de l'app — premier PoC de l'UX "Authentik" livrée par Claude Design (voir
+ * `apps/mobile/src/authentik/README.md`). Parcours simulé par minuteurs (comme le prototype de
+ * design lui-même, voir son README §2) : `ScanScreen`/`LivenessChallengeScreen` (lecture NFC/BAC
+ * réelle, liveness active réelle — voir src/screens/, src/nfc/, src/liveness/) restent
+ * implémentées et testées séparément mais ne sont pas encore branchées à cette UI ; les brancher
+ * est le prochain incrément (remplacer les minuteurs de `src/authentik/state.ts` par de vrais
+ * appels à `emrtdReader`/`LivenessChallengeScreen`/`computeLocalVerification`).
+ */
 export default function App() {
-  const [step, setStep] = useState<Step>("scan");
-
-  if (step === "liveness") {
-    return (
-      <SafeAreaView style={{ flex: 1 }}>
-        <LivenessChallengeScreen
-          apiBaseUrl={API_BASE_URL}
-          apiKey={API_KEY}
-          onComplete={(submission) => {
-            // TODO(roadmap Phase 4) : joindre `submission` à SubmitVerificationDto.activeLiveness
-            // lors de POST /v1/verifications, avec le reste du résultat de lecture eMRTD.
-            console.log("Liveness active terminée", submission.samples.length, "échantillons");
-          }}
-          onSkip={() => {
-            // Capture native indisponible (voir src/liveness/faceLivenessSession.ts) — continue
-            // sans liveness active plutôt que de bloquer tout le parcours.
-          }}
-        />
-      </SafeAreaView>
-    );
-  }
-
-  return (
-    <SafeAreaView style={{ flex: 1 }}>
-      <ScanScreen
-        mrzAccessKey={{ documentNumber: "", dateOfBirth: "", dateOfExpiry: "" }}
-        onScanComplete={(result) => {
-          // TODO(roadmap Phase 4) : transmettre `result` à apps/api via POST /v1/verifications
-          console.log("Lecture eMRTD terminée", result.accessProtocolUsed);
-          setStep("liveness");
-        }}
-      />
-    </SafeAreaView>
-  );
+  return <AuthentikApp />;
 }
