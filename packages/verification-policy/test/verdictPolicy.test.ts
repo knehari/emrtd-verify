@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeVerdict } from "../src/modules/verification/verdict.policy";
+import { computeVerdict } from "../src/verdictPolicy";
 import type { TrustChainResult } from "@emrtd-verify/shared-types";
 
 const baseTrustChain: TrustChainResult = {
