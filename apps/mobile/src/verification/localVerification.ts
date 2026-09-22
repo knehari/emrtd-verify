@@ -13,6 +13,7 @@ import type {
   AnomalyFinding,
   DocumentIdentity,
   DocumentType,
+  FaceMatchResult,
   FieldCheck,
   Iso3166Alpha3,
   TrustChainResult,
@@ -21,6 +22,8 @@ import type {
 import type { MrzFieldValidation } from "@emrtd-verify/emrtd-core";
 import { getLocalCscaAnchors } from "../pki/cscaBundleSync";
 import { appConfig } from "../config";
+import { compareFaces, type FaceMatchInput } from "../faceMatch/faceMatch";
+import type { OnnxSessionLike, TensorConstructorLike } from "../faceMatch/embedding";
 
 export class LocalVerificationError extends Error {}
 
@@ -42,6 +45,7 @@ export interface LocalVerificationResult {
   };
   trustChain: TrustChainResult;
   activeLiveness?: ActiveLivenessResult;
+  faceMatch?: FaceMatchResult;
   anomalies: AnomalyFinding[];
 }
 
@@ -56,6 +60,21 @@ export interface LocalVerificationInput {
     challenge: LivenessChallenge;
     samples: LivenessSignalFrame[];
     lightSamples?: LightSignalSample[];
+  };
+  /**
+   * Comparaison faciale on-device (voir faceMatch/faceMatch.ts) — facultative car elle nécessite
+   * DEUX ingrédients que ce dépôt ne sait pas encore produire seul : l'image DG2 (fournie en JPEG/
+   * JPEG2000 brut par `decodeChipDataEnvelope`, voir `emrtd-core` `extractDg2FaceImage`) décodée
+   * en pixels, et un visage détecté (bbox+landmarks) dans chaque image — aucun décodeur JPEG ni
+   * détecteur de visage on-device n'existe encore ici (voir la docstring de `faceMatch.ts` et
+   * docs/facial-recognition.md "Reconnaissance faciale hors ligne"). L'appelant qui dispose déjà
+   * de ces deux éléments (ex. un futur module natif) peut les fournir ici ; en leur absence, ce
+   * signal est simplement omis du verdict — jamais un score fabriqué à leur place.
+   */
+  faceMatch?: {
+    session: OnnxSessionLike;
+    tensorConstructor: TensorConstructorLike;
+    input: FaceMatchInput;
   };
   /** Champs d'identité à restituer dans `document.fields` — voir buildFieldChecks. */
   requestedFields?: string[];
@@ -84,10 +103,13 @@ function buildFieldChecks(identity: DocumentIdentity, mrzValidation: MrzFieldVal
  * pki/cscaBundleSync.ts — ICAO PKD uniquement, PKD nationale/magasin étendu hors périmètre, voir
  * CscaBundle), Active Authentication si présentée, liveness active si un challenge a été capturé,
  * puis les mêmes détection d'anomalies et politique de verdict que le chemin serveur
- * (@emrtd-verify/verification-policy — code strictement identique, voir ce package). Pas de
- * comparaison faciale à ce stade (voir src/verification/faceMatch.ts, câblé séparément) ni de
- * vérification du statut perdu/volé (registre serveur uniquement, indisponible hors ligne — se
- * traduit honnêtement par l'anomalie LOST_STOLEN_STATUS_NOT_CHECKED, jamais par un silence).
+ * (@emrtd-verify/verification-policy — code strictement identique, voir ce package). Comparaison
+ * faciale on-device (SFace/ONNX, voir faceMatch/faceMatch.ts) si `input.faceMatch` est fourni —
+ * facultative car elle suppose que l'appelant ait déjà décodé l'image DG2 (JPEG/JPEG2000, aucun
+ * décodeur embarqué ici) et détecté un visage dans chaque image (aucun détecteur on-device,
+ * voir la docstring de `faceMatch.ts` pour le périmètre exact). Pas de vérification du statut
+ * perdu/volé (registre serveur uniquement, indisponible hors ligne — se traduit honnêtement par
+ * l'anomalie LOST_STOLEN_STATUS_NOT_CHECKED, jamais par un silence).
  */
 export async function computeLocalVerification(input: LocalVerificationInput): Promise<LocalVerificationResult> {
   const envelope = buildChipDataEnvelope(input.chipData);
@@ -149,13 +171,18 @@ export async function computeLocalVerification(input: LocalVerificationInput): P
     }
   }
 
+  let faceMatch: FaceMatchResult | undefined;
+  if (input.faceMatch) {
+    faceMatch = await compareFaces(input.faceMatch.session, input.faceMatch.tensorConstructor, input.faceMatch.input);
+  }
+
   const allFieldChecksValid =
     decoded.mrzValidation.compositeValid &&
     decoded.mrzValidation.documentNumberValid &&
     decoded.mrzValidation.dateOfBirthValid &&
     decoded.mrzValidation.dateOfExpiryValid;
 
-  const verdict = computeVerdict({ trustChain, anomalies, activeLiveness, allFieldChecksValid });
+  const verdict = computeVerdict({ trustChain, anomalies, faceMatch, activeLiveness, allFieldChecksValid });
 
   return {
     provisional: true,
@@ -168,6 +195,7 @@ export async function computeLocalVerification(input: LocalVerificationInput): P
     },
     trustChain,
     activeLiveness,
+    faceMatch,
     anomalies,
   };
 }

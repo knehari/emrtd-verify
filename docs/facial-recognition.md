@@ -186,6 +186,81 @@ l'architecture eMRTD Verify a par construction sur un KYC ne lisant pas la puce.
 nécessite un laboratoire de test biométrique indépendant, hors périmètre de ce dépôt de code (même
 limite que l'audit de qualification PVID, voir `docs/pvid-compliance.md`).
 
+## Reconnaissance faciale hors ligne
+
+Voir [pki-trust-model.md](pki-trust-model.md) "Vérification hors ligne" pour l'architecture
+d'ensemble (verdict local provisoire, réconciliation serveur obligatoire). Cette section couvre
+uniquement la partie reconnaissance faciale de ce pipeline — `apps/mobile/src/faceMatch/`.
+
+### Ce qui est implémenté et vérifié
+
+Contrairement à la capture ARKit (liveness active) ou à la vérification cryptographique App
+Attest/Play Integrity — délibérément non implémentées faute de matériel/compte pour les vérifier —
+la partie **alignement + extraction d'embedding** du pipeline de reconnaissance faciale a pu être
+vérifiée par exécution réelle, sans matériel physique, en reconstruisant son comportement exact à
+partir des modèles ONNX eux-mêmes (déjà présents dans le dépôt, voir `services/face-match/models/`)
+plutôt qu'en le devinant :
+
+- **`align.ts`** — reproduit `cv2.FaceRecognizerSF.alignCrop` : ajustement d'une similarité
+  (rotation + échelle + translation, méthode d'Umeyama) des 5 repères faciaux vers les points de
+  référence canoniques ArcFace/SFace 112×112, puis ré-échantillonnage bilinéaire. Les points de
+  référence ET la méthode de transformation ont été déterminés en comparant, sur des images
+  synthétiques (dégradés, bruit aléatoire — jamais de photo réelle nécessaire, `alignCrop` accepte
+  n'importe quelle image 112×112 en entrée), la sortie réelle d'`alignCrop` à notre propre
+  ré-implémentation : correspondance pixel-exacte à l'arrondi près (test/faceMatch/align.test.ts).
+- **`embedding.ts`** — reproduit le prétraitement exact de `cv2.FaceRecognizerSF.feature()` avant
+  l'inférence `sface.onnx` : ordre de canaux RGB, valeurs brutes `[0,255]` (aucune normalisation),
+  `NCHW`. Déterminé en testant systématiquement les combinaisons plausibles (ordre de canaux,
+  normalisation) contre la sortie réelle de `cv2.dnn`, confirmé par inférence ONNX brute
+  indépendante (`onnxruntime` Python) sur deux images synthétiques distinctes (cosinus > 0.9999,
+  écart absolu max ~2×10⁻⁶ — bruit flottant, pas une divergence). Les tests JS
+  (`test/faceMatch/embedding.test.ts`) exécutent le VRAI modèle `sface.onnx` via `onnxruntime-node`
+  (Node pur, donc utilisable en CI sans React Native) et comparent à cette même référence Python.
+- **`faceMatch.ts`** — combine les deux, avec la même règle de décision à seuil
+  (`MATCH_THRESHOLD`/`INCONCLUSIVE_MARGIN`, valeurs identiques à `FaceMatcher` côté serveur — voir
+  la note de calibration plus haut, ces valeurs par défaut ne sont pas calibrées) et une
+  ré-implémentation vérifiée bit-exacte de l'heuristique de netteté (`check_liveness` côté serveur
+  — formule de conversion en niveaux de gris de Pillow à virgule fixe et variance du Laplacien
+  d'OpenCV, toutes deux confirmées diff=0.0 contre une exécution Python réelle).
+- **`sfaceSession.ts`** — adaptateur de production, passe-plat trivial autour
+  d'`onnxruntime-react-native` (même discipline que `nfc/emrtdReader.ts` pour
+  `react-native-nfc-manager`) : `embedding.ts` reste le seul endroit où le comportement est défini.
+- **Branchement dans le verdict** — `computeLocalVerification` (voir `pki-trust-model.md`) accepte
+  un `faceMatch` optionnel et alimente `computeVerdict` exactement comme le chemin serveur (même
+  package `@emrtd-verify/verification-policy`), testé de bout en bout avec le vrai modèle
+  (`test/verification/localVerification.test.ts`).
+
+### Ce qui reste hors périmètre — et pourquoi
+
+Ce pipeline part de pixels déjà localisés (bbox + 5 repères) pour DEUX images. Produire ces
+ingrédients à partir d'une capture brute nécessite deux étapes non implémentées ici, pour la même
+raison que la capture ARKit (voir `apps/mobile/src/liveness/faceLivenessSession.ts`) : les
+construire à l'aveugle, sans pouvoir vérifier leur comportement réel, produirait une fausse
+impression d'achèvement sur un mécanisme dont dépend un verdict d'identité.
+
+- **Détection de visage (YuNet)** — localiser un visage (bbox + 5 repères) dans une photo brute.
+  Contrairement à `alignCrop`/`feature()`, la fonction de décodage des ancres et le NMS de YuNet
+  n'ont pas pu être reconstruits par la même méthode (comparaison boîte noire à partir d'entrées
+  synthétiques) faute d'accès aux sources d'OpenCV/opencv_zoo depuis cet environnement (dépôts hors
+  du périmètre GitHub accessible à cette session) — reverse-engineer un décodeur d'ancres à l'aveugle,
+  sans jamais pouvoir vérifier sa sortie contre l'implémentation réelle, comporterait le même risque
+  qu'une implémentation BAC non vérifiée. Un détecteur natif (Vision framework iOS / ML Kit Android)
+  serait l'alternative naturelle mais nécessite un module natif non écrit ici (même limite que la
+  capture ARKit).
+- **Décodage JPEG/JPEG2000 du portrait DG2** — `extractDg2FaceImage` (`@emrtd-verify/emrtd-core`)
+  extrait uniquement les octets bruts du conteneur JPEG/JPEG2000 embarqué dans DG2 (voir la section
+  Pipeline ci-dessus) ; les décoder en pixels RGB nécessite une bibliothèque de décodage image
+  portable (React Native/Hermes) qui n'a pas été installée ni vérifiée dans cette session.
+- **Comptage de visages dans l'heuristique de netteté** — voir la limite documentée dans
+  `checkImageQuality` (`faceMatch.ts`) : "exactement un visage détecté" ne peut pas être
+  re-vérifiée une fois qu'un seul `FaceRow` a déjà été fourni par l'appelant.
+
+En résumé : le socle numérique (alignement, embedding, décision, intégration au verdict) est
+implémenté et vérifié par exécution réelle contre les modèles OpenCV eux-mêmes ; ce qui manque pour
+un pipeline de bout en bout utilisable en production (caméra brute → verdict) est la détection de
+visage et le décodage image — deux modules qui, comme la capture ARKit, méritent d'être écrits et
+testés sur du matériel réel plutôt qu'à l'aveugle dans cet environnement.
+
 ## Isolation et minimisation des données
 
 - Le service ne persiste **aucune image** par défaut : traitement en mémoire, résultat = score + métadonnées de qualité (ex. `face_detected`, `liveness_passed`, `image_quality_warnings[]`), jamais l'image elle-même ni l'embedding brut en retour vers `apps/api`.

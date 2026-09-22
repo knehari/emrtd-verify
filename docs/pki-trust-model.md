@@ -130,6 +130,79 @@ Principes :
 - **Limite honnête actuelle** : la **récupération et la persistance** des CRL ICAO PKD ne sont **pas encore câblées en production** — `PkiTrustService.validate()` n'appelle jamais `validateTrustChain` avec une `revocationList`, donc `revocationChecked` reste toujours `false` aujourd'hui. Construire ce pipeline (fetch réseau régulier par pays, décodage, persistance, cache) à l'aveugle, sans un vrai point d'accès PKD pour le valider, comporterait le même risque qu'une implémentation BAC/PACE non vérifiable — voir [roadmap.md](roadmap.md). En attendant, `AnomalyDetectionService` remonte explicitement `REVOCATION_NOT_CHECKED` (avertissement) chaque fois que le statut de révocation n'a pas pu être vérifié, ce qui dégrade le verdict (jamais `authentic` silencieusement) plutôt que de traiter l'absence de CRL comme une non-révocation implicite.
 - **Magasin étendu** : pas de CRL fiable disponible dans la plupart des cas → le niveau de confiance en tient déjà compte (`medium`/`low`), et la fraîcheur de l'entrée (`reviewBeforeDate`) fait office de contrôle compensatoire.
 
+## Vérification hors ligne
+
+L'application mobile peut calculer un verdict de vérification entièrement sur l'appareil, sans
+connexion réseau au backend — voir `apps/mobile/src/verification/localVerification.ts`,
+`apps/mobile/src/pki/cscaBundleSync.ts` et `apps/mobile/src/sync/submissionQueue.ts`.
+
+### Architecture — un seul serveur de confiance, un cache signé côté client
+
+Le principe reste identique à celui de ce document dans son ensemble : la source de vérité unique
+reste `apps/api` (Postgres, `CscaSyncService`) — le mobile ne fait jamais confiance à des CSCA
+qu'il aurait lui-même récupérés ou reçus d'un tiers. Concrètement :
+
+1. **Endpoint de synchronisation signé** (`GET /v1/pki-trust/csca-bundle`, `apps/api`,
+   `PkiTrustController`) : exporte l'ensemble courant des ancres CSCA de confiance ICAO PKD (jamais
+   le magasin étendu — voir ci-dessus, ses ancres `medium`/`low` ne doivent jamais être servies à
+   un appareil qui ne peut pas les réévaluer) sous forme d'un bundle JSON signé (ECDSA P-256/
+   SHA-256, `CscaBundleSignerService`, `packages/pki-trust/src/cscaBundleSigning.ts`).
+2. **Clé publique embarquée au build**, jamais récupérée dynamiquement (`appConfig.
+   cscaBundleSigningPublicKeyBase64`, `apps/mobile/src/config.ts`) — même principe que
+   `config/master-list-signer-trust-anchors.json` : une clé de confiance ne doit jamais transiter
+   par un canal qu'elle est censée sécuriser (bootstrap circulaire/MITM).
+3. **Cache local vérifié** (`cscaBundleSync.ts`) : le bundle est persisté via `expo-file-system`,
+   et RE-VÉRIFIÉ à chaque lecture (`getLocalCscaAnchors`), pas seulement à la réception — un fichier
+   local altéré après coup (device compromis) est détecté, pas seulement une transmission altérée.
+
+### Pipeline de vérification locale — mêmes règles, verdict plafonné
+
+`computeLocalVerification` réutilise EXACTEMENT le même code de décision que le chemin serveur
+(`@emrtd-verify/verification-policy` — `detectAnomalies`/`computeVerdict`, package partagé et
+portable, voir son README) : Passive Authentication (décodage SOD/DG, validation de la chaîne de
+confiance contre le bundle CSCA local), Active Authentication si présentée, liveness active si un
+challenge a été capturé, et désormais comparaison faciale on-device (voir
+[facial-recognition.md](facial-recognition.md) "Reconnaissance faciale hors ligne").
+
+**Le verdict local est structurellement plafonné, jamais `authentic`** : le registre documents
+perdus/volés est une donnée serveur uniquement (jamais synchronisée hors ligne, contrairement aux
+CSCA — un registre de statut doit rester à jour à la minute près, pas au dernier téléchargement).
+`computeLocalVerification` appelle donc systématiquement `detectAnomalies` avec `lostStolenCheck:
+{ checked: false, reported: false }`, ce qui déclenche toujours l'avertissement
+`LOST_STOLEN_STATUS_NOT_CHECKED` — et donc un verdict local plafonné à `suspicious` au mieux,
+jamais `authentic`. Ce n'est pas une limitation accidentelle : c'est la propriété qui rend le champ
+`provisional: true` de `LocalVerificationResult` honnête plutôt que cosmétique.
+
+### Réconciliation obligatoire — exigence PVID
+
+Un `LocalVerificationResult` (`provisional: true`) n'est **jamais** transmis au client KYC comme
+résultat final : les exigences PVID (revue humaine sur les cas ambigus, piste d'audit centralisée)
+ne peuvent structurellement pas être satisfaites par un appareil isolé. `apps/mobile/src/sync/
+submissionQueue.ts` met donc en file chaque vérification locale (`enqueueSubmission`) et, dès que
+le réseau est disponible (`runSyncCycle`, à appeler périodiquement — retour au premier plan,
+reconnexion, minuteur applicatif) : (1) soumet les données brutes à `POST /v1/verifications` (même
+endpoint, même pipeline, que le chemin en ligne — aucune divergence de traitement serveur selon
+l'origine), avec repli exponentiel plafonné en cas de panne réseau persistante ; (2) interroge
+`GET /v1/verifications/:id` jusqu'à obtenir le `VerificationResult` signé, seul résultat faisant
+foi. `LocalVerificationResult.provisional` n'est jamais retiré localement — seule la présence d'un
+`reconciledResult` sur l'élément de la file (`QueuedSubmission`) marque une vérification comme
+définitive.
+
+### Limites honnêtes de ce périmètre v1
+
+- **PKD nationale (LDAP) et magasin étendu** : hors périmètre hors ligne — `computeLocalVerification`
+  n'utilise que le bundle ICAO PKD synchronisé (voir ci-dessus). Un document dont la chaîne de
+  confiance dépend de l'une de ces deux sources produira `NO_TRUST_ANCHOR` en local, et sera
+  correctement classé lors de la réconciliation serveur (qui, lui, les interroge).
+- **Révocation (CRL)** : déjà non câblée en ligne (voir section précédente) — donc non plus hors
+  ligne, sans régression par rapport au chemin serveur.
+- **Reconnaissance faciale on-device** : voir [facial-recognition.md](facial-recognition.md)
+  "Reconnaissance faciale hors ligne" pour le détail — le prétraitement/l'alignement/l'extraction
+  d'embedding sont implémentés et vérifiés par exécution réelle contre les modèles OpenCV, mais la
+  détection de visage (localiser un visage dans une photo brute) et le décodage JPEG/JPEG2000 du
+  portrait DG2 restent hors périmètre, pour les mêmes raisons de vérifiabilité que la capture ARKit
+  (voir `apps/mobile/src/liveness/faceLivenessSession.ts`).
+
 ## Ce que l'API expose
 
 `VerificationResult.trustChain` (voir `packages/shared-types`) contient : la source utilisée, le niveau de confiance, la chaîne de certificats jusqu'à la racine, le statut de révocation quand vérifiable, et — crucial pour un usage KYC — un champ explicite indiquant si ce niveau de confiance est **suffisant pour la politique de risque du client** (configurable, voir [kyc-integration.md](kyc-integration.md)).

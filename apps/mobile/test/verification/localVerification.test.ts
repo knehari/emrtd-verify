@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { webcrypto } from "node:crypto";
 import { Integer, Sequence } from "asn1js";
+import { InferenceSession, Tensor } from "onnxruntime-node";
+import path from "node:path";
 import { sha256, toArrayBuffer } from "@emrtd-verify/emrtd-core";
 import type { CscaTrustAnchor } from "@emrtd-verify/pki-trust";
 // Fixtures de test réelles (chaîne CSCA/DSC + SOD signé) réutilisées depuis emrtd-core plutôt que
@@ -8,6 +10,11 @@ import type { CscaTrustAnchor } from "@emrtd-verify/pki-trust";
 // packages/emrtd-core/test/support/pkiFixtures.ts.
 import { generateCscaAndDsc, buildSignedSod } from "../../../../packages/emrtd-core/test/support/pkiFixtures";
 import { encodeLdsSecurityObject } from "../../../../packages/emrtd-core/src/lds/ldsSecurityObjectAsn1";
+import { parseFaceRow } from "../../src/faceMatch/align";
+import type { OnnxSessionLike, TensorConstructorLike } from "../../src/faceMatch/embedding";
+import alignFixture from "../faceMatch/fixtures/alignCrop.fixture.json";
+
+const SFACE_MODEL_PATH = path.resolve(__dirname, "../../../../services/face-match/models/sface.onnx");
 
 let mockAnchors: CscaTrustAnchor[] = [];
 vi.mock("../../src/pki/cscaBundleSync", () => ({
@@ -147,4 +154,41 @@ describe("computeLocalVerification", () => {
       }),
     ).rejects.toBeInstanceOf(LocalVerificationError);
   });
+
+  it("intègre la comparaison faciale on-device (vrai modèle sface.onnx) quand input.faceMatch est fourni", async () => {
+    const { sod, dataGroups, cscaAnchor } = await buildSignedChipData();
+    mockAnchors = [cscaAnchor];
+
+    const session = (await InferenceSession.create(SFACE_MODEL_PATH, { logSeverityLevel: 3 })) as unknown as OnnxSessionLike;
+    const TensorCtor = Tensor as unknown as TensorConstructorLike;
+    const image = {
+      data: Uint8Array.from(Buffer.from(alignFixture.imageBgrBase64, "base64")),
+      width: alignFixture.width,
+      height: alignFixture.height,
+      channels: 3 as const,
+      channelOrder: "bgr" as const,
+    };
+    const face = parseFaceRow(alignFixture.faceRow);
+
+    const result = await computeLocalVerification({
+      documentType: "ePassport",
+      chipData: { sod, dataGroups },
+      faceMatch: {
+        session,
+        tensorConstructor: TensorCtor,
+        input: { referenceImage: image, referenceFace: face, probeImage: image, probeFace: face },
+      },
+    });
+
+    // Même image des deux côtés -> match quasi certain, exactement comme en ligne (voir
+    // FaceMatcher.compare). L'image de la fixture (dégradé lisse, construite pour comparer des
+    // pixels d'alignement, pas pour être nette) déclenche "image_too_blurry" -> livenessPassed
+    // false -> manual_review_required (même règle que computeVerdict côté serveur, voir
+    // verdictPolicy.ts) : comportement correct de bout en bout, pas une limite de ce test.
+    expect(result.faceMatch?.matchDecision).toBe("match");
+    expect(result.faceMatch?.similarityScore).toBeGreaterThan(0.98);
+    expect(result.faceMatch?.qualityWarnings).toContain("image_too_blurry");
+    expect(result.faceMatch?.livenessPassed).toBe(false);
+    expect(result.verdict).toBe("manual_review_required");
+  }, 30_000);
 });
