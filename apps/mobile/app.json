@@ -18,7 +18,6 @@
       "permissions": ["android.permission.NFC"]
     },
     "plugins": [
-      "react-native-nfc-manager",
       [
         "expo-build-properties",
         {
