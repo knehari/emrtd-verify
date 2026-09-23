@@ -38,7 +38,8 @@
         }
       ],
       "./plugins/withPodDeploymentTargetFix",
-      "./plugins/withAppDelegateSceneSupport"
+      "./plugins/withAppDelegateSceneSupport",
+      "./plugins/withMetroLanHost"
     ]
   }
 }
