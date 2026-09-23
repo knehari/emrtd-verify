@@ -107,11 +107,24 @@ export async function scanMrzFromPhoto(
   photoHeight: number,
   guide: MrzGuideRect,
 ): Promise<MrzScanResult> {
+  // Marge de sécurité autour du cadre-guide visuel : la correspondance entre la fraction affichée
+  // à l'écran et la même fraction de la photo capturée n'est qu'une approximation (l'aperçu et la
+  // photo n'ont pas forcément exactement le même ratio — observé en pratique : aperçu ≈ 1206×2622,
+  // photo ≈ 1984×4032, ratios proches mais pas identiques). Élargir le recadrage réduit le risque de
+  // rater la MRZ pour un écart marginal, sans coût réel : les lignes candidates superflues sont de
+  // toute façon filtrées par forme puis par chiffres de contrôle plus bas.
+  const padY = guide.heightRatio * 0.5;
+  const padX = guide.widthRatio * 0.15;
+  const originYRatio = Math.max(0, guide.originYRatio - padY);
+  const heightRatio = Math.min(1 - originYRatio, guide.heightRatio + padY * 2);
+  const originXRatio = Math.max(0, guide.originXRatio - padX);
+  const widthRatio = Math.min(1 - originXRatio, guide.widthRatio + padX * 2);
+
   const crop = {
-    originX: Math.round(guide.originXRatio * photoWidth),
-    originY: Math.round(guide.originYRatio * photoHeight),
-    width: Math.round(guide.widthRatio * photoWidth),
-    height: Math.round(guide.heightRatio * photoHeight),
+    originX: Math.round(originXRatio * photoWidth),
+    originY: Math.round(originYRatio * photoHeight),
+    width: Math.round(widthRatio * photoWidth),
+    height: Math.round(heightRatio * photoHeight),
   };
   const targetWidth = Math.min(2000, Math.max(1200, crop.width));
   const cropped = await ImageManipulator.manipulateAsync(

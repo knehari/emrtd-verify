@@ -37,7 +37,11 @@ export function MrzCameraScanner({
     setBusy(true);
     setError(null);
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.9, skipProcessing: true });
+      // `skipProcessing` accélère la capture mais, per la doc expo-camera, rend l'orientation de la
+      // photo imprévisible (rotation 90°/180°/270° non corrigée selon l'appareil) — le recadrage
+      // ci-dessous (scanMrzFromPhoto) suppose une photo orientée comme l'aperçu affiché à l'écran,
+      // donc jamais `skipProcessing: true` ici (sinon le recadrage vise la mauvaise zone de l'image).
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.9 });
       if (!photo) throw new Error("no-photo");
       const result = await scanMrzFromPhoto(photo.uri, photo.width, photo.height, GUIDE);
       if (result.ok) {
