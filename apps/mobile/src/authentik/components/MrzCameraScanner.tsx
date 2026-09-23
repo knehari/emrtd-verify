@@ -7,6 +7,7 @@
 import React, { useCallback, useRef, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, Linking } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import Svg, { Path } from "react-native-svg";
 import { PressableFX as Pressable } from "./PressableFX";
 import { colors } from "../theme";
 import { scanMrzFromPhoto, type MrzScanSuccess, type MrzGuideRect } from "../../mrz/scanMrz";
@@ -29,6 +30,7 @@ export function MrzCameraScanner({
   const cameraRef = useRef<CameraView>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [torch, setTorch] = useState(false);
 
   const capture = useCallback(async () => {
     if (!cameraRef.current || busy) return;
@@ -75,7 +77,7 @@ export function MrzCameraScanner({
 
   return (
     <View style={styles.fill}>
-      <CameraView ref={cameraRef} style={styles.fill} facing="back" />
+      <CameraView ref={cameraRef} style={styles.fill} facing="back" enableTorch={torch} />
 
       <View pointerEvents="none" style={[styles.maskEdge, { top: 0, left: 0, right: 0, height: pct(GUIDE.originYRatio) }]} />
       <View
@@ -118,7 +120,19 @@ export function MrzCameraScanner({
         <Pressable onPress={capture} disabled={busy} style={[styles.shutter, busy && styles.shutterBusy]}>
           {busy ? <ActivityIndicator color="#fff" /> : <View style={styles.shutterInner} />}
         </Pressable>
-        <View style={{ width: 90 }} />
+        <View style={styles.torchWrap}>
+          <Pressable onPress={() => setTorch((v) => !v)} style={[styles.torchButton, torch && styles.torchButtonActive]}>
+            <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+              <Path
+                d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z"
+                fill={torch ? "#0B0B0C" : "#fff"}
+                stroke={torch ? "#0B0B0C" : "#fff"}
+                strokeWidth={1.4}
+                strokeLinejoin="round"
+              />
+            </Svg>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -158,6 +172,16 @@ const styles = StyleSheet.create({
   },
   manualLinkDark: { width: 90 },
   manualLinkDarkText: { color: "#fff", fontSize: 13, opacity: 0.85 },
+  torchWrap: { width: 90, alignItems: "flex-end" },
+  torchButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "rgba(255,255,255,0.16)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  torchButtonActive: { backgroundColor: "#fff" },
   shutter: {
     width: 72,
     height: 72,
