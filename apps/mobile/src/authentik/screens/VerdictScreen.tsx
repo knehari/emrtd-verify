@@ -40,12 +40,9 @@ export function VerdictScreen({ demo }: { demo: AuthentikDemo }) {
             <Text style={styles.thumbnailLabel}>DG2</Text>
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.surname}>MARTIN</Text>
-            <Text style={styles.givenNames}>Camille Élise</Text>
-            <Text style={styles.techLine}>
-              FRA · TD3 · 21FR34567{"\n"}
-              {demo.t.expLabel} 30/08/2031
-            </Text>
+            <Text style={styles.surname}>{demo.identitySurname}</Text>
+            <Text style={styles.givenNames}>{demo.identityGivenNames}</Text>
+            <Text style={styles.techLine}>{demo.identityTechLine}</Text>
           </View>
         </View>
       </View>
@@ -66,13 +63,13 @@ export function VerdictScreen({ demo }: { demo: AuthentikDemo }) {
         <Pressable onPress={demo.goFields} style={styles.detailRow}>
           <Icon name="doc" size={21} />
           <Text style={styles.detailLabel}>{demo.t.tabFields}</Text>
-          <Text style={styles.detailValue}>12</Text>
+          <Text style={styles.detailValue}>{demo.identityFieldsCount}</Text>
           <Text style={styles.chevron}>›</Text>
         </Pressable>
         <Pressable onPress={demo.goChain} style={[styles.detailRow, styles.detailRowBorder]}>
           <Icon name="shield" size={21} />
           <Text style={styles.detailLabel}>{demo.t.tabChain}</Text>
-          <Text style={styles.detailValue}>ICAO PKD</Text>
+          <Text style={styles.detailValue}>{demo.chainDetailValue}</Text>
           <Text style={styles.chevron}>›</Text>
         </Pressable>
         <Pressable onPress={demo.goAnomalies} style={[styles.detailRow, styles.detailRowBorder]}>

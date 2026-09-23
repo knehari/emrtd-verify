@@ -1,18 +1,41 @@
 /**
- * Machine à états et valeurs dérivées — transcrites depuis la `class Component extends DCLogic`
- * du prototype HTML (`design_handoff_authentik/eMRTD Verify Mobile.dc.html`, méthodes `startScan`/
- * `runNfc`/`runSelfie`/`renderVals`, lues directement dans ce fichier). Mêmes minuteurs, mêmes
- * paliers, même logique de dérivation par scénario/langue/mode — voir le README du handoff §4
- * "Machine à états et navigation" et §8 "État applicatif" pour la spécification lisible.
+ * Machine à états et valeurs dérivées.
  *
- * `scenario`/`lang` restent ici des commutateurs de DÉMONSTRATION (comme dans le prototype) : sans
- * matériel réel (puce eMRTD, capture vivante) pour piloter ce premier PoC, ce sont les seuls moyens
- * de parcourir les trois verdicts sur un appareil réel. En production, `scenario` viendrait du
- * moteur de vérification (`@emrtd-verify/verification-policy` déjà implémenté côté hors-ligne/API,
- * voir docs/pki-trust-model.md) et `lang` de la locale système — voir le README du handoff §8.
+ * Deux modes coexistent :
+ * - MODE DÉMO (inchangé) : `scenario`/`lang` restent des commutateurs de démonstration pilotant
+ *   la logique transcrite depuis la `class Component extends DCLogic` du prototype HTML
+ *   (`design_handoff_authentik/eMRTD Verify Mobile.dc.html`, méthodes `startScan`/`runNfc`/
+ *   `runSelfie`/`renderVals`) — utile pour prévisualiser les trois verdicts sans document réel.
+ * - MODE RÉEL (nouveau) : `startScan` mène à un vrai formulaire MRZ (`mrzForm`/`updateMrzForm`/
+ *   `submitMrz`), puis `beginNfc` déclenche une vraie lecture NFC/BAC (`readEmrtdChip`,
+ *   apps/mobile/src/nfc/emrtdReader.ts) suivie d'une vraie vérification locale
+ *   (`computeLocalVerification`, apps/mobile/src/verification/localVerification.ts). Dès qu'un
+ *   `verificationResult` réel existe, `derived` l'utilise à la place des données canned du mode
+ *   démo — voir `deriveFromRealResult` plus bas.
+ *
+ * Hors périmètre de ce premier branchement réel (voir conversation) : liveness active (le module
+ * natif ARKit n'existe pas encore, voir apps/mobile/src/liveness/faceLivenessSession.ts) et
+ * reconnaissance faciale (aucun détecteur de visage ni décodeur JPEG on-device dans ce dépôt) — le
+ * flux réel saute donc directement de "nfc" à "processing" sans passer par "selfie". La
+ * réconciliation backend (apps/mobile/src/sync/submissionQueue.ts) n'est pas non plus déclenchée
+ * ici : `appConfig` (apps/mobile/src/config.ts) n'a pas d'URL/clé d'API réelles configurées, et
+ * sans bundle CSCA synchronisé (`syncCscaBundle`), `computeLocalVerification` n'aura aucune ancre
+ * de confiance locale — un document pourtant authentique affichera donc `NO_TRUST_ANCHOR` tant que
+ * ni l'un ni l'autre n'est branché. Voir README de ce dossier pour le détail.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { NfcError } from "react-native-nfc-manager";
+import type { AnomalySeverity, DocumentType, Verdict } from "@emrtd-verify/shared-types";
 import { copyFor, type Lang } from "./copy";
+import {
+  readEmrtdChip,
+  NfcUnavailableError,
+  BacAuthenticationError,
+  ChipReaderError,
+  type EmrtdReadResult,
+  type MrzAccessKey,
+} from "../nfc/emrtdReader";
+import { computeLocalVerification, LocalVerificationError, type LocalVerificationResult } from "../verification/localVerification";
 
 export type Scenario = "authentic" | "suspicious" | "alert";
 export type Step =
@@ -34,6 +57,59 @@ const WARN = "#FF9F0A";
 const INFO = "#8E8E93";
 const RED = "#FF3B30";
 
+const DG_LABELS: Record<number, string> = {
+  1: "MRZ",
+  2: "Photo",
+  14: "ChipAuth",
+  15: "ActiveAuth",
+};
+
+type ScanErrorAction = "enable-nfc" | "rescan-mrz" | "retry-nfc";
+
+interface VerificationError {
+  message: string;
+  action: ScanErrorAction;
+}
+
+function describeVerificationError(error: unknown): VerificationError {
+  if (error instanceof NfcUnavailableError) {
+    return { message: "NFC indisponible : vérifiez qu'il est activé dans les réglages de l'appareil.", action: "enable-nfc" };
+  }
+  if (error instanceof BacAuthenticationError) {
+    return {
+      message: "Impossible d'établir un canal sécurisé avec le document : les informations saisies sont peut-être incorrectes.",
+      action: "rescan-mrz",
+    };
+  }
+  if (error instanceof ChipReaderError) {
+    return { message: "La lecture de la puce a échoué en cours de session (transmission interrompue).", action: "retry-nfc" };
+  }
+  if (error instanceof LocalVerificationError) {
+    return { message: "Le contenu lu sur la puce n'a pas pu être décodé (document non conforme ou lecture incomplète).", action: "retry-nfc" };
+  }
+  if (error instanceof NfcError.UserCancel) {
+    return { message: "Lecture annulée.", action: "retry-nfc" };
+  }
+  if (error instanceof NfcError.SessionInvalidated || error instanceof NfcError.TagConnectionLost || error instanceof NfcError.Timeout) {
+    return { message: "Session NFC interrompue : rapprochez le document du téléphone et réessayez.", action: "retry-nfc" };
+  }
+  return { message: error instanceof Error ? error.message : "Erreur inconnue", action: "retry-nfc" };
+}
+
+export interface MrzFormState {
+  documentType: DocumentType;
+  documentNumber: string;
+  dateOfBirth: string; // AAMMJJ, saisi par l'utilisateur (pas de scan MRZ caméra dans ce dépôt)
+  dateOfExpiry: string; // AAMMJJ
+}
+
+const DEFAULT_MRZ_FORM: MrzFormState = {
+  documentType: "ePassport",
+  documentNumber: "",
+  dateOfBirth: "",
+  dateOfExpiry: "",
+};
+
 interface RawState {
   step: Step;
   langSel: Lang | null;
@@ -42,6 +118,11 @@ interface RawState {
   showShare: boolean;
   livePhase: number;
   online: boolean;
+  mrzForm: MrzFormState;
+  verificationStatus: "idle" | "reading-nfc" | "verifying";
+  verificationError: VerificationError | null;
+  chipResult: EmrtdReadResult | null;
+  verificationResult: LocalVerificationResult | null;
 }
 
 export function useAuthentikDemo() {
@@ -53,6 +134,11 @@ export function useAuthentikDemo() {
     showShare: false,
     livePhase: 0,
     online: false,
+    mrzForm: DEFAULT_MRZ_FORM,
+    verificationStatus: "idle",
+    verificationError: null,
+    chipResult: null,
+    verificationResult: null,
   });
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -84,6 +170,7 @@ export function useAuthentikDemo() {
 
   const scenario = useCallback((): Scenario => sRef.current.scenarioSel ?? "suspicious", []);
 
+  // Mode démo uniquement — inchangé. Le mode réel ne passe jamais par "selfie" (voir en-tête).
   const runSelfie = useCallback(() => {
     const scNow = scenario();
     const face = scNow === "suspicious" || scNow === "alert";
@@ -111,7 +198,8 @@ export function useAuthentikDemo() {
     }, 1400);
   }, [scenario]);
 
-  const runNfc = useCallback(() => {
+  // Mode démo uniquement — inchangé (minuteurs canned).
+  const runNfcDemo = useCallback(() => {
     setS((prev) => ({ ...prev, step: "nfc", pct: 0 }));
     tickRef.current = 0;
     timerRef.current = setInterval(() => {
@@ -130,18 +218,99 @@ export function useAuthentikDemo() {
 
   const startScan = useCallback(() => {
     clear();
-    setS((prev) => ({ ...prev, step: "mrz", pct: 0, showShare: false }));
-    toRef.current = setTimeout(() => setS((prev) => ({ ...prev, step: "place" })), 1900);
+    setS((prev) => ({ ...prev, step: "mrz", pct: 0, showShare: false, verificationError: null }));
+  }, [clear]);
+
+  const updateMrzForm = useCallback((patch: Partial<MrzFormState>) => {
+    setS((prev) => ({ ...prev, mrzForm: { ...prev.mrzForm, ...patch } }));
+  }, []);
+
+  const mrzFormValid = useMemo(() => {
+    const f = s.mrzForm;
+    return f.documentNumber.trim().length > 0 && /^\d{6}$/.test(f.dateOfBirth) && /^\d{6}$/.test(f.dateOfExpiry);
+  }, [s.mrzForm]);
+
+  const submitMrz = useCallback(() => {
+    setS((prev) => {
+      const f = prev.mrzForm;
+      const valid = f.documentNumber.trim().length > 0 && /^\d{6}$/.test(f.dateOfBirth) && /^\d{6}$/.test(f.dateOfExpiry);
+      return valid ? { ...prev, step: "place" } : prev;
+    });
+  }, []);
+
+  // Mode réel : lecture NFC/BAC réelle (readEmrtdChip) puis vérification locale réelle
+  // (computeLocalVerification), sans liveness ni reconnaissance faciale (voir en-tête du fichier).
+  const runVerification = useCallback(async () => {
+    const { mrzForm } = sRef.current;
+    const accessKey: MrzAccessKey = {
+      documentNumber: mrzForm.documentNumber.trim(),
+      dateOfBirth: mrzForm.dateOfBirth,
+      dateOfExpiry: mrzForm.dateOfExpiry,
+    };
+
+    setS((prev) => ({ ...prev, step: "nfc", pct: 0, verificationStatus: "reading-nfc", verificationError: null }));
+
+    // readEmrtdChip() est un seul appel asynchrone sans callback de progression (voir sa
+    // signature dans emrtdReader.ts) : on simule une montée fluide jusqu'à 90 % pendant l'attente
+    // réelle, puis on saute à 100 % une fois la lecture terminée avec succès.
+    timerRef.current = setInterval(() => {
+      setS((prev) => (prev.pct >= 90 ? prev : { ...prev, pct: prev.pct + 4 }));
+    }, 300);
+
+    let chipResult: EmrtdReadResult;
+    try {
+      chipResult = await readEmrtdChip(accessKey);
+    } catch (error) {
+      clear();
+      const described = describeVerificationError(error);
+      setS((prev) => ({
+        ...prev,
+        step: described.action === "rescan-mrz" ? "mrz" : "place",
+        verificationStatus: "idle",
+        verificationError: described,
+      }));
+      return;
+    }
+    clear();
+    setS((prev) => ({ ...prev, pct: 100, chipResult, step: "processing", verificationStatus: "verifying" }));
+
+    try {
+      const result = await computeLocalVerification({
+        documentType: mrzForm.documentType,
+        chipData: { sod: chipResult.sod, dataGroups: chipResult.dataGroups },
+        requestedFields: ["documentNumber", "dateOfBirth", "dateOfExpiry", "nationality", "sex", "primaryIdentifier", "secondaryIdentifier"],
+      });
+      setS((prev) => ({ ...prev, verificationResult: result, verificationStatus: "idle", step: "verdict" }));
+    } catch (error) {
+      const described = describeVerificationError(error);
+      setS((prev) => ({ ...prev, step: "place", verificationStatus: "idle", verificationError: described }));
+    }
   }, [clear]);
 
   const beginNfc = useCallback(() => {
     clear();
-    runNfc();
-  }, [clear, runNfc]);
+    if (sRef.current.mrzForm.documentNumber.trim().length > 0) {
+      void runVerification();
+    } else {
+      // Mode démo : aucun formulaire MRZ réel rempli (ex. démarré via le commutateur de scénario
+      // plutôt que via startScan → submitMrz) — on garde le comportement canned existant.
+      runNfcDemo();
+    }
+  }, [clear, runVerification, runNfcDemo]);
 
   const reset = useCallback(() => {
     clear();
-    setS((prev) => ({ ...prev, step: "home", pct: 0, showShare: false }));
+    setS((prev) => ({
+      ...prev,
+      step: "home",
+      pct: 0,
+      showShare: false,
+      mrzForm: DEFAULT_MRZ_FORM,
+      verificationStatus: "idle",
+      verificationError: null,
+      chipResult: null,
+      verificationResult: null,
+    }));
   }, [clear]);
 
   const toggleLang = useCallback(() => {
@@ -167,6 +336,11 @@ export function useAuthentikDemo() {
 
   const derived = useMemo(() => {
     const t = copyFor(lang);
+
+    if (s.verificationResult) {
+      return deriveFromRealResult(s.verificationResult, s, t, lang);
+    }
+
     const alert = currentScenario === "alert";
     const suspicious = currentScenario === "suspicious";
     const color = alert ? RED : suspicious ? WARN : OK;
@@ -281,16 +455,27 @@ export function useAuthentikDemo() {
       countryRows,
       verifiedLine: s.online ? t.verifiedLineOnline : t.verifiedLine,
       supported: t.types3.map((d) => ({ name: d[0], format: d[1] })),
+      identitySurname: "MARTIN",
+      identityGivenNames: "Camille Élise",
+      identityTechLine: `FRA · TD3 · 21FR34567\n${t.expLabel} 30/08/2031`,
+      identityFieldsCount: 12,
+      chainDetailValue: "ICAO PKD",
     };
-  }, [lang, currentScenario, s.pct, s.online, s.step, s.livePhase]);
+  }, [lang, currentScenario, s.pct, s.online, s.step, s.livePhase, s.verificationResult]);
 
   return {
     step: s.step,
     lang,
     scenario: currentScenario,
     showShare: s.showShare,
+    mrzForm: s.mrzForm,
+    mrzFormValid,
+    verificationStatus: s.verificationStatus,
+    verificationError: s.verificationError,
     ...derived,
     startScan,
+    updateMrzForm,
+    submitMrz,
     beginNfc,
     reset,
     go,
@@ -307,6 +492,181 @@ export function useAuthentikDemo() {
     toggleLang,
     toggleScenario,
   };
+}
+
+/**
+ * Construit le même objet `derived` que le mode démo, mais à partir d'un vrai
+ * `LocalVerificationResult` (lecture NFC + vérification locale réelles) plutôt que des tables de
+ * copie canned par scénario. Les écrans (VerdictScreen/FieldsScreen/ChainScreen/AnomaliesScreen/
+ * NfcScreen/ProcessingScreen) consomment `derived` sans savoir s'il vient du mode démo ou réel.
+ */
+function deriveFromRealResult(
+  result: LocalVerificationResult,
+  s: RawState,
+  t: ReturnType<typeof copyFor>,
+  lang: Lang,
+) {
+  const verdict: Verdict = result.verdict;
+  const alert = verdict === "rejected";
+  const suspicious = verdict === "suspicious" || verdict === "manual_review_required";
+  const color = alert ? RED : suspicious ? WARN : OK;
+  const wash = alert ? "rgba(255,59,48,.13)" : suspicious ? "rgba(255,159,10,.14)" : "rgba(48,209,88,.15)";
+  const chipInk = alert ? "#B3261E" : suspicious ? "#B36A00" : "#1F7A38";
+
+  const fieldEntries = Object.entries(result.document.fields);
+  const fieldRows = fieldEntries.map(([label, f], i) => ({
+    label,
+    value: f.value,
+    checks: f.checks.join(", "),
+    color: f.valid ? OK : RED,
+    first: i === 0,
+  }));
+  const allFieldsValid = fieldEntries.every(([, f]) => f.valid);
+
+  const anomalyRows = result.anomalies.map((a) => ({
+    code: a.code,
+    sev: a.severity,
+    message: a.message,
+    color: severityColor(a.severity),
+  }));
+
+  const trust = result.trustChain;
+  const trustSourceLabel = trust.source === "icao-pkd" ? "ICAO PKD" : trust.source === "national-pkd" ? "PKD national" : "Magasin de confiance étendu";
+  const chainRows = [
+    {
+      title: "Ancre de confiance",
+      state: trust.sufficientForClientPolicy ? "valide" : "insuffisante",
+      subject: trustSourceLabel,
+      note: `Niveau : ${trust.level}`,
+      color: trust.sufficientForClientPolicy ? OK : RED,
+      isLast: false,
+    },
+    ...(trust.cscaSubject
+      ? [{ title: "Certificat CSCA", state: "présent", subject: trust.cscaSubject, note: "Autorité racine du pays émetteur", color: OK, isLast: false }]
+      : []),
+    ...(trust.dscSubject
+      ? [{ title: "Certificat DSC", state: "présent", subject: trust.dscSubject, note: "Signataire du document", color: OK, isLast: false }]
+      : []),
+    {
+      title: "Révocation",
+      state: !trust.revocationChecked ? "non vérifiée" : trust.revoked ? "révoqué" : "non révoqué",
+      subject: trustSourceLabel,
+      note: trust.revocationChecked ? "Vérifiée localement" : "Nécessite une synchronisation backend",
+      color: trust.revoked ? RED : trust.revocationChecked ? OK : WARN,
+      isLast: true,
+    },
+  ];
+
+  const trustRows = [
+    { label: "Source", value: trustSourceLabel, first: true },
+    { label: "Niveau", value: trust.level, first: false },
+    { label: "Conforme à la politique client", value: trust.sufficientForClientPolicy ? "oui" : "non", first: false },
+    { label: "Révocation vérifiée", value: trust.revocationChecked ? "oui" : "non", first: false },
+  ];
+
+  const dgRows = Object.keys(s.chipResult?.dataGroups ?? {}).map((k) => {
+    const id = Number(k);
+    return {
+      id: `DG${id}`,
+      label: DG_LABELS[id] ?? `DG${id}`,
+      tone: "rgba(60,60,67,.55)",
+      state: "done" as const,
+      markTone: OK,
+    };
+  });
+
+  const checkRows = [
+    { label: "Authentification passive (SOD)", detail: "Empreintes des groupes de données vérifiées", color: OK, icon: "check" as const },
+    {
+      label: "Chaîne de confiance PKI",
+      detail: trustSourceLabel,
+      color: trust.sufficientForClientPolicy ? OK : WARN,
+      icon: (trust.sufficientForClientPolicy ? "check" : "warn") as "check" | "warn",
+    },
+    { label: "Authentification de la puce (BAC)", detail: "Canal sécurisé établi avec succès", color: OK, icon: "check" as const },
+    {
+      label: "Champs du document",
+      detail: `${fieldRows.length} champ${fieldRows.length > 1 ? "s" : ""} contrôlé${fieldRows.length > 1 ? "s" : ""}`,
+      color: allFieldsValid ? OK : WARN,
+      icon: (allFieldsValid ? "check" : "warn") as "check" | "warn",
+    },
+    { label: "Reconnaissance faciale", detail: "Non réalisée dans ce PoC", color: INFO, icon: "dash" as const },
+  ];
+
+  const procRows = [
+    { label: "Lecture MRZ (saisie manuelle)", dot: OK, tone: "rgba(60,60,67,.6)" },
+    { label: "Lecture de la puce NFC", dot: OK, tone: "rgba(60,60,67,.6)" },
+    {
+      label: "Vérification locale",
+      dot: s.verificationStatus === "verifying" ? "rgba(60,60,67,.2)" : OK,
+      tone: s.verificationStatus === "verifying" ? "#000" : "rgba(60,60,67,.6)",
+    },
+  ];
+
+  const passedCount = 4 - (allFieldsValid ? 0 : 1) - (trust.sufficientForClientPolicy ? 0 : 1) - (result.anomalies.length > 0 ? 1 : 0);
+
+  return {
+    t,
+    alert,
+    suspicious,
+    authentic: !alert && !suspicious,
+    langLabel: lang === "en" ? "EN" : "FR",
+    scenarioLabel: verdict,
+    darkScreen: s.step === "mrz" || s.step === "selfie",
+    screenBg: s.step === "mrz" || s.step === "selfie" ? "#0B0B0C" : "#F2F2F7",
+    pctLabel: `${s.pct} %`,
+    pct: s.pct,
+    barWidth: `${s.pct}%`,
+    online: s.online,
+    homeSub: s.online ? t.homeSubOnline : t.homeSub,
+    modeLabel: s.online ? t.modeOnline : t.modeOffline,
+    modeDesc: s.online ? t.modeOnlineDesc : t.modeOfflineDesc,
+    modeDot: s.online ? OK : "#0A84FF",
+    trustLineNow: s.online ? t.trustLineOnline : t.trustLine,
+    procNote: "Vérification locale — voir README pour ce qui reste hors périmètre (liveness, reconnaissance faciale, réconciliation backend).",
+    showTabs: s.step === "home" || s.step === "trust" || s.step === "countries",
+    livePhase: s.livePhase,
+    liveDone: s.livePhase >= 3,
+    liveTitle: t.livePhases[0],
+    liveSub: t.livePhaseSub[0],
+    liveAccent: "#0A84FF",
+    liveDots: [0, 1, 2].map(() => ({ bg: "rgba(255,255,255,.25)" })),
+    decisionTitle: alert
+      ? "Document rejeté"
+      : verdict === "manual_review_required"
+        ? "Vérification manuelle requise"
+        : suspicious
+          ? "Document suspect"
+          : "Document authentique",
+    decisionSub: `Verdict local provisoire — ${result.anomalies.length} anomalie${result.anomalies.length > 1 ? "s" : ""} détectée${result.anomalies.length > 1 ? "s" : ""}.`,
+    decisionBg: alert ? "#FDECEB" : suspicious ? "#FFF6E6" : "#EAF9EE",
+    decisionBorder: alert ? "rgba(255,59,48,.28)" : suspicious ? "rgba(255,159,10,.3)" : "rgba(48,209,88,.3)",
+    passedLabel: `${Math.max(0, passedCount)} vérifications passées sur 4`,
+    verdictColor: color,
+    verdictWash: wash,
+    verdictChipLabel: verdict,
+    verdictChipInk: chipInk,
+    anomalyCount: anomalyRows.length,
+    checkRows,
+    anomalyRows,
+    dgRows,
+    procRows,
+    fieldRows,
+    chainRows,
+    trustRows,
+    countryRows: t.countries.map((c) => ({ code: c[0], flag: c[1], name: c[2], anchors: `${c[3]} ${t.anchorsWord}` })),
+    verifiedLine: "Vérification locale — résultat provisoire tant qu'aucune réconciliation backend n'a eu lieu.",
+    supported: t.types3.map((d) => ({ name: d[0], format: d[1] })),
+    identitySurname: result.document.fields.primaryIdentifier?.value ?? "—",
+    identityGivenNames: result.document.fields.secondaryIdentifier?.value ?? "—",
+    identityTechLine: `${result.document.issuingCountry} · ${result.document.type}\n${result.document.fields.documentNumber?.value ?? "—"}`,
+    identityFieldsCount: fieldRows.length,
+    chainDetailValue: trustSourceLabel,
+  };
+}
+
+function severityColor(sev: AnomalySeverity) {
+  return sev === "critical" ? RED : sev === "warning" ? WARN : INFO;
 }
 
 export type AuthentikDemo = ReturnType<typeof useAuthentikDemo>;

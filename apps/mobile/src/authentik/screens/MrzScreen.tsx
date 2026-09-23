@@ -1,26 +1,24 @@
 /**
  * Lecture MRZ — transcrit depuis le handoff, bloc `isMrz`
  * (`design_handoff_authentik/eMRTD Verify Mobile.dc.html` lignes 299-317, README §6.2).
- * Le flux caméra réel n'est pas branché dans ce premier PoC (voir README du handoff §2 et §3 :
- * le prototype lui-même simule la caméra par un aplat texturé portant la mention « flux caméra »).
+ * Le flux caméra réel n'est pas branché dans ce PoC (voir README du handoff §2 et §3 : le
+ * prototype simule la caméra par un aplat texturé portant la mention « flux caméra »). En
+ * revanche, la clé d'accès BAC qu'elle produirait normalement (numéro de document + dates de
+ * naissance/expiration) est ici saisie manuellement et sert de vraie clé d'accès NFC/BAC
+ * (`readEmrtdChip`, voir `apps/mobile/src/authentik/state.ts`).
  */
-import React, { useEffect, useRef } from "react";
-import { View, Text, StyleSheet, Pressable, Animated, Easing } from "react-native";
+import React from "react";
+import { View, Text, StyleSheet, Pressable, TextInput } from "react-native";
+import type { DocumentType } from "@emrtd-verify/shared-types";
 import { colors, fontMono } from "../theme";
 import type { AuthentikDemo } from "../state";
 
-function Spinner() {
-  const rotate = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const loop = Animated.loop(Animated.timing(rotate, { toValue: 1, duration: 1000, easing: Easing.linear, useNativeDriver: true }));
-    loop.start();
-    return () => loop.stop();
-  }, [rotate]);
-  const spin = rotate.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
-  return <Animated.View style={[styles.spinner, { transform: [{ rotate: spin }] }]} />;
-}
+const DOCUMENT_TYPES: DocumentType[] = ["ePassport", "eID", "eResidenceCard"];
 
 export function MrzScreen({ demo }: { demo: AuthentikDemo }) {
+  const fr = demo.lang === "fr";
+  const { mrzForm, updateMrzForm } = demo;
+
   return (
     <View style={styles.screen}>
       <View style={styles.nav}>
@@ -31,20 +29,76 @@ export function MrzScreen({ demo }: { demo: AuthentikDemo }) {
         <View style={{ width: 52 }} />
       </View>
 
-      <View style={styles.cameraZone}>
-        <Text style={styles.cameraLabel}>flux caméra</Text>
-        <View style={styles.mrzBand}>
-          <Text style={styles.mrzText}>{"P<FRAMARTIN<<CAMILLE<ELISE<<<<<<<<<<<<<<<<<\n21FR345679FRA9104125F3108304<<<<<<02"}</Text>
-        </View>
-      </View>
-
       <Text style={styles.title}>{demo.t.mrzHead}</Text>
       <Text style={styles.hint}>{demo.t.mrzHint}</Text>
 
-      <View style={styles.footer}>
-        <Spinner />
-        <Text style={styles.footerText}>{demo.t.mrzReading}</Text>
+      {demo.verificationError ? (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>{demo.verificationError.message}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.typeRow}>
+        {DOCUMENT_TYPES.map((docType, i) => {
+          const selected = mrzForm.documentType === docType;
+          return (
+            <Pressable
+              key={docType}
+              onPress={() => updateMrzForm({ documentType: docType })}
+              style={[styles.typeChip, selected && styles.typeChipSelected]}
+            >
+              <Text style={[styles.typeChipText, selected && styles.typeChipTextSelected]}>{demo.t.types3[i][0]}</Text>
+            </Pressable>
+          );
+        })}
       </View>
+
+      <View style={styles.field}>
+        <Text style={styles.label}>{fr ? "Numéro du document" : "Document number"}</Text>
+        <TextInput
+          style={styles.input}
+          value={mrzForm.documentNumber}
+          onChangeText={(v) => updateMrzForm({ documentNumber: v.toUpperCase() })}
+          placeholder="21FR345679"
+          placeholderTextColor="rgba(255,255,255,0.3)"
+          autoCapitalize="characters"
+          autoCorrect={false}
+        />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={styles.label}>{fr ? "Date de naissance (AAMMJJ)" : "Date of birth (YYMMDD)"}</Text>
+        <TextInput
+          style={styles.input}
+          value={mrzForm.dateOfBirth}
+          onChangeText={(v) => updateMrzForm({ dateOfBirth: v.replace(/\D/g, "").slice(0, 6) })}
+          placeholder="910412"
+          placeholderTextColor="rgba(255,255,255,0.3)"
+          keyboardType="number-pad"
+          maxLength={6}
+        />
+      </View>
+
+      <View style={styles.field}>
+        <Text style={styles.label}>{fr ? "Date d'expiration (AAMMJJ)" : "Date of expiry (YYMMDD)"}</Text>
+        <TextInput
+          style={styles.input}
+          value={mrzForm.dateOfExpiry}
+          onChangeText={(v) => updateMrzForm({ dateOfExpiry: v.replace(/\D/g, "").slice(0, 6) })}
+          placeholder="310830"
+          placeholderTextColor="rgba(255,255,255,0.3)"
+          keyboardType="number-pad"
+          maxLength={6}
+        />
+      </View>
+
+      <Pressable
+        onPress={demo.submitMrz}
+        disabled={!demo.mrzFormValid}
+        style={[styles.submit, !demo.mrzFormValid && styles.submitDisabled]}
+      >
+        <Text style={styles.submitText}>{fr ? "Continuer" : "Continue"}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -54,31 +108,48 @@ const styles = StyleSheet.create({
   nav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 6, paddingBottom: 18 },
   navCancel: { color: "#fff", fontSize: 15 },
   navTitle: { color: "#fff", fontSize: 15, fontWeight: "600" },
-  cameraZone: { borderRadius: 16, overflow: "hidden", backgroundColor: "#1C1C1E", height: 230, justifyContent: "flex-end" },
-  cameraLabel: { position: "absolute", alignSelf: "center", top: "42%", fontFamily: fontMono, fontSize: 11, color: "rgba(255,255,255,0.35)" },
-  mrzBand: {
-    marginBottom: 18,
+  title: { color: "#fff", fontSize: 19, fontWeight: "600", marginBottom: 6, lineHeight: 24 },
+  hint: { color: "rgba(255,255,255,0.6)", fontSize: 14, lineHeight: 20, marginBottom: 18 },
+  errorBanner: {
+    backgroundColor: "rgba(255,69,58,0.14)",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,69,58,0.4)",
+  },
+  errorText: { color: "#FF6961", fontSize: 13, lineHeight: 18 },
+  typeRow: { flexDirection: "row", gap: 8, marginBottom: 18 },
+  typeChip: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  typeChipSelected: { backgroundColor: "rgba(10,132,255,0.18)", borderColor: colors.accent },
+  typeChipText: { color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: "600" },
+  typeChipTextSelected: { color: "#fff" },
+  field: { marginBottom: 14 },
+  label: { color: "rgba(255,255,255,0.6)", fontSize: 12, marginBottom: 6 },
+  input: {
+    fontFamily: fontMono,
+    fontSize: 15,
+    color: "#fff",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    backgroundColor: "rgba(10,132,255,0.14)",
-    borderTopWidth: 1.5,
-    borderBottomWidth: 1.5,
-    borderColor: colors.accent,
   },
-  mrzText: { fontFamily: fontMono, fontSize: 12, lineHeight: 20, color: "#fff", letterSpacing: 0.5 },
-  title: { color: "#fff", fontSize: 19, fontWeight: "600", marginTop: 26, marginBottom: 6, lineHeight: 24 },
-  hint: { color: "rgba(255,255,255,0.6)", fontSize: 14, lineHeight: 20 },
-  footer: {
-    marginTop: "auto",
-    marginBottom: 26,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    backgroundColor: "rgba(255,255,255,0.08)",
+  submit: {
+    marginTop: 8,
+    backgroundColor: colors.accent,
     borderRadius: 12,
-    padding: 13,
-    paddingHorizontal: 15,
+    paddingVertical: 15,
+    alignItems: "center",
   },
-  spinner: { width: 16, height: 16, borderRadius: 8, borderWidth: 2, borderColor: "rgba(255,255,255,0.3)", borderTopColor: "#fff" },
-  footerText: { color: "#fff", fontSize: 14 },
+  submitDisabled: { backgroundColor: "rgba(255,255,255,0.12)" },
+  submitText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 });

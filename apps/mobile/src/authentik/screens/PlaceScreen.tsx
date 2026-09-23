@@ -95,6 +95,12 @@ export function PlaceScreen({ demo }: { demo: AuthentikDemo }) {
         </View>
       </View>
 
+      {demo.verificationError ? (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>{demo.verificationError.message}</Text>
+        </View>
+      ) : null}
+
       <Pressable onPress={demo.beginNfc} style={styles.cta}>
         <Text style={styles.ctaLabel}>{demo.t.placeCta}</Text>
       </Pressable>
@@ -143,6 +149,15 @@ const styles = StyleSheet.create({
   tipRowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator },
   bullet: { color: colors.accent, fontWeight: "700" },
   tipText: { flex: 1, fontSize: 13.5, lineHeight: 19, color: "rgba(60,60,67,0.8)" },
+  errorBanner: {
+    marginTop: 14,
+    backgroundColor: "rgba(255,59,48,0.1)",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,59,48,0.3)",
+  },
+  errorText: { color: "#D70015", fontSize: 13, lineHeight: 18 },
   cta: {
     marginTop: "auto",
     marginBottom: 24,
