@@ -20,11 +20,16 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, Animated, Easing } from "react-native";
 import { PressableFX as Pressable } from "./PressableFX";
 import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
 import { type PaletteColors } from "../theme";
 import { NfcIcon, Icon } from "../icons";
 import type { AuthentikDemo } from "../state";
 
 const TAB_COUNT = 3;
+// Doit correspondre à `bar.paddingHorizontal` ci-dessous — la pilule et son calcul de largeur
+// doivent tenir compte de ce padding, sinon elle déborde à gauche et dépasse la largeur d'un onglet
+// (bug signalé : "en mode Dark la loupe n'est pas bien alignée et dépasse un peu le dock à gauche").
+const BAR_PADDING = 6;
 
 export function TabBar({ demo, bottomInset }: { demo: AuthentikDemo; bottomInset: number }) {
   const c = demo.colors;
@@ -36,7 +41,7 @@ export function TabBar({ demo, bottomInset }: { demo: AuthentikDemo; bottomInset
   const activeIndex = homeActive ? 0 : trustActive ? 1 : -1;
 
   const [barWidth, setBarWidth] = useState(0);
-  const tabWidth = barWidth / TAB_COUNT;
+  const tabWidth = Math.max(0, barWidth - BAR_PADDING * 2) / TAB_COUNT;
   const translateX = useRef(new Animated.Value(0)).current;
   const stretch = useRef(new Animated.Value(1)).current;
   const sheen = useRef(new Animated.Value(0)).current;
@@ -61,12 +66,17 @@ export function TabBar({ demo, bottomInset }: { demo: AuthentikDemo; bottomInset
     <View pointerEvents="box-none" style={[styles.wrap, { bottom: 16 + bottomInset }]}>
       <View style={styles.barShadow}>
         <BlurView
-          intensity={78}
+          intensity={100}
           tint={dark ? "systemChromeMaterialDark" : "systemChromeMaterialLight"}
           style={styles.bar}
           onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
         >
-          <View style={styles.specular} pointerEvents="none" />
+          <View style={styles.tintWash} pointerEvents="none" />
+          <LinearGradient
+            pointerEvents="none"
+            colors={dark ? ["rgba(255,255,255,0.14)", "rgba(255,255,255,0)"] : ["rgba(255,255,255,0.45)", "rgba(255,255,255,0)"]}
+            style={styles.specular}
+          />
 
           {activeIndex >= 0 && tabWidth > 0 ? (
             <Animated.View
@@ -74,7 +84,15 @@ export function TabBar({ demo, bottomInset }: { demo: AuthentikDemo; bottomInset
               style={[styles.pillSlot, { width: tabWidth, transform: [{ translateX }, { scaleX: stretch }] }]}
             >
               <View style={styles.pill} />
-              <Animated.View style={[styles.pillSheen, { opacity: sheen }]} />
+              <Animated.View style={[styles.pillSheen, { opacity: sheen }]}>
+                <LinearGradient
+                  pointerEvents="none"
+                  colors={["rgba(255,255,255,0.75)", "rgba(255,255,255,0)"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+              </Animated.View>
             </Animated.View>
           ) : null}
 
@@ -115,13 +133,21 @@ const makeStyles = (colors: PaletteColors) => StyleSheet.create({
     borderRadius: 31,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 6,
+    paddingHorizontal: BAR_PADDING,
     overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.5)",
   },
-  specular: { position: "absolute", left: 0, right: 0, top: 0, height: "50%", backgroundColor: "rgba(255,255,255,0.25)" },
+  // Léger voile pour que le flou système (faible à intensité partielle, cf. UIViewPropertyAnimator
+  // dans expo-blur) reste lisible même au-dessus d'un fond quasi blanc — bug signalé : "en mode
+  // clair, il n'y a pas l'effet Liquid Glass" (le flou natif seul n'était pas assez perceptible).
+  tintWash: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(255,255,255,0.06)" },
+  specular: { position: "absolute", left: 0, right: 0, top: 0, height: "50%" },
   // Pilule "loupe de verre" : glisse et s'étire brièvement (scaleX) vers l'onglet actif, comme un
   // blob liquide qui se reforme — approximation de la morph transition du vrai Liquid Glass.
-  pillSlot: { position: "absolute", top: 7, bottom: 7, left: 0, alignItems: "center", justifyContent: "center" },
+  // `left: BAR_PADDING` (plutôt que 0) : sans ça la pilule est décalée à gauche et déborde
+  // (bug signalé : "en mode Dark la loupe n'est pas bien alignée et dépasse un peu le dock à gauche").
+  pillSlot: { position: "absolute", top: 7, bottom: 7, left: BAR_PADDING, alignItems: "center", justifyContent: "center" },
   pill: {
     width: "100%",
     height: "100%",
@@ -135,7 +161,8 @@ const makeStyles = (colors: PaletteColors) => StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
   },
-  // Reflet qui traverse la pilule pendant la transition, comme la lumière qui glisse sur du verre.
+  // Reflet qui traverse la pilule pendant la transition, comme la lumière qui glisse sur du verre —
+  // dégradé plutôt qu'un rectangle plein (bug signalé : "le reflet du dock est mal fait").
   pillSheen: {
     position: "absolute",
     left: 4,
@@ -143,7 +170,7 @@ const makeStyles = (colors: PaletteColors) => StyleSheet.create({
     top: 7,
     height: "38%",
     borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.55)",
+    overflow: "hidden",
   },
   tab: { flex: 1, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", gap: 3 },
   tabLabel: { fontSize: 10.5, fontWeight: "500", color: `rgba(${colors.inkBaseRgb},0.5)` },
