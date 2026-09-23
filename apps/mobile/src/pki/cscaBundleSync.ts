@@ -3,6 +3,19 @@ import { verifyJsonPayloadSignature, importEcdsaP256PublicKeyFromSpkiBase64, bas
 import type { CscaBundle, CscaBundleAnchor } from "@emrtd-verify/shared-types";
 import type { CscaTrustAnchor } from "@emrtd-verify/pki-trust";
 import { appConfig } from "../config";
+// Ancres CSCA par défaut, EMBARQUÉES à la compilation (jamais récupérées sur le réseau) — générées
+// hors ligne par apps/api/scripts/build-mobile-default-csca-bundle.ts à partir d'une Master List
+// ICAO globale et de Master Lists nationales, toutes deux vérifiées cryptographiquement contre
+// config/master-list-signer-trust-anchors.json (voir ce script pour le détail du modèle de
+// confiance à deux phases). Même principe de confiance que appConfig.cscaBundleSigningPublicKeyBase64
+// ou ce même fichier de config : une donnée compilée dans l'app n'a pas besoin d'être re-signée
+// pour être fiable, elle l'est déjà par construction (contrairement à un bundle récupéré au runtime
+// via syncCscaBundle(), qui DOIT être signé et vérifié, voir verifyAndPersistBundle ci-dessous).
+// Permet à la vérification locale (src/verification/localVerification.ts) d'avoir un magasin de
+// confiance non vide dès le premier lancement, avant toute synchronisation backend réussie.
+import defaultCscaAnchorsJson from "./defaultCscaBundle.json";
+
+const defaultCscaAnchors = defaultCscaAnchorsJson as CscaBundleAnchor[];
 
 export class CscaBundleSyncError extends Error {}
 
@@ -82,14 +95,24 @@ function toTrustAnchor(anchor: CscaBundleAnchor): CscaTrustAnchor {
 }
 
 /**
- * Ancres CSCA du bundle en cache, décodées (base64 -> Uint8Array), prêtes pour `validateTrustChain`
- * (packages/pki-trust) — tableau vide si aucun bundle n'a encore été synchronisé avec succès.
+ * Ancres CSCA disponibles localement, décodées (base64 -> Uint8Array), prêtes pour
+ * `validateTrustChain` (packages/pki-trust) : fusion des ancres par défaut EMBARQUÉES
+ * (`defaultCscaBundle.json`, toujours disponibles, y compris avant toute synchronisation) et de
+ * celles du bundle signé éventuellement synchronisé (`syncCscaBundle`), dédupliquées par
+ * pays+numéro de série (le bundle synchronisé l'emporte en cas de doublon — plus susceptible
+ * d'être à jour sur une éventuelle révocation). N'est jamais vide en pratique, contrairement à
+ * avant l'ajout du bundle par défaut.
  */
 export async function getLocalCscaAnchors(countryCode?: string): Promise<CscaTrustAnchor[]> {
   const bundle = await readCachedCscaBundle();
-  if (!bundle) {
-    return [];
-  }
-  const anchors = countryCode ? bundle.anchors.filter((a) => a.countryCode === countryCode) : bundle.anchors;
+  const syncedAnchors = bundle?.anchors ?? [];
+
+  const merged = new Map<string, CscaBundleAnchor>();
+  for (const anchor of defaultCscaAnchors) merged.set(`${anchor.countryCode}:${anchor.serialNumber}`, anchor);
+  for (const anchor of syncedAnchors) merged.set(`${anchor.countryCode}:${anchor.serialNumber}`, anchor);
+
+  const anchors = countryCode
+    ? Array.from(merged.values()).filter((a) => a.countryCode === countryCode)
+    : Array.from(merged.values());
   return anchors.map(toTrustAnchor);
 }
