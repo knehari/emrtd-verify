@@ -84,16 +84,18 @@ export function HomeScreen({ demo }: { demo: AuthentikDemo }) {
       <View style={styles.scanRow}>
         <Pressable onPress={demo.startScan} style={styles.scanButtonWrap}>
           <WaveRing />
-          <LinearGradient
-            colors={[colors.gradientTop, colors.gradientMid, colors.gradientBottom]}
-            start={{ x: 0.32, y: 0.05 }}
-            end={{ x: 0.75, y: 0.95 }}
-            locations={[0, 0.46, 1]}
-            style={styles.scanButton}
-          >
-            <NfcIcon size={40} color="#fff" strokeWidth={1.7} />
-            <Text style={styles.scanLabel}>{demo.t.verifyBtn}</Text>
-          </LinearGradient>
+          <View style={styles.scanButtonShadow}>
+            <LinearGradient
+              colors={[colors.gradientTop, colors.gradientMid, colors.gradientBottom]}
+              start={{ x: 0.32, y: 0.05 }}
+              end={{ x: 0.75, y: 0.95 }}
+              locations={[0, 0.46, 1]}
+              style={styles.scanButton}
+            >
+              <NfcIcon size={40} color="#fff" strokeWidth={1.7} />
+              <Text style={styles.scanLabel}>{demo.t.verifyBtn}</Text>
+            </LinearGradient>
+          </View>
         </Pressable>
       </View>
       <Text style={styles.autoDetect}>{demo.t.autoDetect}</Text>
@@ -164,17 +166,26 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: "rgba(10,132,255,0.28)",
   },
+  // Le dégradé lui-même ne peut pas porter d'ombre "efficace" (pas de backgroundColor uni) —
+  // l'ombre est donc portée par ce wrapper opaque (entièrement recouvert par le dégradé),
+  // ce qui évite l'avertissement de performance "cannot calculate shadow efficiently".
+  scanButtonShadow: {
+    width: 146,
+    height: 146,
+    borderRadius: 73,
+    backgroundColor: colors.gradientMid,
+    shadowColor: colors.accent,
+    shadowOpacity: 0.34,
+    shadowRadius: 40,
+    shadowOffset: { width: 0, height: 18 },
+    elevation: 10,
+  },
   scanButton: {
     width: 146,
     height: 146,
     borderRadius: 73,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: colors.accent,
-    shadowOpacity: 0.34,
-    shadowRadius: 40,
-    shadowOffset: { width: 0, height: 18 },
-    elevation: 10,
   },
   scanLabel: { color: "#fff", fontSize: 17, fontWeight: "600", marginTop: 9, letterSpacing: -0.2 },
   autoDetect: { textAlign: "center", fontSize: 12.5, color: colors.inkSecondary, marginHorizontal: 22, marginTop: 8, marginBottom: 14, lineHeight: 17 },

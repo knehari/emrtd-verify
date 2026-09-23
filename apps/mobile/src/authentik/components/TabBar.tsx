@@ -17,27 +17,41 @@ export function TabBar({ demo, bottomInset }: { demo: AuthentikDemo; bottomInset
   const trustActive = demo.step === "trust" || demo.step === "countries";
   return (
     <View pointerEvents="box-none" style={[styles.wrap, { bottom: 16 + bottomInset }]}>
-      <BlurView intensity={60} tint="light" style={styles.bar}>
-        <View style={styles.specular} pointerEvents="none" />
-        <Pressable onPress={demo.reset} style={[styles.tab, homeActive && styles.tabActive]}>
-          <NfcIcon size={25} color={homeActive ? colors.accent : "rgba(60,60,67,0.5)"} strokeWidth={1.7} />
-          <Text style={[styles.tabLabel, { color: homeActive ? colors.accent : "rgba(60,60,67,0.5)" }]}>{demo.t.tabVerify}</Text>
-        </Pressable>
-        <Pressable onPress={demo.goTrust} style={[styles.tab, trustActive && styles.tabActive]}>
-          <Icon name="shield" size={25} color={trustActive ? colors.accent : "rgba(60,60,67,0.5)"} strokeWidth={1.7} />
-          <Text style={[styles.tabLabel, { color: trustActive ? colors.accent : "rgba(60,60,67,0.5)" }]}>{demo.t.tabTrust}</Text>
-        </Pressable>
-        <View style={styles.tab}>
-          <Icon name="info" size={24} color="rgba(60,60,67,0.5)" strokeWidth={1.7} />
-          <Text style={styles.tabLabel}>{demo.t.tabAbout}</Text>
-        </View>
-      </BlurView>
+      <View style={styles.barShadow}>
+        <BlurView intensity={60} tint="light" style={styles.bar}>
+          <View style={styles.specular} pointerEvents="none" />
+          <Pressable onPress={demo.reset} style={[styles.tab, homeActive && styles.tabActive]}>
+            <NfcIcon size={25} color={homeActive ? colors.accent : "rgba(60,60,67,0.5)"} strokeWidth={1.7} />
+            <Text style={[styles.tabLabel, { color: homeActive ? colors.accent : "rgba(60,60,67,0.5)" }]}>{demo.t.tabVerify}</Text>
+          </Pressable>
+          <Pressable onPress={demo.goTrust} style={[styles.tab, trustActive && styles.tabActive]}>
+            <Icon name="shield" size={25} color={trustActive ? colors.accent : "rgba(60,60,67,0.5)"} strokeWidth={1.7} />
+            <Text style={[styles.tabLabel, { color: trustActive ? colors.accent : "rgba(60,60,67,0.5)" }]}>{demo.t.tabTrust}</Text>
+          </Pressable>
+          <View style={styles.tab}>
+            <Icon name="info" size={24} color="rgba(60,60,67,0.5)" strokeWidth={1.7} />
+            <Text style={styles.tabLabel}>{demo.t.tabAbout}</Text>
+          </View>
+        </BlurView>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: { position: "absolute", left: 14, right: 14, height: 62, zIndex: 35 },
+  // BlurView ne peut pas porter de backgroundColor opaque (ça annulerait le flou) : l'ombre est
+  // donc portée par ce wrapper opaque, entièrement recouvert par le flou, plutôt que par la
+  // BlurView elle-même — évite l'avertissement de performance "cannot calculate shadow efficiently".
+  barShadow: {
+    flex: 1,
+    borderRadius: 31,
+    backgroundColor: "#fff",
+    shadowColor: "#0A2540",
+    shadowOpacity: 0.18,
+    shadowRadius: 34,
+    shadowOffset: { width: 0, height: 14 },
+  },
   bar: {
     flex: 1,
     borderRadius: 31,
@@ -45,10 +59,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 6,
     overflow: "hidden",
-    shadowColor: "#0A2540",
-    shadowOpacity: 0.18,
-    shadowRadius: 34,
-    shadowOffset: { width: 0, height: 14 },
   },
   specular: { position: "absolute", left: 0, right: 0, top: 0, height: "50%", backgroundColor: "rgba(255,255,255,0.25)" },
   tab: { flex: 1, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", gap: 3 },
