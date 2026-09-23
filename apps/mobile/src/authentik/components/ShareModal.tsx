@@ -4,12 +4,14 @@
  * Les deux boutons ferment la modale (Annuler ET Exporter appellent `closeShare` dans le
  * prototype lui-même — aucun export réel n'est câblé, voir README §12 "simule").
  */
-import React from "react";
-import { View, Text, StyleSheet, Pressable, Modal } from "react-native";
-import { colors, fontMono } from "../theme";
+import React, { useMemo } from "react";
+import { View, Text, StyleSheet, Modal } from "react-native";
+import { PressableFX as Pressable } from "./PressableFX";
+import { fontMono, type PaletteColors } from "../theme";
 import type { AuthentikDemo } from "../state";
 
 export function ShareModal({ demo }: { demo: AuthentikDemo }) {
+  const styles = useMemo(() => makeStyles(demo.colors), [demo.colors]);
   return (
     <Modal visible={demo.showShare} transparent animationType="fade" onRequestClose={demo.closeShare}>
       <Pressable style={styles.overlay} onPress={demo.closeShare}>
@@ -34,14 +36,14 @@ export function ShareModal({ demo }: { demo: AuthentikDemo }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: PaletteColors) => StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.34)", justifyContent: "flex-end" },
   sheet: { backgroundColor: colors.screenLight, borderTopLeftRadius: 14, borderTopRightRadius: 14, paddingTop: 10, paddingHorizontal: 12, paddingBottom: 34 },
-  handle: { width: 36, height: 5, borderRadius: 3, backgroundColor: "rgba(60,60,67,0.25)", alignSelf: "center", marginBottom: 14 },
+  handle: { width: 36, height: 5, borderRadius: 3, backgroundColor: `rgba(${colors.inkBaseRgb},0.25)`, alignSelf: "center", marginBottom: 14 },
   card: { backgroundColor: colors.surface, borderRadius: 14, padding: 16, marginHorizontal: 4, marginBottom: 12 },
   title: { fontSize: 16, fontWeight: "600", color: colors.inkPrimary },
   sub: { fontSize: 13, color: colors.inkSecondary, marginTop: 5, lineHeight: 19 },
-  sig: { fontFamily: fontMono, fontSize: 11, lineHeight: 17, color: "rgba(60,60,67,0.55)", marginTop: 10 },
+  sig: { fontFamily: fontMono, fontSize: 11, lineHeight: 17, color: `rgba(${colors.inkBaseRgb},0.55)`, marginTop: 10 },
   buttonRow: { flexDirection: "row", gap: 10, marginHorizontal: 4 },
   cancelBtn: { flex: 1, borderRadius: 13, backgroundColor: colors.surface, paddingVertical: 15, alignItems: "center" },
   cancelLabel: { color: colors.accent, fontSize: 16 },

@@ -2,13 +2,16 @@
  * Positionnement du document — transcrit depuis le handoff, bloc `isPlace`
  * (`design_handoff_authentik/eMRTD Verify Mobile.dc.html` lignes 319-357, README §6.3).
  */
-import React, { useEffect, useRef } from "react";
-import { View, Text, StyleSheet, Pressable, Animated, Easing } from "react-native";
-import { colors } from "../theme";
+import React, { useEffect, useMemo, useRef } from "react";
+import { View, Text, StyleSheet, Animated, Easing } from "react-native";
+import { PressableFX as Pressable } from "../components/PressableFX";
+import { type PaletteColors } from "../theme";
 import { NfcIcon } from "../icons";
 import type { AuthentikDemo } from "../state";
 
-function TapGlow() {
+type PlaceStyles = ReturnType<typeof makeStyles>;
+
+function TapGlow({ s }: { s: PlaceStyles }) {
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.7)).current;
   useEffect(() => {
@@ -28,10 +31,10 @@ function TapGlow() {
     loop.start();
     return () => loop.stop();
   }, [opacity, scale]);
-  return <Animated.View style={[styles.tapGlow, { opacity, transform: [{ scale }] }]} />;
+  return <Animated.View style={[s.tapGlow, { opacity, transform: [{ scale }] }]} />;
 }
 
-function SlidingDoc() {
+function SlidingDoc({ s }: { s: PlaceStyles }) {
   const progress = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = Animated.loop(
@@ -44,18 +47,19 @@ function SlidingDoc() {
   const translateY = progress.interpolate({ inputRange: [0, 0.22, 0.55, 1], outputRange: [26, 26, 0, 0] });
   const opacity = progress.interpolate({ inputRange: [0, 0.22, 0.55, 1], outputRange: [0, 1, 1, 1] });
   return (
-    <Animated.View style={[styles.docCard, { transform: [{ translateX }, { translateY }], opacity }]}>
-      <View style={styles.docPhoto} />
+    <Animated.View style={[s.docCard, { transform: [{ translateX }, { translateY }], opacity }]}>
+      <View style={s.docPhoto} />
       <View style={{ flex: 1, gap: 5 }}>
-        <View style={[styles.docLine, { width: "100%" }]} />
-        <View style={[styles.docLine, { width: "72%" }]} />
-        <View style={[styles.docLine, { width: "56%", opacity: 0.65 }]} />
+        <View style={[s.docLine, { width: "100%" }]} />
+        <View style={[s.docLine, { width: "72%" }]} />
+        <View style={[s.docLine, { width: "56%", opacity: 0.65 }]} />
       </View>
     </Animated.View>
   );
 }
 
 export function PlaceScreen({ demo }: { demo: AuthentikDemo }) {
+  const styles = useMemo(() => makeStyles(demo.colors), [demo.colors]);
   return (
     <View style={styles.screen}>
       <View style={styles.nav}>
@@ -67,11 +71,11 @@ export function PlaceScreen({ demo }: { demo: AuthentikDemo }) {
       </View>
 
       <View style={styles.illustration}>
-        <SlidingDoc />
+        <SlidingDoc s={styles} />
         <View style={styles.phone}>
           <View style={styles.phoneScreen}>
             <View style={styles.notch} />
-            <TapGlow />
+            <TapGlow s={styles} />
             <View style={styles.nfcIconWrap}>
               <NfcIcon size={26} color="rgba(120,190,255,0.95)" strokeWidth={1.8} />
             </View>
@@ -108,7 +112,7 @@ export function PlaceScreen({ demo }: { demo: AuthentikDemo }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: PaletteColors) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.screenLight, paddingHorizontal: 20, paddingTop: 2 },
   nav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4, paddingBottom: 6 },
   navCancel: { color: colors.accent, fontSize: 15 },
@@ -143,12 +147,12 @@ const styles = StyleSheet.create({
   antennaRule: { position: "absolute", top: 92, left: 14, right: 14, height: 1, backgroundColor: "rgba(255,255,255,0.12)" },
   antennaLabel: { position: "absolute", top: 100, fontFamily: "Menlo", fontSize: 10, color: "rgba(255,255,255,0.6)" },
   title: { fontSize: 23, fontWeight: "700", letterSpacing: -0.5, color: colors.inkPrimary, marginTop: 14, marginBottom: 8, lineHeight: 28 },
-  hint: { fontSize: 14, color: "rgba(60,60,67,0.65)", marginBottom: 16, lineHeight: 20 },
+  hint: { fontSize: 14, color: `rgba(${colors.inkBaseRgb},0.65)`, marginBottom: 16, lineHeight: 20 },
   tipsCard: { backgroundColor: colors.surface, borderRadius: 14, overflow: "hidden" },
   tipRow: { flexDirection: "row", gap: 10, padding: 12, paddingHorizontal: 15 },
   tipRowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator },
   bullet: { color: colors.accent, fontWeight: "700" },
-  tipText: { flex: 1, fontSize: 13.5, lineHeight: 19, color: "rgba(60,60,67,0.8)" },
+  tipText: { flex: 1, fontSize: 13.5, lineHeight: 19, color: `rgba(${colors.inkBaseRgb},0.8)` },
   errorBanner: {
     marginTop: 14,
     backgroundColor: "rgba(255,59,48,0.1)",

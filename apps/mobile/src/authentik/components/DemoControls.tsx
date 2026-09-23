@@ -9,7 +9,8 @@
  * dossier `apps/mobile/src/authentik/`).
  */
 import React from "react";
-import { View, Text, StyleSheet, Pressable } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
+import { PressableFX as Pressable } from "./PressableFX";
 import type { AuthentikDemo } from "../state";
 
 export function DemoControls({ demo, topInset }: { demo: AuthentikDemo; topInset: number }) {

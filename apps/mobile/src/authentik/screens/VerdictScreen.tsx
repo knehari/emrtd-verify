@@ -4,13 +4,15 @@
  * "Décisions de design à ne pas défaire" (README §13) : trois verdicts (pas deux), des disques de
  * couleur (pas de pastilles à icône) pour les cinq contrôles, session éphémère rappelée en pied.
  */
-import React from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
-import { colors, fontMono, radius } from "../theme";
+import React, { useMemo } from "react";
+import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { PressableFX as Pressable } from "../components/PressableFX";
+import { fontMono, radius, type PaletteColors } from "../theme";
 import { Icon, ShareIcon } from "../icons";
 import type { AuthentikDemo } from "../state";
 
 export function VerdictScreen({ demo }: { demo: AuthentikDemo }) {
+  const styles = useMemo(() => makeStyles(demo.colors), [demo.colors]);
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: 16 }}>
       <View style={styles.nav}>
@@ -87,7 +89,7 @@ export function VerdictScreen({ demo }: { demo: AuthentikDemo }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: PaletteColors) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.screenLight, paddingHorizontal: 20, paddingTop: 2 },
   nav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4, paddingBottom: 14 },
   navClose: { color: colors.accent, fontSize: 15 },
@@ -96,12 +98,12 @@ const styles = StyleSheet.create({
   pillDot: { width: 9, height: 9, borderRadius: 4.5 },
   pillLabel: { fontSize: 11.5, fontWeight: "600", letterSpacing: 0.7, textTransform: "uppercase" },
   decisionTitle: { fontSize: 24, fontWeight: "700", letterSpacing: -0.6, color: colors.inkVerdict, lineHeight: 29 },
-  decisionSub: { fontSize: 14, color: "rgba(60,60,67,0.78)", marginTop: 8, lineHeight: 20 },
+  decisionSub: { fontSize: 14, color: `rgba(${colors.inkBaseRgb},0.78)`, marginTop: 8, lineHeight: 20 },
   decisionScore: { fontSize: 12.5, fontWeight: "500", color: colors.inkSecondary, marginTop: 12 },
   identityCard: { backgroundColor: colors.surface, borderRadius: radius.verdictCard, padding: 18, marginBottom: 14 },
   identityRow: { flexDirection: "row", gap: 15, alignItems: "flex-start" },
   thumbnail: { width: 72, height: 92, borderRadius: radius.thumbnail, backgroundColor: "#E9E9EC", alignItems: "center", justifyContent: "flex-end", paddingBottom: 6 },
-  thumbnailLabel: { fontFamily: fontMono, fontSize: 8, color: "rgba(60,60,67,0.55)" },
+  thumbnailLabel: { fontFamily: fontMono, fontSize: 8, color: `rgba(${colors.inkBaseRgb},0.55)` },
   surname: { fontSize: 21, fontWeight: "700", letterSpacing: -0.4, color: colors.inkPrimary },
   givenNames: { fontSize: 17, color: colors.inkPrimary, marginTop: 1 },
   techLine: { fontFamily: fontMono, fontSize: 13, lineHeight: 19, color: colors.inkSecondary, marginTop: 9 },

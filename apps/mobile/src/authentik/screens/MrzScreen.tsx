@@ -8,7 +8,8 @@
  * (`readEmrtdChip`, voir `apps/mobile/src/authentik/state.ts`).
  */
 import React from "react";
-import { View, Text, StyleSheet, Pressable, TextInput } from "react-native";
+import { View, Text, StyleSheet, TextInput } from "react-native";
+import { PressableFX as Pressable } from "../components/PressableFX";
 import type { DocumentType } from "@emrtd-verify/shared-types";
 import { colors, fontMono } from "../theme";
 import type { AuthentikDemo } from "../state";

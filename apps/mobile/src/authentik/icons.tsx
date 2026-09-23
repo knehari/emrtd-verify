@@ -77,6 +77,26 @@ export function ShareIcon({ size = 23, color = "#0A84FF" }: { size?: number; col
   );
 }
 
+/** Icônes soleil/lune pour le bascule de mode d'apparence — n'existent pas dans le handoff de
+ * design (aucune maquette de mode sombre livrée), dessinées dans le même langage visuel (trait
+ * fin, extrémités arrondies, viewBox 24) que les icônes transcrites ci-dessus. */
+export function SunIcon({ size = 20, color = "#0A84FF", strokeWidth = 1.7 }: { size?: number; color?: string; strokeWidth?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round">
+      <Circle cx={12} cy={12} r={4.2} />
+      <Path d="M12 2.6v2.3M12 19.1v2.3M21.4 12h-2.3M4.9 12H2.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6M18.4 18.4l-1.6-1.6M7.2 7.2 5.6 5.6" />
+    </Svg>
+  );
+}
+
+export function MoonIcon({ size = 20, color = "#0A84FF", strokeWidth = 1.7 }: { size?: number; color?: string; strokeWidth?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M20.2 14.3A8.5 8.5 0 1 1 9.7 3.8a6.8 6.8 0 0 0 10.5 10.5Z" />
+    </Svg>
+  );
+}
+
 /** Grande coche de validation de vivacité (disque vert, 46×46 dans le design). */
 export function BigCheckIcon({ size = 46, color = "#30D158" }: { size?: number; color?: string }) {
   return (

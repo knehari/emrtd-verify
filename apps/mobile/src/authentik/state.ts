@@ -24,9 +24,12 @@
  * ni l'un ni l'autre n'est branché. Voir README de ce dossier pour le détail.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Appearance } from "react-native";
+import * as Haptics from "expo-haptics";
 import { NfcError } from "react-native-nfc-manager";
 import type { AnomalySeverity, DocumentType, Verdict } from "@emrtd-verify/shared-types";
 import { copyFor, type Lang } from "./copy";
+import { paletteFor, type ColorScheme } from "./theme";
 import {
   readEmrtdChip,
   NfcUnavailableError,
@@ -118,6 +121,7 @@ interface RawState {
   showShare: boolean;
   livePhase: number;
   online: boolean;
+  scheme: ColorScheme;
   mrzForm: MrzFormState;
   verificationStatus: "idle" | "reading-nfc" | "verifying";
   verificationError: VerificationError | null;
@@ -134,6 +138,7 @@ export function useAuthentikDemo() {
     showShare: false,
     livePhase: 0,
     online: false,
+    scheme: Appearance.getColorScheme() === "dark" ? "dark" : "light",
     mrzForm: DEFAULT_MRZ_FORM,
     verificationStatus: "idle",
     verificationError: null,
@@ -200,6 +205,7 @@ export function useAuthentikDemo() {
 
   // Mode démo uniquement — inchangé (minuteurs canned).
   const runNfcDemo = useCallback(() => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setS((prev) => ({ ...prev, step: "nfc", pct: 0 }));
     tickRef.current = 0;
     timerRef.current = setInterval(() => {
@@ -248,6 +254,9 @@ export function useAuthentikDemo() {
       dateOfExpiry: mrzForm.dateOfExpiry,
     };
 
+    // Retour tactile unique au tout début de la lecture NFC réelle (recommandé par le handoff de
+    // design, README §7 "Retour tactile") — un seul déclenchement ici, pas un par palier franchi.
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setS((prev) => ({ ...prev, step: "nfc", pct: 0, verificationStatus: "reading-nfc", verificationError: null }));
 
     // readEmrtdChip() est un seul appel asynchrone sans callback de progression (voir sa
@@ -328,11 +337,16 @@ export function useAuthentikDemo() {
   }, [clear]);
 
   const toggleOnline = useCallback(() => setS((prev) => ({ ...prev, online: !prev.online })), []);
+  const toggleScheme = useCallback(
+    () => setS((prev) => ({ ...prev, scheme: prev.scheme === "dark" ? "light" : "dark" })),
+    [],
+  );
   const openShare = useCallback(() => setS((prev) => ({ ...prev, showShare: true })), []);
   const closeShare = useCallback(() => setS((prev) => ({ ...prev, showShare: false })), []);
 
   const lang: Lang = s.langSel ?? "fr";
   const currentScenario: Scenario = s.scenarioSel ?? "suspicious";
+  const paletteColors = useMemo(() => paletteFor(s.scheme), [s.scheme]);
 
   const derived = useMemo(() => {
     const t = copyFor(lang);
@@ -345,7 +359,7 @@ export function useAuthentikDemo() {
     const suspicious = currentScenario === "suspicious";
     const color = alert ? RED : suspicious ? WARN : OK;
     const wash = alert ? "rgba(255,59,48,.13)" : suspicious ? "rgba(255,159,10,.14)" : "rgba(48,209,88,.15)";
-    const chipInk = alert ? "#B3261E" : suspicious ? "#B36A00" : "#1F7A38";
+    const chipInk = alert ? paletteColors.washRedInk : suspicious ? paletteColors.washOrangeInk : paletteColors.washGreenInk;
     const done = Math.floor(s.pct / 20);
 
     const mk = (pair: [string, string], ok: boolean) => ({
@@ -414,8 +428,8 @@ export function useAuthentikDemo() {
       authentic: !alert && !suspicious,
       langLabel: lang === "en" ? "EN" : "FR",
       scenarioLabel: alert ? "rejected" : suspicious ? "suspicious" : "authentic",
-      darkScreen: s.step === "mrz" || s.step === "selfie",
-      screenBg: s.step === "mrz" || s.step === "selfie" ? "#0B0B0C" : "#F2F2F7",
+      darkScreen: s.step === "mrz" || s.step === "selfie" || s.scheme === "dark",
+      screenBg: s.step === "mrz" || s.step === "selfie" ? "#0B0B0C" : paletteColors.screenLight,
       pctLabel: `${s.pct} %`,
       pct: s.pct,
       barWidth: `${s.pct}%`,
@@ -437,8 +451,8 @@ export function useAuthentikDemo() {
       })),
       decisionTitle: alert ? t.decisionAlert : suspicious ? t.decisionSusp : t.decisionAuth,
       decisionSub: alert ? t.decisionAlertSub : suspicious ? (s.online ? t.decisionSuspSubOnline : t.decisionSuspSub) : t.decisionAuthSub,
-      decisionBg: alert ? "#FDECEB" : suspicious ? "#FFF6E6" : "#EAF9EE",
-      decisionBorder: alert ? "rgba(255,59,48,.28)" : suspicious ? "rgba(255,159,10,.3)" : "rgba(48,209,88,.3)",
+      decisionBg: alert ? paletteColors.washRedBg : suspicious ? paletteColors.washOrangeBg : paletteColors.washGreenBg,
+      decisionBorder: alert ? paletteColors.washRedBorder : suspicious ? paletteColors.washOrangeBorder : paletteColors.washGreenBorder,
       passedLabel: `${alert ? "7 " : suspicious ? (s.online ? "10 " : "9 ") : "11 "}${t.passedLine} 11`,
       verdictColor: color,
       verdictWash: wash,
@@ -461,7 +475,7 @@ export function useAuthentikDemo() {
       identityFieldsCount: 12,
       chainDetailValue: "ICAO PKD",
     };
-  }, [lang, currentScenario, s.pct, s.online, s.step, s.livePhase, s.verificationResult]);
+  }, [lang, currentScenario, s.pct, s.online, s.step, s.livePhase, s.verificationResult, s.scheme, paletteColors]);
 
   return {
     step: s.step,
@@ -472,6 +486,8 @@ export function useAuthentikDemo() {
     mrzFormValid,
     verificationStatus: s.verificationStatus,
     verificationError: s.verificationError,
+    scheme: s.scheme,
+    colors: paletteColors,
     ...derived,
     startScan,
     updateMrzForm,
@@ -491,6 +507,7 @@ export function useAuthentikDemo() {
     toggleOnline,
     toggleLang,
     toggleScenario,
+    toggleScheme,
   };
 }
 
@@ -506,12 +523,13 @@ function deriveFromRealResult(
   t: ReturnType<typeof copyFor>,
   lang: Lang,
 ) {
+  const paletteColors = paletteFor(s.scheme);
   const verdict: Verdict = result.verdict;
   const alert = verdict === "rejected";
   const suspicious = verdict === "suspicious" || verdict === "manual_review_required";
   const color = alert ? RED : suspicious ? WARN : OK;
   const wash = alert ? "rgba(255,59,48,.13)" : suspicious ? "rgba(255,159,10,.14)" : "rgba(48,209,88,.15)";
-  const chipInk = alert ? "#B3261E" : suspicious ? "#B36A00" : "#1F7A38";
+  const chipInk = alert ? paletteColors.washRedInk : suspicious ? paletteColors.washOrangeInk : paletteColors.washGreenInk;
 
   const fieldEntries = Object.entries(result.document.fields);
   const fieldRows = fieldEntries.map(([label, f], i) => ({
@@ -612,8 +630,8 @@ function deriveFromRealResult(
     authentic: !alert && !suspicious,
     langLabel: lang === "en" ? "EN" : "FR",
     scenarioLabel: verdict,
-    darkScreen: s.step === "mrz" || s.step === "selfie",
-    screenBg: s.step === "mrz" || s.step === "selfie" ? "#0B0B0C" : "#F2F2F7",
+    darkScreen: s.step === "mrz" || s.step === "selfie" || s.scheme === "dark",
+    screenBg: s.step === "mrz" || s.step === "selfie" ? "#0B0B0C" : paletteColors.screenLight,
     pctLabel: `${s.pct} %`,
     pct: s.pct,
     barWidth: `${s.pct}%`,
@@ -639,8 +657,8 @@ function deriveFromRealResult(
           ? "Document suspect"
           : "Document authentique",
     decisionSub: `Verdict local provisoire — ${result.anomalies.length} anomalie${result.anomalies.length > 1 ? "s" : ""} détectée${result.anomalies.length > 1 ? "s" : ""}.`,
-    decisionBg: alert ? "#FDECEB" : suspicious ? "#FFF6E6" : "#EAF9EE",
-    decisionBorder: alert ? "rgba(255,59,48,.28)" : suspicious ? "rgba(255,159,10,.3)" : "rgba(48,209,88,.3)",
+    decisionBg: alert ? paletteColors.washRedBg : suspicious ? paletteColors.washOrangeBg : paletteColors.washGreenBg,
+    decisionBorder: alert ? paletteColors.washRedBorder : suspicious ? paletteColors.washOrangeBorder : paletteColors.washGreenBorder,
     passedLabel: `${Math.max(0, passedCount)} vérifications passées sur 4`,
     verdictColor: color,
     verdictWash: wash,

@@ -23,6 +23,7 @@
     "expo-blur": "13.0.2",
     "expo-build-properties": "0.12.5",
     "expo-file-system": "~17.0.1",
+    "expo-haptics": "13.0.1",
     "expo-linear-gradient": "13.0.2",
     "expo-status-bar": "1.12.1",
     "onnxruntime-react-native": "^1.24.3",

@@ -3,8 +3,9 @@
  * (`design_handoff_authentik/eMRTD Verify Mobile.dc.html` lignes 397-434, README §6.5).
  */
 import React, { useEffect, useRef } from "react";
-import { View, Text, StyleSheet, Pressable, Animated, Easing } from "react-native";
-import Svg, { Path } from "react-native-svg";
+import { View, Text, StyleSheet, Animated, Easing } from "react-native";
+import { PressableFX as Pressable } from "../components/PressableFX";
+import Svg, { Defs, RadialGradient, Stop, Rect, Path } from "react-native-svg";
 import { BlurView } from "expo-blur";
 import { colors } from "../theme";
 import { BigCheckIcon } from "../icons";
@@ -60,6 +61,19 @@ export function SelfieScreen({ demo }: { demo: AuthentikDemo }) {
 
       <View style={styles.viewfinderWrap}>
         <View style={styles.viewfinder}>
+          {/* radial-gradient(circle at 50% 38%, #25262B 0%, #141417 72%) — voir
+              eMRTD Verify Mobile.dc.html l.406. Rayon = distance au coin le plus éloigné du centre
+              (216x280, centre à 50%/38% => coin le plus éloigné à ~204.5px), comme le fait CSS par
+              défaut pour un radial-gradient sans mot-clé d'étendue explicite. */}
+          <Svg width={VIEWFINDER_W} height={VIEWFINDER_H} style={StyleSheet.absoluteFillObject}>
+            <Defs>
+              <RadialGradient id="viewfinderGrad" cx={108} cy={106.4} r={205} gradientUnits="userSpaceOnUse">
+                <Stop offset="0%" stopColor="#25262B" />
+                <Stop offset="72%" stopColor="#141417" />
+              </RadialGradient>
+            </Defs>
+            <Rect x={0} y={0} width={VIEWFINDER_W} height={VIEWFINDER_H} fill="url(#viewfinderGrad)" />
+          </Svg>
           <Sweep />
           <Breathe>
             <Text style={styles.cameraLabel}>flux caméra avant</Text>
@@ -104,7 +118,7 @@ const styles = StyleSheet.create({
   navCancel: { color: "rgba(255,255,255,0.8)", fontSize: 15 },
   navTitle: { color: "#fff", fontSize: 15, fontWeight: "600" },
   viewfinderWrap: { width: VIEWFINDER_W, height: VIEWFINDER_H, alignItems: "center", justifyContent: "center" },
-  viewfinder: { ...StyleSheet.absoluteFillObject, borderRadius: 42, overflow: "hidden", backgroundColor: "#1B1C20", alignItems: "center", justifyContent: "center" },
+  viewfinder: { ...StyleSheet.absoluteFillObject, borderRadius: 42, overflow: "hidden", alignItems: "center", justifyContent: "center" },
   sweep: { position: "absolute", left: 0, right: 0, height: 62, backgroundColor: "rgba(10,132,255,0.22)" },
   cameraLabel: { fontFamily: "Menlo", fontSize: 11, color: "rgba(255,255,255,0.28)" },
   validationWrap: { position: "absolute", alignItems: "center", justifyContent: "center" },

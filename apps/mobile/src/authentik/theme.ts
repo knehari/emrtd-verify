@@ -47,7 +47,52 @@ export const colors = {
   switchTrackInactive: "rgba(120,120,128,0.22)",
   switchTrackActive: "#30D158",
   nfcDigit: "#0A2540",
+  /** Triplet RGB (sans alpha) de `inkPrimary`/`inkSecondary`/etc., pour composer des `rgba(...)`
+   * ad hoc à la même opacité que ces tokens sans dupliquer le triplet en dur à chaque usage —
+   * voir `darkColors` ci-dessous, où ce triplet devient blanc plutôt que noir. */
+  inkBaseRgb: "60,60,67",
 } as const;
+
+/** Mode Dark — n'existe pas dans le handoff de design original (aucune maquette sombre livrée),
+ * ajouté sur demande de l'utilisateur. Ne redéfinit QUE les tokens dont le rôle est "s'adapter au
+ * fond" (encre/surfaces/séparateurs/washs) ; `accent`, les dégradés et les couleurs sémantiques
+ * (succès/avertissement/erreur) restent identiques — déjà conçues pour rester lisibles sur les
+ * deux fonds. Approximation raisonnable des conventions de couleur système iOS en mode sombre
+ * (labelColor blanc à opacité dégressive, systemBackground/secondarySystemBackground), pas une
+ * spec fournie par le design handoff. */
+export type PaletteColors = { [K in keyof typeof colors]: string };
+
+export const darkColors: PaletteColors = {
+  ...colors,
+  inkPrimary: "#FFFFFF",
+  inkVerdict: "#FFFFFF",
+  inkSecondary: "rgba(235,235,245,0.6)",
+  inkTertiary: "rgba(235,235,245,0.5)",
+  inkFaint: "rgba(235,235,245,0.3)",
+  chevron: "rgba(235,235,245,0.3)",
+  screenLight: "#000000",
+  surface: "#1C1C1E",
+  separator: "rgba(84,84,88,0.6)",
+  separatorFaint: "rgba(84,84,88,0.5)",
+  washGreenBg: "rgba(48,209,88,0.16)",
+  washGreenBorder: "rgba(48,209,88,0.4)",
+  washGreenInk: "#30D158",
+  washOrangeBg: "rgba(255,159,10,0.16)",
+  washOrangeBorder: "rgba(255,159,10,0.4)",
+  washOrangeInk: "#FF9F0A",
+  washRedBg: "rgba(255,59,48,0.16)",
+  washRedBorder: "rgba(255,59,48,0.4)",
+  washRedInk: "#FF453A",
+  searchField: "rgba(118,118,128,0.24)",
+  nfcDigit: "#FFFFFF",
+  inkBaseRgb: "235,235,245",
+};
+
+export type ColorScheme = "light" | "dark";
+
+export function paletteFor(scheme: ColorScheme): PaletteColors {
+  return scheme === "dark" ? darkColors : colors;
+}
 
 /** `Menlo` est disponible nativement sur iOS pour toute donnée technique (codes DG, MRZ, sujets de certificat, valeurs de champs). */
 export const fontMono = "Menlo";

@@ -2,12 +2,14 @@
  * Champs vérifiés — transcrit depuis le handoff, bloc `isFields`
  * (`design_handoff_authentik/eMRTD Verify Mobile.dc.html` lignes 519-538, README §6.8).
  */
-import React from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
-import { colors, fontMono, radius } from "../theme";
+import React, { useMemo } from "react";
+import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { PressableFX as Pressable } from "../components/PressableFX";
+import { fontMono, radius, type PaletteColors } from "../theme";
 import type { AuthentikDemo } from "../state";
 
 export function FieldsScreen({ demo }: { demo: AuthentikDemo }) {
+  const styles = useMemo(() => makeStyles(demo.colors), [demo.colors]);
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: 24 }}>
       <Pressable onPress={demo.goVerdict} style={styles.back}>
@@ -31,7 +33,7 @@ export function FieldsScreen({ demo }: { demo: AuthentikDemo }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: PaletteColors) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.screenLight, paddingHorizontal: 20, paddingTop: 2 },
   back: { paddingVertical: 4, paddingBottom: 10 },
   backLabel: { color: colors.accent, fontSize: 15 },

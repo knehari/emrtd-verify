@@ -31,11 +31,42 @@ n'ont pas d'équivalent en production — voir leur propre commentaire.
 
 ## Fidélité connue, limites de ce premier PoC
 
-- Dégradé du bouton d'accueil : radial dans le design, approximé par un dégradé linéaire
-  (`expo-linear-gradient` ne fait pas de radial).
 - Flous (`expo-blur` `BlurView`) : intensité approchée, pas garantie pixel-identique au
   `backdrop-filter` CSS du prototype.
 - Drapeaux emoji plutôt que les dégradés CSS générés du prototype (alternative explicitement
   documentée par le handoff, §3/§11).
 - Icônes système autres que NFC : redessinées en SVG (chemins transcrits du prototype), pas
   mappées vers SF Symbols (le handoff recommande ce mapping en SwiftUI — ici React Native).
+
+Les trois dégradés/glows radiaux du prototype (bouton d'accueil, halo NFC, fond du viseur de
+vivacité) sont désormais reproduits fidèlement via `react-native-svg` `RadialGradient`
+(`expo-linear-gradient` ne fait pas de radial) — corrigé après un premier passage qui les
+approximait ou les aplatissait.
+
+## Mode Dark (ajouté, hors handoff original)
+
+Le handoff de design ne livre aucune maquette sombre (§9 "Design tokens" ne documente qu'une
+palette claire, plus les surfaces sombres des écrans caméra Mrz/Selfie qui restent volontairement
+sombres quel que soit le mode). Un bascule clair/sombre a été ajouté sur demande, sur le même
+principe que le mode hors ligne/en ligne déjà présent :
+
+- `theme.ts` : `darkColors`, une approximation raisonnable des conventions système iOS en mode
+  sombre (labelColor blanc à opacité dégressive, systemBackground/secondarySystemBackground) pour
+  les tokens qui doivent s'adapter au fond — `accent`, les dégradés et les couleurs sémantiques
+  (succès/avertissement/erreur) restent identiques dans les deux modes.
+- `state.ts` : `scheme`/`toggleScheme`, initialisé depuis `Appearance.getColorScheme()` puis
+  bascule manuelle via l'icône soleil/lune de l'écran d'accueil.
+- Chaque écran calcule ses styles via `useMemo(() => makeStyles(demo.colors), [demo.colors])`
+  plutôt qu'un `StyleSheet.create` statique au chargement du module, pour réagir au changement de
+  palette.
+- Les écrans caméra (Mrz, Selfie) restent sombres dans les deux modes — c'est déjà leur traitement
+  dans le handoff, pas une conséquence du bascule.
+
+## Retour tactile (ajouté)
+
+Chaque `Pressable` de `authentik/` passe par `components/PressableFX.tsx` (léger retrait
+d'échelle + baisse d'opacité au contact) — le handoff ne spécifie aucun état "pressed" (prototype
+HTML statique). `expo-haptics` déclenche une vibration unique (`impactAsync`, style `Medium`) au
+tout début d'une lecture NFC (`state.ts`, `runVerification`/`runNfcDemo`) — recommandé par le
+handoff (§7 "Interactions, animations, états" : "Retour tactile : recommandé sur franchissement de
+palier NFC...") mais implémenté ici seulement au démarrage de la lecture, comme demandé.

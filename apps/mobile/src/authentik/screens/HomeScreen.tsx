@@ -3,18 +3,19 @@
  * (`design_handoff_authentik/eMRTD Verify Mobile.dc.html` lignes 198-296, et README §6.1).
  * Contrainte de design tenue volontairement : cet écran ne défile PAS (voir README §13.6).
  */
-import React, { useEffect, useRef } from "react";
-import { View, Text, Image, StyleSheet, Pressable, Animated, Easing } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { colors, radius, fontMono } from "../theme";
-import { NfcIcon, PassportGlyph, IdCardGlyph, ResidencePermitGlyph } from "../icons";
+import React, { useEffect, useMemo, useRef } from "react";
+import { View, Text, Image, StyleSheet, Animated, Easing } from "react-native";
+import { PressableFX as Pressable } from "../components/PressableFX";
+import Svg, { Defs, RadialGradient, Stop, Rect } from "react-native-svg";
+import { colors, radius, fontMono, type PaletteColors } from "../theme";
+import { NfcIcon, PassportGlyph, IdCardGlyph, ResidencePermitGlyph, SunIcon, MoonIcon } from "../icons";
 import type { AuthentikDemo } from "../state";
 
 const HEADER_ILLUSTRATION = require("../../../assets/authentik/header-illustration.png");
 
 const GLYPHS = [PassportGlyph, IdCardGlyph, ResidencePermitGlyph];
 
-function WaveRing() {
+function WaveRing({ ringStyle }: { ringStyle: object }) {
   const scale = useRef(new Animated.Value(0.55)).current;
   const opacity = useRef(new Animated.Value(0.55)).current;
   useEffect(() => {
@@ -30,12 +31,22 @@ function WaveRing() {
   return (
     <Animated.View
       pointerEvents="none"
-      style={[styles.waveRing, { transform: [{ scale }], opacity }]}
+      style={[ringStyle, { transform: [{ scale }], opacity }]}
     />
   );
 }
 
-function ModeSwitch({ online, onToggle }: { online: boolean; onToggle: () => void }) {
+function ModeSwitch({
+  online,
+  onToggle,
+  trackStyle,
+  thumbStyle,
+}: {
+  online: boolean;
+  onToggle: () => void;
+  trackStyle: object;
+  thumbStyle: object;
+}) {
   const shift = useRef(new Animated.Value(online ? 1 : 0)).current;
   useEffect(() => {
     Animated.timing(shift, { toValue: online ? 1 : 0, duration: 180, useNativeDriver: true }).start();
@@ -46,14 +57,15 @@ function ModeSwitch({ online, onToggle }: { online: boolean; onToggle: () => voi
       onPress={onToggle}
       accessibilityRole="switch"
       accessibilityState={{ checked: online }}
-      style={[styles.switchTrack, { backgroundColor: online ? colors.switchTrackActive : colors.switchTrackInactive }]}
+      style={[trackStyle, { backgroundColor: online ? colors.switchTrackActive : colors.switchTrackInactive }]}
     >
-      <Animated.View style={[styles.switchThumb, { transform: [{ translateX }] }]} />
+      <Animated.View style={[thumbStyle, { transform: [{ translateX }] }]} />
     </Pressable>
   );
 }
 
 export function HomeScreen({ demo }: { demo: AuthentikDemo }) {
+  const styles = useMemo(() => makeStyles(demo.colors), [demo.colors]);
   return (
     <View style={styles.screen}>
       <View style={styles.headerRow}>
@@ -61,6 +73,14 @@ export function HomeScreen({ demo }: { demo: AuthentikDemo }) {
           <Text style={styles.appName}>{demo.t.appName}</Text>
           <Text style={styles.appSub}>{demo.homeSub}</Text>
         </View>
+        <Pressable
+          onPress={demo.toggleScheme}
+          style={styles.themeToggle}
+          accessibilityRole="button"
+          accessibilityLabel={demo.scheme === "dark" ? "Passer en mode clair" : "Passer en mode sombre"}
+        >
+          {demo.scheme === "dark" ? <SunIcon size={18} color={demo.colors.inkSecondary} /> : <MoonIcon size={18} color={demo.colors.inkSecondary} />}
+        </Pressable>
         <Image source={HEADER_ILLUSTRATION} style={styles.headerImage} resizeMode="contain" />
       </View>
 
@@ -70,7 +90,7 @@ export function HomeScreen({ demo }: { demo: AuthentikDemo }) {
             <Text style={styles.modeLabel}>{demo.modeLabel}</Text>
             <Text style={styles.modeDesc}>{demo.modeDesc}</Text>
           </View>
-          <ModeSwitch online={demo.online} onToggle={demo.toggleOnline} />
+          <ModeSwitch online={demo.online} onToggle={demo.toggleOnline} trackStyle={styles.switchTrack} thumbStyle={styles.switchThumb} />
         </View>
         <Pressable onPress={demo.goCountries} style={styles.trustRow}>
           <View style={[styles.dot8, { backgroundColor: demo.modeDot }]} />
@@ -83,18 +103,25 @@ export function HomeScreen({ demo }: { demo: AuthentikDemo }) {
 
       <View style={styles.scanRow}>
         <Pressable onPress={demo.startScan} style={styles.scanButtonWrap}>
-          <WaveRing />
+          <WaveRing ringStyle={styles.waveRing} />
           <View style={styles.scanButtonShadow}>
-            <LinearGradient
-              colors={[colors.gradientTop, colors.gradientMid, colors.gradientBottom]}
-              start={{ x: 0.32, y: 0.05 }}
-              end={{ x: 0.75, y: 0.95 }}
-              locations={[0, 0.46, 1]}
-              style={styles.scanButton}
-            >
+            <View style={styles.scanButton}>
+              {/* radial-gradient(120% 120% at 32% 22%, #3AA0FF 0%, #0A84FF 46%, #0060DF 100%)
+                  — voir eMRTD Verify Mobile.dc.html l.233. expo-linear-gradient ne fait pas de
+                  radial (voir README §"Fidélité connue") ; react-native-svg le peut nativement. */}
+              <Svg width={146} height={146} style={StyleSheet.absoluteFillObject}>
+                <Defs>
+                  <RadialGradient id="scanGrad" cx="32%" cy="22%" r="120%">
+                    <Stop offset="0%" stopColor={colors.gradientTop} />
+                    <Stop offset="46%" stopColor={colors.gradientMid} />
+                    <Stop offset="100%" stopColor={colors.gradientBottom} />
+                  </RadialGradient>
+                </Defs>
+                <Rect x={0} y={0} width={146} height={146} rx={73} ry={73} fill="url(#scanGrad)" />
+              </Svg>
               <NfcIcon size={40} color="#fff" strokeWidth={1.7} />
               <Text style={styles.scanLabel}>{demo.t.verifyBtn}</Text>
-            </LinearGradient>
+            </View>
           </View>
         </Pressable>
       </View>
@@ -121,13 +148,21 @@ export function HomeScreen({ demo }: { demo: AuthentikDemo }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: PaletteColors) => StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: 20, paddingTop: 4 },
   headerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 4, marginBottom: 14 },
   headerText: { flex: 1, minWidth: 0 },
   appName: { fontSize: 30, fontWeight: "700", letterSpacing: -0.9, color: colors.inkPrimary, lineHeight: 33 },
   appSub: { fontSize: 14, color: colors.inkSecondary, marginTop: 2, lineHeight: 18 },
   headerImage: { width: 80, height: 80, marginRight: -6, marginBottom: -8 },
+  themeToggle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   modeCard: { backgroundColor: colors.surface, borderRadius: radius.cardLg, overflow: "hidden", marginBottom: 10 },
   modeRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 11, paddingHorizontal: 15 },
   modeLabel: { fontSize: 15, fontWeight: "600", color: colors.inkPrimary },
@@ -154,7 +189,7 @@ const styles = StyleSheet.create({
     borderTopColor: colors.separator,
   },
   dot8: { width: 8, height: 8, borderRadius: 4 },
-  trustLine: { flex: 1, fontSize: 13, color: "rgba(60,60,67,0.75)" },
+  trustLine: { flex: 1, fontSize: 13, color: `rgba(${colors.inkBaseRgb},0.75)` },
   chevron: { color: colors.chevron, fontSize: 20 },
   scanRow: { alignItems: "center", paddingVertical: 12 },
   scanButtonWrap: { width: 146, height: 146, alignItems: "center", justifyContent: "center" },

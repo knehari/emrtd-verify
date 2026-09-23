@@ -2,12 +2,14 @@
  * Chaîne de confiance PKI — transcrit depuis le handoff, bloc `isChain`
  * (`design_handoff_authentik/eMRTD Verify Mobile.dc.html` lignes 540-563, README §6.9).
  */
-import React from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
-import { colors, fontMono } from "../theme";
+import React, { useMemo } from "react";
+import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { PressableFX as Pressable } from "../components/PressableFX";
+import { fontMono, type PaletteColors } from "../theme";
 import type { AuthentikDemo } from "../state";
 
 export function ChainScreen({ demo }: { demo: AuthentikDemo }) {
+  const styles = useMemo(() => makeStyles(demo.colors), [demo.colors]);
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: 24 }}>
       <Pressable onPress={demo.goVerdict} style={styles.back}>
@@ -19,7 +21,7 @@ export function ChainScreen({ demo }: { demo: AuthentikDemo }) {
         <View key={n.title} style={styles.nodeRow}>
           <View style={styles.timeline}>
             <View style={[styles.timelineDot, { backgroundColor: n.color }]} />
-            <View style={[styles.timelineLine, { backgroundColor: n.isLast ? "transparent" : "rgba(60,60,67,0.2)" }]} />
+            <View style={[styles.timelineLine, { backgroundColor: n.isLast ? "transparent" : `rgba(${demo.colors.inkBaseRgb},0.2)` }]} />
           </View>
           <View style={styles.nodeCard}>
             <View style={styles.nodeHead}>
@@ -35,7 +37,7 @@ export function ChainScreen({ demo }: { demo: AuthentikDemo }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: PaletteColors) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.screenLight, paddingHorizontal: 20, paddingTop: 2 },
   back: { paddingVertical: 4, paddingBottom: 10 },
   backLabel: { color: colors.accent, fontSize: 15 },
@@ -49,6 +51,6 @@ const styles = StyleSheet.create({
   nodeHead: { flexDirection: "row", alignItems: "baseline", gap: 8 },
   nodeTitle: { flex: 1, fontSize: 15, fontWeight: "600", color: colors.inkPrimary },
   nodeState: { fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.3 },
-  nodeSubject: { fontFamily: fontMono, fontSize: 12, lineHeight: 18, color: "rgba(60,60,67,0.65)", marginTop: 6 },
+  nodeSubject: { fontFamily: fontMono, fontSize: 12, lineHeight: 18, color: `rgba(${colors.inkBaseRgb},0.65)`, marginTop: 6 },
   nodeNote: { fontSize: 12.5, color: colors.inkSecondary, marginTop: 7, lineHeight: 17 },
 });

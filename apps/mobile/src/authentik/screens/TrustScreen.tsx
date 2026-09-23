@@ -4,13 +4,15 @@
  * Le bouton "Synchroniser maintenant" est décoratif dans le prototype lui-même (aucun `onClick`
  * dans le handoff) — repris tel quel ici, sans action câblée.
  */
-import React from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
-import { colors, fontMono, radius } from "../theme";
+import React, { useMemo } from "react";
+import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { PressableFX as Pressable } from "../components/PressableFX";
+import { fontMono, radius, type PaletteColors } from "../theme";
 import { Icon } from "../icons";
 import type { AuthentikDemo } from "../state";
 
 export function TrustScreen({ demo }: { demo: AuthentikDemo }) {
+  const styles = useMemo(() => makeStyles(demo.colors), [demo.colors]);
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: 110 }}>
       <Pressable onPress={demo.reset} style={styles.back}>
@@ -44,7 +46,7 @@ export function TrustScreen({ demo }: { demo: AuthentikDemo }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: PaletteColors) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.screenLight, paddingHorizontal: 20, paddingTop: 2 },
   back: { paddingVertical: 4, paddingBottom: 10 },
   backLabel: { color: colors.accent, fontSize: 15 },
@@ -54,7 +56,7 @@ const styles = StyleSheet.create({
   statRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 13, paddingHorizontal: 16 },
   statRowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator },
   statLabel: { flex: 1, fontSize: 15, color: colors.inkPrimary },
-  statValue: { fontFamily: fontMono, fontSize: 13, fontWeight: "500", color: "rgba(60,60,67,0.65)" },
+  statValue: { fontFamily: fontMono, fontSize: 13, fontWeight: "500", color: `rgba(${colors.inkBaseRgb},0.65)` },
   countriesBtn: {
     backgroundColor: colors.surface,
     borderRadius: 14,

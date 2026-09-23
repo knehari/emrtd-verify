@@ -2,12 +2,13 @@
  * Traitement en cours — transcrit depuis le handoff, bloc `isProcessing`
  * (`design_handoff_authentik/eMRTD Verify Mobile.dc.html` lignes 436-447, README §6.6).
  */
-import React from "react";
+import React, { useMemo } from "react";
 import { View, Text, StyleSheet } from "react-native";
-import { colors, fontMono } from "../theme";
+import { fontMono, type PaletteColors } from "../theme";
 import type { AuthentikDemo } from "../state";
 
 export function ProcessingScreen({ demo }: { demo: AuthentikDemo }) {
+  const styles = useMemo(() => makeStyles(demo.colors), [demo.colors]);
   return (
     <View style={styles.screen}>
       <Text style={styles.title}>{demo.t.procHead}</Text>
@@ -22,7 +23,7 @@ export function ProcessingScreen({ demo }: { demo: AuthentikDemo }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: PaletteColors) => StyleSheet.create({
   screen: { flex: 1, justifyContent: "center", paddingHorizontal: 28, backgroundColor: colors.screenLight },
   title: { fontSize: 26, fontWeight: "700", letterSpacing: -0.5, color: colors.inkPrimary, marginBottom: 26, lineHeight: 32 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 9 },

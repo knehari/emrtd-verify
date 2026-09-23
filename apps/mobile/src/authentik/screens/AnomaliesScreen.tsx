@@ -2,13 +2,15 @@
  * Anomalies — transcrit depuis le handoff, bloc `isAnomalies`
  * (`design_handoff_authentik/eMRTD Verify Mobile.dc.html` lignes 565-584, README §6.10).
  */
-import React from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
-import { colors, fontMono, radius } from "../theme";
+import React, { useMemo } from "react";
+import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { PressableFX as Pressable } from "../components/PressableFX";
+import { fontMono, radius, type PaletteColors } from "../theme";
 import { Icon } from "../icons";
 import type { AuthentikDemo } from "../state";
 
 export function AnomaliesScreen({ demo }: { demo: AuthentikDemo }) {
+  const styles = useMemo(() => makeStyles(demo.colors), [demo.colors]);
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: 24 }}>
       <Pressable onPress={demo.goVerdict} style={styles.back}>
@@ -32,7 +34,7 @@ export function AnomaliesScreen({ demo }: { demo: AuthentikDemo }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: PaletteColors) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.screenLight, paddingHorizontal: 20, paddingTop: 2 },
   back: { paddingVertical: 4, paddingBottom: 10 },
   backLabel: { color: colors.accent, fontSize: 15 },
@@ -42,5 +44,5 @@ const styles = StyleSheet.create({
   head: { flexDirection: "row", alignItems: "baseline", gap: 8 },
   code: { flex: 1, fontFamily: fontMono, fontSize: 12.5, fontWeight: "500", color: colors.inkPrimary },
   sev: { fontSize: 10.5, fontWeight: "600", letterSpacing: 0.4, textTransform: "uppercase" },
-  message: { fontSize: 13.5, color: "rgba(60,60,67,0.75)", marginTop: 7, lineHeight: 19 },
+  message: { fontSize: 13.5, color: `rgba(${colors.inkBaseRgb},0.75)`, marginTop: 7, lineHeight: 19 },
 });
