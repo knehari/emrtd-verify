@@ -1,10 +1,11 @@
 /**
  * Écran d'accueil — transcrit depuis le handoff de design, bloc `isHome`
  * (`design_handoff_authentik/eMRTD Verify Mobile.dc.html` lignes 198-296, et README §6.1).
- * Contrainte de design tenue volontairement : cet écran ne défile PAS (voir README §13.6).
+ * Défile désormais (contrainte "sans défilement" du handoff §13.6 levée sur demande explicite de
+ * l'utilisateur — voir le README de ce dossier).
  */
 import React, { useEffect, useMemo, useRef } from "react";
-import { View, Text, Image, StyleSheet, Animated, Easing } from "react-native";
+import { View, Text, Image, StyleSheet, ScrollView, Animated, Easing } from "react-native";
 import { PressableFX as Pressable } from "../components/PressableFX";
 import Svg, { Defs, RadialGradient, Stop, Rect } from "react-native-svg";
 import { colors, radius, fontMono, type PaletteColors } from "../theme";
@@ -67,7 +68,7 @@ function ModeSwitch({
 export function HomeScreen({ demo }: { demo: AuthentikDemo }) {
   const styles = useMemo(() => makeStyles(demo.colors), [demo.colors]);
   return (
-    <View style={styles.screen}>
+    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <View style={styles.headerRow}>
         <View style={styles.headerText}>
           <Text style={styles.appName}>{demo.t.appName}</Text>
@@ -144,12 +145,13 @@ export function HomeScreen({ demo }: { demo: AuthentikDemo }) {
       </View>
 
       <Text style={styles.ephemeral}>{demo.t.ephemeral}</Text>
-    </View>
+    </ScrollView>
   );
 }
 
 const makeStyles = (colors: PaletteColors) => StyleSheet.create({
-  screen: { flex: 1, paddingHorizontal: 20, paddingTop: 4 },
+  screen: { flex: 1 },
+  content: { paddingHorizontal: 20, paddingTop: 4 },
   headerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 4, marginBottom: 14 },
   headerText: { flex: 1, minWidth: 0 },
   appName: { fontSize: 30, fontWeight: "700", letterSpacing: -0.9, color: colors.inkPrimary, lineHeight: 33 },
