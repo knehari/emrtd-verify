@@ -102,7 +102,9 @@ function describeVerificationError(error: unknown): VerificationError {
 export interface MrzFormState {
   documentType: DocumentType;
   documentNumber: string;
-  dateOfBirth: string; // AAMMJJ, saisi par l'utilisateur (pas de scan MRZ caméra dans ce dépôt)
+  // AAMMJJ — rempli soit par la saisie manuelle, soit par la capture caméra + OCR (voir
+  // authentik/components/MrzCameraScanner.tsx, ../../mrz/scanMrz.ts) ; identique dans les deux cas.
+  dateOfBirth: string;
   dateOfExpiry: string; // AAMMJJ
 }
 
@@ -612,7 +614,7 @@ function deriveFromRealResult(
   ];
 
   const procRows = [
-    { label: "Lecture MRZ (saisie manuelle)", dot: OK, tone: "rgba(60,60,67,.6)" },
+    { label: "Lecture MRZ", dot: OK, tone: "rgba(60,60,67,.6)" },
     { label: "Lecture de la puce NFC", dot: OK, tone: "rgba(60,60,67,.6)" },
     {
       label: "Vérification locale",

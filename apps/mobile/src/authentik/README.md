@@ -43,6 +43,31 @@ vivacité) sont désormais reproduits fidèlement via `react-native-svg` `Radial
 (`expo-linear-gradient` ne fait pas de radial) — corrigé après un premier passage qui les
 approximait ou les aplatissait.
 
+## Capture caméra MRZ (ajoutée, hors handoff original)
+
+Le handoff simule la caméra par un aplat texturé (son README §2/§3) ; l'écran MRZ (`screens/
+MrzScreen.tsx`) proposait donc jusqu'ici seulement une saisie manuelle des trois champs (numéro de
+document, dates de naissance/expiration) servant de clé d'accès NFC/BAC. Une vraie capture caméra a
+été ajoutée sur demande (`components/MrzCameraScanner.tsx`, `../mrz/scanMrz.ts`) :
+
+- `expo-camera` pour l'aperçu et la prise de vue, `expo-image-manipulator` pour recadrer la photo
+  sur le cadre-guide affiché à l'écran avant OCR.
+- OCR on-device (`@react-native-ml-kit/text-recognition`, Google ML Kit, aucun appel réseau —
+  cohérent avec le reste du pipeline hors ligne) sur la zone recadrée.
+- Le texte reconnu est filtré aux lignes de forme MRZ (alphabet `[A-Z0-9<]`, longueur exacte 44 ou
+  30 après suppression des espaces), puis une lecture n'est acceptée que si elle passe le vrai
+  parseur/chiffres de contrôle ICAO 9303 déjà existant (`@emrtd-verify/emrtd-core`, `mrzParser.ts`)
+  — jamais l'OCR seul. En cas d'échec (document mal aligné, lumière insuffisante, etc.), l'écran
+  invite à réessayer et propose toujours la saisie manuelle en repli.
+- Le mappage du cadre-guide (fraction de l'aperçu écran) vers un rectangle de recadrage en pixels
+  de la photo capturée est une approximation (suppose que l'aperçu remplit son conteneur sans
+  letterboxing) — acceptable ici car un recadrage trop généreux n'affecte que le nombre de lignes
+  candidates à filtrer, pas la validité de la lecture retenue (toujours vérifiée par chiffres de
+  contrôle).
+- Après une lecture réussie, les champs sont pré-remplis mais restent visibles et modifiables (écran
+  de saisie manuelle, avec un bandeau de confirmation) avant de continuer — pas d'avance automatique
+  sans confirmation visuelle.
+
 ## Mode Dark (ajouté, hors handoff original)
 
 Le handoff de design ne livre aucune maquette sombre (§9 "Design tokens" ne documente qu'une

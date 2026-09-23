@@ -27,7 +27,7 @@
     },
     "android": {
       "package": "com.authentik.mobile",
-      "permissions": ["android.permission.NFC"]
+      "permissions": ["android.permission.NFC", "android.permission.CAMERA"]
     },
     "plugins": [
       [
@@ -36,6 +36,13 @@
           "ios": {
             "deploymentTarget": "15.1"
           }
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Capture de la zone lisible du document pour la vérification d'identité.",
+          "microphonePermission": false
         }
       ],
       "./plugins/withPodDeploymentTargetFix",

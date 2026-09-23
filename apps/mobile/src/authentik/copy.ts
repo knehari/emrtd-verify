@@ -44,6 +44,16 @@ export interface Copy {
   mrzHead: string;
   mrzHint: string;
   mrzReading: string;
+  // Capture caméra réelle de la MRZ — absente du handoff (qui simule la caméra par un aplat,
+  // voir son README §2/§3) : copie ajoutée, pas transcrite verbatim, comme le mode Dark plus bas.
+  mrzCameraCapture: string;
+  mrzCameraManual: string;
+  mrzCameraRetry: string;
+  mrzCameraFail: string;
+  mrzCameraSuccess: string;
+  mrzCameraPermission: string;
+  mrzCameraOpenSettings: string;
+  mrzScanCamera: string;
   placeNav: string;
   placeHead: string;
   placeHint: string;
@@ -158,6 +168,14 @@ export const FR: Copy = {
   mrzHead: "Cadrez la zone lisible par machine",
   mrzHint: "Les deux lignes imprimées au bas du document. Elles servent de clé d'accès à la puce.",
   mrzReading: "Lecture de la MRZ…",
+  mrzCameraCapture: "Capturer",
+  mrzCameraManual: "Saisir manuellement",
+  mrzCameraRetry: "Reprendre la photo",
+  mrzCameraFail: "Zone lisible non reconnue. Réessayez en alignant mieux le document.",
+  mrzCameraSuccess: "Lu automatiquement — vérifiez les informations avant de continuer.",
+  mrzCameraPermission: "Autorisez l'accès à l'appareil photo pour scanner le document.",
+  mrzCameraOpenSettings: "Ouvrir les réglages",
+  mrzScanCamera: "Scanner avec l'appareil photo",
   placeNav: "Positionnement",
   placeHead: "Placez le document derrière le téléphone",
   placeHint: "L'antenne NFC se trouve dans le haut du dos de l'iPhone. Posez la page de la photo contre cette zone.",
@@ -333,6 +351,14 @@ export const EN: Copy = {
   mrzHead: "Frame the machine-readable zone",
   mrzHint: "The two printed lines at the bottom of the document. They are the chip access key.",
   mrzReading: "Reading the MRZ…",
+  mrzCameraCapture: "Capture",
+  mrzCameraManual: "Enter manually",
+  mrzCameraRetry: "Retake photo",
+  mrzCameraFail: "Machine-readable zone not recognized. Try aligning the document better.",
+  mrzCameraSuccess: "Read automatically — check the details before continuing.",
+  mrzCameraPermission: "Allow camera access to scan the document.",
+  mrzCameraOpenSettings: "Open Settings",
+  mrzScanCamera: "Scan with the camera",
   placeNav: "Positioning",
   placeHead: "Place the document behind the phone",
   placeHint: "The NFC antenna sits in the upper back of the iPhone. Hold the photo page against that area.",
