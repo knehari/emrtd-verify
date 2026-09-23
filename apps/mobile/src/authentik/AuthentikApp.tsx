@@ -77,7 +77,7 @@ function AuthentikRoot() {
       <StatusBar style={demo.darkScreen ? "light" : "dark"} />
       <View style={[styles.content, { paddingTop: insets.top, paddingBottom: demo.showTabs ? 0 : insets.bottom }]}>{Screen}</View>
       {demo.showTabs ? <TabBar demo={demo} bottomInset={insets.bottom} /> : null}
-      <DemoControls demo={demo} topInset={insets.top} />
+      {demo.step === "home" ? <DemoControls demo={demo} topInset={insets.top} /> : null}
       <ShareModal demo={demo} />
     </View>
   );

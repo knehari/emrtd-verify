@@ -57,8 +57,16 @@ document, dates de naissance/expiration) servant de clé d'accès NFC/BAC. Une v
 - Le texte reconnu est filtré aux lignes de forme MRZ (alphabet `[A-Z0-9<]`, longueur exacte 44 ou
   30 après suppression des espaces), puis une lecture n'est acceptée que si elle passe le vrai
   parseur/chiffres de contrôle ICAO 9303 déjà existant (`@emrtd-verify/emrtd-core`, `mrzParser.ts`)
-  — jamais l'OCR seul. En cas d'échec (document mal aligné, lumière insuffisante, etc.), l'écran
-  invite à réessayer et propose toujours la saisie manuelle en repli.
+  — jamais l'OCR seul.
+- Détection automatique par sondage plutôt qu'un bouton à appuyer : une photo est prise et analysée
+  toutes les 700 ms tant que l'écran est ouvert ; dès qu'une lecture valide est trouvée, le cadre
+  passe au vert et l'écran avance seul. Un vrai suivi image par image (rectangle qui suit le texte
+  en continu) demanderait de remplacer `expo-camera` par `react-native-vision-camera` + un plugin
+  d'analyse par frame — nouveaux modules natifs non vérifiables dans cet environnement de
+  développement (pas d'Xcode/simulateur ici), écarté pour cette raison après discussion. Le bouton
+  au centre des contrôles force une tentative immédiate plutôt que d'attendre le prochain sondage ;
+  la saisie manuelle reste toujours accessible en repli (document mal aligné, lumière insuffisante,
+  etc.).
 - Le mappage du cadre-guide (fraction de l'aperçu écran) vers un rectangle de recadrage en pixels
   de la photo capturée est une approximation (suppose que l'aperçu remplit son conteneur sans
   letterboxing) — acceptable ici car un recadrage trop généreux n'affecte que le nombre de lignes

@@ -3,8 +3,17 @@
  * handoff de design (qui simule la caméra par un aplat, voir son README §2/§3) : la lecture réelle
  * est nouvelle. Le cadre-guide affiché ici définit aussi la zone recadrée avant OCR
  * (../../mrz/scanMrz.ts) — mêmes ratios, une seule source de vérité (`GUIDE`).
+ *
+ * Détection automatique par sondage (pas de flux image par image) : demandé "en direct, sans
+ * appuyer sur un bouton", mais un vrai suivi image par image nécessiterait de remplacer
+ * `expo-camera` par `react-native-vision-camera` + un plugin d'analyse par frame (nouveaux modules
+ * natifs non vérifiables dans cet environnement de développement, voir la discussion de session).
+ * Choix retenu à la place : une photo est prise et analysée toutes les `POLL_INTERVAL_MS`
+ * automatiquement tant que l'écran est ouvert ; dès qu'une lecture valide (chiffres de contrôle
+ * corrects) est trouvée, le cadre passe au vert et l'écran avance — sans bouton à appuyer, au prix
+ * d'une latence perçue d'environ `POLL_INTERVAL_MS` plutôt qu'un suivi continu à 30 im/s.
  */
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, Linking } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import Svg, { Path } from "react-native-svg";
@@ -15,6 +24,7 @@ import type { AuthentikDemo } from "../state";
 
 const GUIDE: MrzGuideRect = { originXRatio: 0.06, originYRatio: 0.56, widthRatio: 0.88, heightRatio: 0.16 };
 const pct = (r: number) => `${r * 100}%` as const;
+const POLL_INTERVAL_MS = 700;
 
 export function MrzCameraScanner({
   demo,
@@ -28,33 +38,66 @@ export function MrzCameraScanner({
   const fr = demo.lang === "fr";
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [manualError, setManualError] = useState<string | null>(null);
   const [torch, setTorch] = useState(false);
 
-  const capture = useCallback(async () => {
-    if (!cameraRef.current || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      // `skipProcessing` accélère la capture mais, per la doc expo-camera, rend l'orientation de la
-      // photo imprévisible (rotation 90°/180°/270° non corrigée selon l'appareil) — le recadrage
-      // ci-dessous (scanMrzFromPhoto) suppose une photo orientée comme l'aperçu affiché à l'écran,
-      // donc jamais `skipProcessing: true` ici (sinon le recadrage vise la mauvaise zone de l'image).
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.9 });
-      if (!photo) throw new Error("no-photo");
-      const result = await scanMrzFromPhoto(photo.uri, photo.width, photo.height, GUIDE);
-      if (result.ok) {
-        onCaptured(result);
-      } else {
-        setError(demo.t.mrzCameraFail);
+  const stoppedRef = useRef(false);
+  const inFlightRef = useRef(false);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const attemptScan = useCallback(
+    async (manual: boolean) => {
+      if (!cameraRef.current || stoppedRef.current || inFlightRef.current) return;
+      inFlightRef.current = true;
+      setScanning(true);
+      if (manual) setManualError(null);
+      try {
+        // `skipProcessing` accélère la capture mais, per la doc expo-camera, rend l'orientation de
+        // la photo imprévisible (rotation 90°/180°/270° non corrigée selon l'appareil) — le
+        // recadrage ci-dessous (scanMrzFromPhoto) suppose une photo orientée comme l'aperçu affiché
+        // à l'écran, donc jamais `skipProcessing: true` ici.
+        const photo = await cameraRef.current.takePictureAsync({ quality: 0.75 });
+        if (photo && !stoppedRef.current) {
+          const result = await scanMrzFromPhoto(photo.uri, photo.width, photo.height, GUIDE);
+          if (result.ok && !stoppedRef.current) {
+            stoppedRef.current = true;
+            setSuccess(true);
+            setScanning(false);
+            setTimeout(() => onCaptured(result), 420);
+            return;
+          }
+          if (manual) setManualError(demo.t.mrzCameraFail);
+        }
+      } catch {
+        if (manual) setManualError(demo.t.mrzCameraFail);
+      } finally {
+        inFlightRef.current = false;
+        setScanning(false);
+        if (!stoppedRef.current) {
+          pollTimerRef.current = setTimeout(() => void attemptScan(false), POLL_INTERVAL_MS);
+        }
       }
-    } catch {
-      setError(demo.t.mrzCameraFail);
-    } finally {
-      setBusy(false);
-    }
-  }, [busy, demo.t.mrzCameraFail, onCaptured]);
+    },
+    [demo.t.mrzCameraFail, onCaptured],
+  );
+
+  useEffect(() => {
+    if (!permission?.granted || !cameraReady) return;
+    stoppedRef.current = false;
+    pollTimerRef.current = setTimeout(() => void attemptScan(false), POLL_INTERVAL_MS);
+    return () => {
+      stoppedRef.current = true;
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    };
+  }, [permission?.granted, cameraReady, attemptScan]);
+
+  const forceAttempt = useCallback(() => {
+    if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    void attemptScan(true);
+  }, [attemptScan]);
 
   if (!permission) {
     return <View style={styles.center} />;
@@ -81,7 +124,13 @@ export function MrzCameraScanner({
 
   return (
     <View style={styles.fill}>
-      <CameraView ref={cameraRef} style={styles.fill} facing="back" enableTorch={torch} />
+      <CameraView
+        ref={cameraRef}
+        style={styles.fill}
+        facing="back"
+        enableTorch={torch}
+        onCameraReady={() => setCameraReady(true)}
+      />
 
       <View pointerEvents="none" style={[styles.maskEdge, { top: 0, left: 0, right: 0, height: pct(GUIDE.originYRatio) }]} />
       <View
@@ -103,6 +152,7 @@ export function MrzCameraScanner({
         pointerEvents="none"
         style={[
           styles.guideBox,
+          success && styles.guideBoxSuccess,
           { left: pct(GUIDE.originXRatio), top: pct(GUIDE.originYRatio), width: pct(GUIDE.widthRatio), height: pct(GUIDE.heightRatio) },
         ]}
       />
@@ -111,9 +161,20 @@ export function MrzCameraScanner({
         <Text style={styles.hintText}>{demo.t.mrzHint}</Text>
       </View>
 
-      {error ? (
+      <View pointerEvents="none" style={styles.statusWrap}>
+        {success ? (
+          <Text style={styles.statusTextSuccess}>{demo.t.mrzCameraSuccess}</Text>
+        ) : (
+          <>
+            <ActivityIndicator size="small" color="#fff" style={{ opacity: scanning ? 1 : 0.35 }} />
+            <Text style={styles.statusText}>{demo.t.mrzReading}</Text>
+          </>
+        )}
+      </View>
+
+      {manualError ? (
         <View style={styles.errorBanner} pointerEvents="none">
-          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorText}>{manualError}</Text>
         </View>
       ) : null}
 
@@ -121,8 +182,8 @@ export function MrzCameraScanner({
         <Pressable onPress={onManual} style={styles.manualLinkDark}>
           <Text style={styles.manualLinkDarkText}>{demo.t.mrzCameraManual}</Text>
         </Pressable>
-        <Pressable onPress={capture} disabled={busy} style={[styles.shutter, busy && styles.shutterBusy]}>
-          {busy ? <ActivityIndicator color="#fff" /> : <View style={styles.shutterInner} />}
+        <Pressable onPress={forceAttempt} disabled={success} style={[styles.shutter, success && styles.shutterSuccess]}>
+          <View style={[styles.shutterInner, success && styles.shutterInnerSuccess]} />
         </Pressable>
         <View style={styles.torchWrap}>
           <Pressable onPress={() => setTorch((v) => !v)} style={[styles.torchButton, torch && styles.torchButtonActive]}>
@@ -152,13 +213,26 @@ const styles = StyleSheet.create({
   manualLinkText: { color: colors.accent, fontSize: 14 },
   maskEdge: { position: "absolute", backgroundColor: "rgba(0,0,0,0.55)" },
   guideBox: { position: "absolute", borderRadius: 12, borderWidth: 2, borderColor: "rgba(255,255,255,0.85)" },
+  guideBoxSuccess: { borderColor: "#30D158", borderWidth: 3 },
   hintWrap: { position: "absolute", left: 24, right: 24, alignItems: "center" },
   hintText: { color: "#fff", fontSize: 13.5, textAlign: "center", lineHeight: 19, textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 4 },
-  errorBanner: {
+  statusWrap: {
     position: "absolute",
     left: 24,
     right: 24,
     bottom: 150,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  statusText: { color: "rgba(255,255,255,0.8)", fontSize: 13 },
+  statusTextSuccess: { color: "#30D158", fontSize: 14, fontWeight: "600" },
+  errorBanner: {
+    position: "absolute",
+    left: 24,
+    right: 24,
+    bottom: 180,
     backgroundColor: "rgba(255,69,58,0.85)",
     borderRadius: 12,
     padding: 12,
@@ -187,14 +261,15 @@ const styles = StyleSheet.create({
   },
   torchButtonActive: { backgroundColor: "#fff" },
   shutter: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 4,
-    borderColor: "#fff",
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 3,
+    borderColor: "rgba(255,255,255,0.6)",
     alignItems: "center",
     justifyContent: "center",
   },
-  shutterBusy: { opacity: 0.7 },
-  shutterInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: "#fff" },
+  shutterSuccess: { borderColor: "#30D158" },
+  shutterInner: { width: 46, height: 46, borderRadius: 23, backgroundColor: "rgba(255,255,255,0.6)" },
+  shutterInnerSuccess: { backgroundColor: "#30D158" },
 });
