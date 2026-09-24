@@ -48,7 +48,12 @@ export function MrzScreen({ demo }: { demo: AuthentikDemo }) {
           <Text style={styles.navTitle}>{demo.t.mrzTitle}</Text>
           <View style={{ width: 52 }} />
         </View>
-        <MrzCameraScanner demo={demo} onCaptured={handleCaptured} onManual={() => setMode("manual")} />
+        <MrzCameraScanner
+          demo={demo}
+          initialFormat={mrzForm.documentType === "ePassport" ? "TD3" : "TD1"}
+          onCaptured={handleCaptured}
+          onManual={() => setMode("manual")}
+        />
       </View>
     );
   }

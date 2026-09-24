@@ -21,6 +21,7 @@ public final class MrzScannerView: ExpoView, AVCaptureVideoDataOutputSampleBuffe
   private var wantsActive = true
   private var isInWindow = false
   private var torchOn = false
+  private var format: DocumentFormat = .td1
 
   // Accédés uniquement sur videoQueue.
   private var lastAnalysis: CFAbsoluteTime = 0
@@ -30,6 +31,7 @@ public final class MrzScannerView: ExpoView, AVCaptureVideoDataOutputSampleBuffe
   private let stateLock = NSLock()
   private var viewSize: CGSize = .zero
   private var regionOfInterest = CGRect(x: 0, y: 0, width: 1, height: 1)
+  private var minimumTextHeight: Float = DocumentFormat.td1.minimumTextHeight
 
   private static let minimumAnalysisInterval: CFAbsoluteTime = 0.1
 
@@ -85,6 +87,26 @@ public final class MrzScannerView: ExpoView, AVCaptureVideoDataOutputSampleBuffe
     }
   }
 
+  func setDocumentFormat(_ newFormat: DocumentFormat) {
+    stateLock.lock()
+    minimumTextHeight = newFormat.minimumTextHeight
+    stateLock.unlock()
+    sessionQueue.async {
+      guard newFormat != self.format else {
+        return
+      }
+      self.format = newFormat
+      guard self.isConfigured, let camera = self.device else {
+        return
+      }
+      self.session.beginConfiguration()
+      self.applyPreset()
+      self.session.commitConfiguration()
+      self.configureFocus(camera)
+      self.applyTorch()
+    }
+  }
+
   func setRegionOfInterest(_ rect: CGRect) {
     stateLock.lock()
     regionOfInterest = rect
@@ -121,20 +143,30 @@ public final class MrzScannerView: ExpoView, AVCaptureVideoDataOutputSampleBuffe
     output.setSampleBufferDelegate(self, queue: videoQueue)
 
     session.beginConfiguration()
-    if session.canSetSessionPreset(.hd1920x1080) {
-      session.sessionPreset = .hd1920x1080
-    }
     guard session.canAddInput(input), session.canAddOutput(output) else {
       session.commitConfiguration()
       return
     }
     session.addInput(input)
     session.addOutput(output)
+    applyPreset()
     session.commitConfiguration()
 
     configureFocus(camera)
     device = camera
     isConfigured = true
+  }
+
+  /// Passeport : la MRZ (44 caractères) est 1,5 fois plus large que celle d'une carte (30) et se lit
+  /// donc de plus loin, en caractères plus petits — la 4K double la définition de chaque caractère.
+  /// Vision n'analyse que la région d'intérêt, le surcoût reste limité.
+  private func applyPreset() {
+    let preferred: AVCaptureSession.Preset = format == .td3 ? .hd4K3840x2160 : .hd1920x1080
+    if session.canSetSessionPreset(preferred) {
+      session.sessionPreset = preferred
+    } else if session.canSetSessionPreset(.hd1920x1080) {
+      session.sessionPreset = .hd1920x1080
+    }
   }
 
   private func configureFocus(_ camera: AVCaptureDevice) {
@@ -159,13 +191,12 @@ public final class MrzScannerView: ExpoView, AVCaptureVideoDataOutputSampleBuffe
       return
     }
     let halfFieldOfView = camera.activeFormat.videoFieldOfView / 2 * .pi / 180
-    let cardWidthMillimeters: Float = 85.6
+    // Largeur du document à faire tenir dans le cadre : un zoom calculé pour la carte obligerait à
+    // tenir un passeport 1,5 fois plus loin que sa distance minimale de mise au point.
     let previewFill: Float = 0.88
-    let subjectDistance = (cardWidthMillimeters / previewFill) / tan(halfFieldOfView)
-    if subjectDistance < minimumFocusDistance {
-      let zoom = CGFloat(minimumFocusDistance / subjectDistance)
-      camera.videoZoomFactor = min(zoom, camera.activeFormat.videoMaxZoomFactor)
-    }
+    let subjectDistance = (format.documentWidthMillimeters / previewFill) / tan(halfFieldOfView)
+    let zoom = subjectDistance < minimumFocusDistance ? CGFloat(minimumFocusDistance / subjectDistance) : 1
+    camera.videoZoomFactor = max(camera.minAvailableVideoZoomFactor, min(zoom, camera.activeFormat.videoMaxZoomFactor))
   }
 
   private func applyTorch() {
@@ -192,6 +223,7 @@ public final class MrzScannerView: ExpoView, AVCaptureVideoDataOutputSampleBuffe
     stateLock.lock()
     let size = viewSize
     let roi = regionOfInterest
+    let minTextHeight = minimumTextHeight
     stateLock.unlock()
     guard size.width > 0, size.height > 0 else {
       return
@@ -209,6 +241,7 @@ public final class MrzScannerView: ExpoView, AVCaptureVideoDataOutputSampleBuffe
     // '<' et les chiffres en mots.
     request.usesLanguageCorrection = false
     request.regionOfInterest = visionRegion
+    request.minimumTextHeight = minTextHeight
 
     let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
     guard (try? handler.perform([request])) != nil else {
@@ -282,5 +315,22 @@ private struct AspectFillMapping {
       width: rect.width * displayedSize.width / viewSize.width,
       height: rect.height * displayedSize.height / viewSize.height
     )
+  }
+}
+
+/// Format ICAO de la MRZ attendue : règle le zoom, la définition et la taille minimale du texte.
+enum DocumentFormat: String, Enumerable {
+  case td1 = "TD1"
+  case td3 = "TD3"
+
+  /// Largeur du document (Doc 9303 Part 4 et 5) : ID-1 pour les cartes, ID-3 pour la page passeport.
+  var documentWidthMillimeters: Float {
+    self == .td3 ? 125 : 85.6
+  }
+
+  /// Relative à la région d'intérêt. Défaut Vision : 1/32 ; un passeport tenu plus loin a des
+  /// caractères plus petits, qui seraient ignorés.
+  var minimumTextHeight: Float {
+    self == .td3 ? 1 / 64 : 1 / 32
   }
 }

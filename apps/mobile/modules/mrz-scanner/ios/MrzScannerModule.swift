@@ -15,6 +15,10 @@ public final class MrzScannerModule: Module {
         view.setTorch(torch ?? false)
       }
 
+      Prop("documentFormat") { (view, format: DocumentFormat?) in
+        view.setDocumentFormat(format ?? .td1)
+      }
+
       Prop("regionOfInterest") { (view, region: RegionOfInterest?) in
         guard let region else {
           return

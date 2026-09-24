@@ -45,6 +45,21 @@ export function isMrzLikeText(raw: string): boolean {
   return text.length >= 20 && text.includes("<<");
 }
 
+/** Format de MRZ du cadre de scan : TD1 (carte, 3 × 30 ; TD2 2 × 36 y tient) ou TD3 (passeport, 2 × 44). */
+export type ScanFormat = "TD1" | "TD3";
+
+/**
+ * Format suggéré par les lignes de forme MRZ visibles, ou `undefined` si rien de concluant : une
+ * ligne de 38 caractères ou plus ne peut venir que d'un passeport ; deux lignes de 24 à 32
+ * caractères, d'une carte (une ligne de passeport coupée par le bord du cadre n'en donne qu'une).
+ */
+export function formatHint(texts: string[]): ScanFormat | undefined {
+  const lengths = texts.map((t) => normalizeMrzText(t).length);
+  if (lengths.some((n) => n >= 38)) return "TD3";
+  if (lengths.filter((n) => n >= 24 && n <= 32).length >= 2) return "TD1";
+  return undefined;
+}
+
 /** Regroupe les morceaux de texte par ligne visuelle (Vision coupe parfois une ligne MRZ en deux). */
 export function groupIntoRows(lines: DetectedLine[]): string[] {
   const sorted = [...lines].sort((a, b) => a.y + a.height / 2 - (b.y + b.height / 2));

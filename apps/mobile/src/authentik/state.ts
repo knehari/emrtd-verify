@@ -41,11 +41,9 @@ import {
 } from "../nfc/emrtdReader";
 import { computeLocalVerification, LocalVerificationError, type LocalVerificationResult } from "../verification/localVerification";
 import { embeddedCountryRows, embeddedStoreRows, fillStoreStats } from "./trustStoreSummary";
-import { flagEmoji } from "./countryNames";
 
 /** Carte d'identité affichée sur le verdict (format "pièce d'identité"). */
 export interface IdCardView {
-  flag: string;
   countryCode: string;
   docTypeLabel: string;
   surname: string;
@@ -77,12 +75,13 @@ export type Step =
   | "anomalies"
   | "trust"
   | "countries"
+  | "country"
   | "settings";
 
 /** Transition d'entrée de l'écran — table `ANIM` du design v2 (voir components/ScreenTransition.tsx). */
 export type ScreenAnim = "push" | "back" | "modal" | "fade" | "tab" | "verdict" | "none";
 
-const TAB_STEPS: Step[] = ["home", "trust", "countries", "settings"];
+const TAB_STEPS: Step[] = ["home", "trust", "countries", "country", "settings"];
 
 const OK = "#30D158";
 const WARN = "#FF9F0A";
@@ -165,6 +164,8 @@ interface RawState {
   verificationError: VerificationError | null;
   chipResult: EmrtdReadResult | null;
   verificationResult: LocalVerificationResult | null;
+  /** Pays dont la fiche CSCA est ouverte (étape "country"). */
+  selectedCountry: string | null;
 }
 
 export function useAuthentikDemo() {
@@ -187,6 +188,7 @@ export function useAuthentikDemo() {
     verificationError: null,
     chipResult: null,
     verificationResult: null,
+    selectedCountry: null,
   });
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -543,7 +545,6 @@ export function useAuthentikDemo() {
       verifiedLine: s.online ? t.verifiedLineOnline : t.verifiedLine,
       supported: t.types3.map((d) => ({ name: d[0], format: d[1] })),
       idCard: {
-        flag: flagEmoji("FRA"),
         countryCode: "FRA",
         docTypeLabel: t.idDocTypes.ePassport,
         surname: "MARTIN",
@@ -593,6 +594,12 @@ export function useAuthentikDemo() {
     goVerdict: () => go("verdict", "back"),
     goCountries: () => go("countries"),
     backFromCountries: () => go("trust", "back"),
+    selectedCountry: s.selectedCountry,
+    openCountry: (code: string) => {
+      clear();
+      setS((prev) => ({ ...prev, step: "country", anim: "push", showShare: false, selectedCountry: code }));
+    },
+    backFromCountry: () => go("countries", "back"),
     toggleFeedback,
     toggleRevocationCheck,
     toggleLostStolenCheck,
@@ -876,7 +883,6 @@ function deriveFromRealResult(
     verifiedLine: "Vérification locale — résultat provisoire tant qu'aucune réconciliation backend n'a eu lieu.",
     supported: t.types3.map((d) => ({ name: d[0], format: d[1] })),
     idCard: {
-      flag: flagEmoji(result.document.issuingCountry),
       countryCode: result.document.issuingCountry,
       docTypeLabel: t.idDocTypes[result.document.type as keyof typeof t.idDocTypes] ?? result.document.type,
       surname: result.document.fields.primaryIdentifier?.value || "—",

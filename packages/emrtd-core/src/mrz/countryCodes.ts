@@ -64,3 +64,16 @@ export function sameCountry(a: string, b: string): boolean {
   const a2 = toAlpha2CountryCode(a);
   return a2 !== undefined && a2 === toAlpha2CountryCode(b);
 }
+
+let alpha2ToAlpha3: Map<string, string> | undefined;
+
+/** Code alpha-3 ISO d'un alpha-2 (« DZ » → « DZA »), tel qu'imprimé dans la MRZ ; `undefined` si inconnu. */
+export function toAlpha3CountryCode(alpha2: string): string | undefined {
+  if (!alpha2ToAlpha3) {
+    alpha2ToAlpha3 = new Map();
+    for (const [a3, a2] of Object.entries(ISO_ALPHA3_TO_ALPHA2)) alpha2ToAlpha3.set(a2, a3);
+    alpha2ToAlpha3.set("XK", "RKS");
+  }
+  const normalized = alpha2.trim().toUpperCase();
+  return alpha2ToAlpha3.get(ALPHA2_ALIASES[normalized] ?? normalized);
+}

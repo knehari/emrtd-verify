@@ -3,7 +3,6 @@
  * le paquet i18n-iso-countries 7.14.0 (langs/fr.json, langs/en.json) — Hermes n'a pas
  * Intl.DisplayNames, d'où cette table statique.
  */
-import { toAlpha2CountryCode } from "@emrtd-verify/emrtd-core";
 
 export const COUNTRY_NAMES: Record<string, [fr: string, en: string]> = {
   AD: ["Andorre", "Andorra"],
@@ -257,11 +256,3 @@ export const COUNTRY_NAMES: Record<string, [fr: string, en: string]> = {
   ZM: ["Zambie", "Zambia"],
   ZW: ["Zimbabwe", "Zimbabwe"],
 };
-
-/** Drapeau emoji depuis un code pays MRZ (FRA, D…) — indicateurs régionaux Unicode ; vide si inconnu. */
-export function flagEmoji(mrzCountryCode: string): string {
-  const alpha2 = toAlpha2CountryCode(mrzCountryCode);
-  if (!alpha2 || !/^[A-Z]{2}$/.test(alpha2) || alpha2 === "EU") return alpha2 === "EU" ? "🇪🇺" : "";
-  return String.fromCodePoint(...[...alpha2].map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65));
-}
-

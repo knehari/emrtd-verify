@@ -24,6 +24,7 @@ import { ChainScreen } from "./screens/ChainScreen";
 import { AnomaliesScreen } from "./screens/AnomaliesScreen";
 import { TrustScreen } from "./screens/TrustScreen";
 import { CountriesScreen } from "./screens/CountriesScreen";
+import { CountryScreen } from "./screens/CountryScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { TabBar } from "./components/TabBar";
 import { ShareModal } from "./components/ShareModal";
@@ -71,6 +72,9 @@ function AuthentikRoot() {
       break;
     case "countries":
       Screen = <CountriesScreen demo={demo} />;
+      break;
+    case "country":
+      Screen = <CountryScreen demo={demo} />;
       break;
     case "settings":
       Screen = <SettingsScreen demo={demo} />;

@@ -64,6 +64,11 @@ export function standardizedEcDomain(parameterId: number): EcDomain | undefined 
   return domain;
 }
 
+/** Nom de la courbe standard (NIST ou Brainpool r1) de premier `p` et coefficient `a`, si connue. */
+export function standardCurveName(p: bigint, a: bigint): string | undefined {
+  return Object.values(STANDARDIZED_EC_PARAMETERS).find((curve) => curve.p === p && curve.a === a)?.name;
+}
+
 export function bytesToBigInt(bytes: Uint8Array): bigint {
   let value = 0n;
   for (const byte of bytes) value = (value << 8n) | BigInt(byte);

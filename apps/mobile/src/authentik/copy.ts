@@ -43,6 +43,10 @@ export interface Copy {
   mrzTitle: string;
   mrzHead: string;
   mrzHint: string;
+  mrzHintPassport: string;
+  mrzHintCard: string;
+  mrzFormatPassport: string;
+  mrzFormatCard: string;
   mrzReading: string;
   // Capture caméra réelle de la MRZ — absente du handoff (qui simule la caméra par un aplat,
   // voir son README §2/§3) : copie ajoutée, pas transcrite verbatim, comme le mode Dark plus bas.
@@ -118,6 +122,18 @@ export interface Copy {
   countriesSub: string;
   searchPh: string;
   anchorsWord: string;
+  countriesEmpty: string;
+  cscaValidCount: string;
+  cscaStatus: { valid: string; future: string; expired: string };
+  cscaLink: string;
+  cscaKey: string;
+  cscaSignature: string;
+  cscaSource: string;
+  cscaSources: Record<string, string>;
+  cscaSerial: string;
+  cscaSubject: string;
+  cscaIssuer: string;
+  cscaMore: string;
   countries: [string, string, string, number][];
   verifiedLine: string;
   verifiedLineOnline: string;
@@ -191,7 +207,12 @@ export const FR: Copy = {
   share: "Partager",
   mrzTitle: "Zone lisible",
   mrzHead: "Cadrez la zone lisible par machine",
-  mrzHint: "Les deux lignes imprimées au bas du document. Elles servent de clé d'accès à la puce.",
+  mrzHint:
+    "Les lignes imprimées au bas du document : 2 sur la page photo d'un passeport, 3 au dos d'une carte d'identité. Elles servent de clé d'accès à la puce.",
+  mrzHintPassport: "Page photo ouverte : cadrez seulement les 2 lignes du bas, pas toute la page.",
+  mrzHintCard: "Au dos de la carte : cadrez les 3 lignes du bas.",
+  mrzFormatPassport: "Passeport",
+  mrzFormatCard: "Carte / titre",
   mrzReading: "Lecture de la MRZ…",
   mrzCameraManual: "Saisir manuellement",
   mrzCameraHold: "Zone lisible détectée — ne bougez plus…",
@@ -292,6 +313,18 @@ export const FR: Copy = {
   countriesSub: "Ancres CSCA présentes dans le magasin embarqué.",
   searchPh: "Rechercher un pays",
   anchorsWord: "ancres",
+  countriesEmpty: "Aucun pays ne correspond à cette recherche.",
+  cscaValidCount: "valides",
+  cscaStatus: { valid: "Valide", future: "Pas encore valide", expired: "Expiré" },
+  cscaLink: "certificat de lien",
+  cscaKey: "Clé",
+  cscaSignature: "Signature",
+  cscaSource: "Source",
+  cscaSources: { "icao-pkd": "Master List ICAO", "national-pkd": "Master List nationale", "extended-trust-store": "Magasin étendu" },
+  cscaSerial: "N° de série",
+  cscaSubject: "Sujet",
+  cscaIssuer: "Émetteur",
+  cscaMore: "Toucher pour le sujet, l'émetteur et l'empreinte",
   countries: [
     ["FR", "🇫🇷", "France", 14],
     ["DE", "🇩🇪", "Allemagne", 12],
@@ -396,7 +429,12 @@ export const EN: Copy = {
   share: "Share",
   mrzTitle: "Machine-readable zone",
   mrzHead: "Frame the machine-readable zone",
-  mrzHint: "The two printed lines at the bottom of the document. They are the chip access key.",
+  mrzHint:
+    "The lines printed at the bottom of the document: 2 on a passport photo page, 3 on the back of an ID card. They are the chip access key.",
+  mrzHintPassport: "Photo page open: frame only the 2 bottom lines, not the whole page.",
+  mrzHintCard: "On the back of the card: frame the 3 bottom lines.",
+  mrzFormatPassport: "Passport",
+  mrzFormatCard: "Card / permit",
   mrzReading: "Reading the MRZ…",
   mrzCameraManual: "Enter manually",
   mrzCameraHold: "Machine-readable zone detected — hold still…",
@@ -497,6 +535,18 @@ export const EN: Copy = {
   countriesSub: "CSCA anchors present in the embedded store.",
   searchPh: "Search a country",
   anchorsWord: "anchors",
+  countriesEmpty: "No country matches this search.",
+  cscaValidCount: "valid",
+  cscaStatus: { valid: "Valid", future: "Not yet valid", expired: "Expired" },
+  cscaLink: "link certificate",
+  cscaKey: "Key",
+  cscaSignature: "Signature",
+  cscaSource: "Source",
+  cscaSources: { "icao-pkd": "ICAO Master List", "national-pkd": "National Master List", "extended-trust-store": "Extended store" },
+  cscaSerial: "Serial no.",
+  cscaSubject: "Subject",
+  cscaIssuer: "Issuer",
+  cscaMore: "Tap for subject, issuer and fingerprint",
   countries: [
     ["FR", "🇫🇷", "France", 14],
     ["DE", "🇩🇪", "Germany", 12],

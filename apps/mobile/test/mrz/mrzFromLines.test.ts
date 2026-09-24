@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   analyzeMrzLines,
+  formatHint,
   groupIntoRows,
   isMrzLikeText,
   MrzConsensus,
@@ -124,5 +125,21 @@ describe("MrzConsensus", () => {
     consensus.push(null);
     consensus.push(null);
     expect(consensus.push(result.read)).toBeNull();
+  });
+});
+
+describe("formatHint", () => {
+  it("suggests TD3 as soon as one passport-length line is visible", () => {
+    expect(formatHint([TD3[0]])).toBe("TD3");
+    expect(formatHint(TD3)).toBe("TD3");
+  });
+
+  it("suggests TD1 only with at least two card-length lines", () => {
+    expect(formatHint(TD1)).toBe("TD1");
+    expect(formatHint([TD1[0]])).toBeUndefined();
+  });
+
+  it("stays silent on a passport line cut by the frame edge", () => {
+    expect(formatHint([TD3[1].slice(0, 30)])).toBeUndefined();
   });
 });

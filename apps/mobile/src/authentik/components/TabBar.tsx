@@ -38,7 +38,7 @@ export function TabBar({ demo, bottomInset }: { demo: AuthentikDemo; bottomInset
   const styles = useMemo(() => makeStyles(c, dark), [c, dark]);
   const inactive = `rgba(${c.inkBaseRgb},0.5)`;
   const homeActive = demo.step === "home";
-  const trustActive = demo.step === "trust" || demo.step === "countries";
+  const trustActive = demo.step === "trust" || demo.step === "countries" || demo.step === "country";
   const settingsActive = demo.step === "settings";
   const activeIndex = homeActive ? 0 : trustActive ? 1 : settingsActive ? 2 : -1;
 

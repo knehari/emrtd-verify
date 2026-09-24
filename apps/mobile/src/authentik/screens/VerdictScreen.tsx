@@ -9,6 +9,7 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import { View, Text, StyleSheet, ScrollView, Animated, Easing, Image } from "react-native";
 import { PressableFX as Pressable } from "../components/PressableFX";
+import { Flag } from "../components/Flag";
 import { fontMono, radius, type PaletteColors } from "../theme";
 import { Icon, ShareIcon } from "../icons";
 import type { AuthentikDemo } from "../state";
@@ -77,7 +78,7 @@ export function VerdictScreen({ demo }: { demo: AuthentikDemo }) {
       {/* Carte au format pièce d'identité (ID-1) : bandeau pays, photo DG2, champs lus sur la puce. */}
       <View style={styles.idCard}>
         <View style={styles.idHeader}>
-          {demo.idCard.flag ? <Text style={styles.idFlag}>{demo.idCard.flag}</Text> : null}
+          <Flag code={demo.idCard.countryCode} width={26} height={18} />
           <Text style={styles.idCountry}>{demo.idCard.countryCode}</Text>
           <Text style={styles.idDocType} numberOfLines={1}>
             {demo.idCard.docTypeLabel}
@@ -186,7 +187,6 @@ const makeStyles = (colors: PaletteColors) => StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.separator,
   },
-  idFlag: { fontSize: 20, lineHeight: 24 },
   idCountry: { fontFamily: fontMono, fontSize: 14, fontWeight: "700", letterSpacing: 1, color: colors.inkPrimary },
   idDocType: { flex: 1, fontSize: 11, fontWeight: "600", letterSpacing: 0.6, textTransform: "uppercase", color: colors.inkSecondary },
   idChip: { width: 26, height: 19, borderRadius: 4, backgroundColor: "#C9A649", opacity: 0.9 },

@@ -13,13 +13,23 @@ import Svg, { Path } from "react-native-svg";
 import { PressableFX as Pressable } from "./PressableFX";
 import { colors } from "../theme";
 import { MrzScannerView, type DetectedTextLine, type TextDetectedEvent } from "../../../modules/mrz-scanner";
-import { analyzeMrzLines, isMrzLikeText, MrzConsensus, type MrzRead } from "../../mrz/mrzFromLines";
+import { analyzeMrzLines, formatHint, isMrzLikeText, MrzConsensus, type MrzRead, type ScanFormat } from "../../mrz/mrzFromLines";
 import type { AuthentikDemo } from "../state";
 
-const GUIDE = { x: 0.06, y: 0.56, width: 0.88, height: 0.16 };
+// Cadre par format : 3 lignes de 30 caractères au dos d'une carte (TD1, et TD2 à 2 × 36 qui y
+// tient), 2 lignes de 44 au bas de la page photo d'un passeport (TD3) — plus large et plus plat.
+const GUIDES: Record<ScanFormat, { x: number; y: number; width: number; height: number }> = {
+  TD1: { x: 0.06, y: 0.56, width: 0.88, height: 0.16 },
+  TD3: { x: 0.03, y: 0.58, width: 0.94, height: 0.11 },
+};
 // Zone réellement analysée : le cadre élargi, pour tolérer un document un peu décalé sans lire tout
 // l'écran (plus lent, et plus de texte parasite).
-const SCAN_REGION = { x: 0.02, y: GUIDE.y - 0.12, width: 0.96, height: GUIDE.height + 0.24 };
+function scanRegion(guide: { y: number; height: number }) {
+  return { x: 0.01, y: guide.y - 0.12, width: 0.98, height: guide.height + 0.24 };
+}
+// Bascule automatique de format : quelques images de suite suffisent, sans osciller sur une seule.
+const FORMAT_SWITCH_FRAMES = 3;
+
 const LEGACY_NOTICE_MS = 2500;
 const SUCCESS_DELAY_MS = 450;
 const pct = (r: number) => `${r * 100}%` as const;
@@ -28,10 +38,12 @@ type Phase = "searching" | "locking" | "success";
 
 export function MrzCameraScanner({
   demo,
+  initialFormat,
   onCaptured,
   onManual,
 }: {
   demo: AuthentikDemo;
+  initialFormat: ScanFormat;
   onCaptured: (read: MrzRead) => void;
   onManual: () => void;
 }) {
@@ -41,6 +53,9 @@ export function MrzCameraScanner({
   const [phase, setPhase] = useState<Phase>("searching");
   const [highlights, setHighlights] = useState<DetectedTextLine[]>([]);
   const [legacy, setLegacy] = useState(false);
+  const [format, setFormat] = useState<ScanFormat>(initialFormat);
+  const formatVotes = useRef<{ format?: ScanFormat; count: number }>({ count: 0 });
+  const guide = GUIDES[format];
   const consensus = useMemo(() => new MrzConsensus(), []);
   const doneRef = useRef(false);
   const timersRef = useRef<{ legacy?: ReturnType<typeof setTimeout>; success?: ReturnType<typeof setTimeout> }>({});
@@ -57,7 +72,21 @@ export function MrzCameraScanner({
     (event: TextDetectedEvent) => {
       if (doneRef.current) return;
       const { lines } = event.nativeEvent;
-      setHighlights(lines.filter((line) => isMrzLikeText(line.text)));
+      const mrzLines = lines.filter((line) => isMrzLikeText(line.text));
+      setHighlights(mrzLines);
+
+      const suggested = formatHint(mrzLines.map((line) => line.text));
+      const votes = formatVotes.current;
+      if (suggested && suggested !== format) {
+        votes.count = votes.format === suggested ? votes.count + 1 : 1;
+        votes.format = suggested;
+        if (votes.count >= FORMAT_SWITCH_FRAMES) {
+          votes.count = 0;
+          setFormat(suggested);
+        }
+      } else {
+        votes.count = 0;
+      }
 
       const analysis = analyzeMrzLines(lines);
       if (analysis.kind === "legacy-fr-id") {
@@ -77,7 +106,7 @@ export function MrzCameraScanner({
       }
       setPhase(read ? "locking" : "searching");
     },
-    [consensus, onCaptured],
+    [consensus, onCaptured, format],
   );
 
   if (!permission) {
@@ -109,24 +138,25 @@ export function MrzCameraScanner({
         style={StyleSheet.absoluteFill}
         active={phase !== "success"}
         torch={torch}
-        regionOfInterest={SCAN_REGION}
+        documentFormat={format}
+        regionOfInterest={scanRegion(guide)}
         onTextDetected={handleTextDetected}
       />
 
-      <View pointerEvents="none" style={[styles.maskEdge, { top: 0, left: 0, right: 0, height: pct(GUIDE.y) }]} />
-      <View pointerEvents="none" style={[styles.maskEdge, { top: pct(GUIDE.y), height: pct(GUIDE.height), left: 0, width: pct(GUIDE.x) }]} />
+      <View pointerEvents="none" style={[styles.maskEdge, { top: 0, left: 0, right: 0, height: pct(guide.y) }]} />
+      <View pointerEvents="none" style={[styles.maskEdge, { top: pct(guide.y), height: pct(guide.height), left: 0, width: pct(guide.x) }]} />
       <View
         pointerEvents="none"
-        style={[styles.maskEdge, { top: pct(GUIDE.y), height: pct(GUIDE.height), right: 0, width: pct(1 - GUIDE.x - GUIDE.width) }]}
+        style={[styles.maskEdge, { top: pct(guide.y), height: pct(guide.height), right: 0, width: pct(1 - guide.x - guide.width) }]}
       />
-      <View pointerEvents="none" style={[styles.maskEdge, { top: pct(GUIDE.y + GUIDE.height), left: 0, right: 0, bottom: 0 }]} />
+      <View pointerEvents="none" style={[styles.maskEdge, { top: pct(guide.y + guide.height), left: 0, right: 0, bottom: 0 }]} />
       <View
         pointerEvents="none"
         style={[
           styles.guideBox,
           phase === "locking" && styles.guideBoxLocking,
           phase === "success" && styles.guideBoxSuccess,
-          { left: pct(GUIDE.x), top: pct(GUIDE.y), width: pct(GUIDE.width), height: pct(GUIDE.height) },
+          { left: pct(guide.x), top: pct(guide.y), width: pct(guide.width), height: pct(guide.height) },
         ]}
       />
 
@@ -138,8 +168,25 @@ export function MrzCameraScanner({
         />
       ))}
 
-      <View pointerEvents="none" style={[styles.hintWrap, { top: pct(Math.max(0, GUIDE.y - 0.09)) }]}>
-        <Text style={styles.hintText}>{demo.t.mrzHint}</Text>
+      <View style={styles.formatRow}>
+        {(["TD3", "TD1"] as const).map((f) => (
+          <Pressable
+            key={f}
+            onPress={() => {
+              formatVotes.current = { count: 0 };
+              setFormat(f);
+            }}
+            style={[styles.formatChip, format === f && styles.formatChipSelected]}
+          >
+            <Text style={[styles.formatChipText, format === f && styles.formatChipTextSelected]}>
+              {f === "TD3" ? demo.t.mrzFormatPassport : demo.t.mrzFormatCard}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <View pointerEvents="none" style={[styles.hintWrap, { top: pct(Math.max(0, guide.y - 0.12)) }]}>
+        <Text style={styles.hintText}>{format === "TD3" ? demo.t.mrzHintPassport : demo.t.mrzHintCard}</Text>
       </View>
 
       <View pointerEvents="none" style={styles.statusWrap}>
@@ -202,6 +249,19 @@ const styles = StyleSheet.create({
     borderColor: "#30D158",
     backgroundColor: "rgba(48,209,88,0.18)",
   },
+  formatRow: {
+    position: "absolute",
+    top: 14,
+    alignSelf: "center",
+    flexDirection: "row",
+    padding: 3,
+    borderRadius: 11,
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  formatChip: { paddingVertical: 7, paddingHorizontal: 16, borderRadius: 8 },
+  formatChipSelected: { backgroundColor: "rgba(255,255,255,0.92)" },
+  formatChipText: { color: "rgba(255,255,255,0.85)", fontSize: 13, fontWeight: "600" },
+  formatChipTextSelected: { color: "#0B0B0C" },
   hintWrap: { position: "absolute", left: 24, right: 24, alignItems: "center" },
   hintText: { color: "#fff", fontSize: 13.5, textAlign: "center", lineHeight: 19, textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 4 },
   statusWrap: {

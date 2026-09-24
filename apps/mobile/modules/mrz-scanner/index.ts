@@ -18,6 +18,8 @@ export interface MrzScannerViewProps extends ViewProps {
   /** Arrête la session caméra quand `false` (par ex. une fois la MRZ lue). */
   active?: boolean;
   torch?: boolean;
+  /** Format de MRZ attendu : règle le zoom et la définition caméra (TD3 = passeport). */
+  documentFormat?: "TD1" | "TD3";
   /** Seule cette zone de l'image est analysée (normalisée dans la vue). */
   regionOfInterest?: { x: number; y: number; width: number; height: number };
   onTextDetected?: (event: TextDetectedEvent) => void;
