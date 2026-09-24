@@ -207,12 +207,11 @@ définitive.
   2026-05-28) : 789 CSCA, 128 pays, dont 189 apportés par la liste allemande.
 - **Révocation (CRL)** : déjà non câblée en ligne (voir section précédente) — donc non plus hors
   ligne, sans régression par rapport au chemin serveur.
-- **Reconnaissance faciale on-device** : voir [facial-recognition.md](facial-recognition.md)
-  "Reconnaissance faciale hors ligne" pour le détail — le prétraitement/l'alignement/l'extraction
-  d'embedding sont implémentés et vérifiés par exécution réelle contre les modèles OpenCV, mais la
-  détection de visage (localiser un visage dans une photo brute) et le décodage JPEG/JPEG2000 du
-  portrait DG2 restent hors périmètre, pour les mêmes raisons de vérifiabilité que la capture ARKit
-  (voir `apps/mobile/src/liveness/faceLivenessSession.ts`).
+- **Reconnaissance faciale on-device** : selfie guidé et comparaison à la photo DG2 sur iOS
+  (module natif `apps/mobile/modules/face-kit`, Apple Vision + SFace/ONNX) — voir
+  [facial-recognition.md](facial-recognition.md) "Reconnaissance faciale hors ligne" pour le
+  détail et les limites (seuils non calibrés, vivacité guidée qui n'est pas une détection
+  d'attaque, pas d'équivalent Android).
 
 ## Ce que l'API expose
 

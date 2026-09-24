@@ -23,8 +23,8 @@ et la biométrie par des minuteurs." Ce premier PoC fait de même — `state.ts`
 `apps/mobile/src` contient déjà une lecture NFC/BAC réelle (`src/nfc/`), une vérification locale
 complète (`src/verification/localVerification.ts`), une reconnaissance faciale on-device vérifiée
 (`src/faceMatch/`) et une liveness active (`src/liveness/`) — voir docs/pki-trust-model.md et
-docs/facial-recognition.md à la racine du dépôt. Brancher ce moteur réel à la place des minuteurs
-de `state.ts` est le prochain incrément, pas ce premier PoC.
+docs/facial-recognition.md à la racine du dépôt. Le mode réel (voir plus bas) les branche à la
+place des minuteurs ; le mode démo les garde.
 
 Les commutateurs de démonstration (langue/scénario/réinitialisation, `components/DemoControls.tsx`)
 n'ont pas d'équivalent en production — voir leur propre commentaire.
@@ -106,6 +106,22 @@ car ni l'un ni l'autre n'est joignable hors ligne. Désactivé, un contrôle non
 anomalie « info » (visible, sans effet sur le verdict) au lieu d'un avertissement qui plafonne le
 verdict à « À vérifier » ; un résultat positif (DSC révoqué, document signalé) reste critique. Le
 verdict présente l'identité au format carte d'identité (drapeau, photo DG2, date de naissance…).
+
+## Selfie et reconnaissance faciale (iOS)
+
+Après la lecture NFC, si la puce a livré la photo (DG2) et que Réglages › Contrôles exigés ›
+Comparaison faciale est activé (par défaut), l'écran « Capture vivante » filme le porteur avec la
+caméra frontale (module natif local `modules/face-kit`, Apple Vision) : cadrage de face immobile
+(l'image comparée est prise à ce moment), rotation de la tête, clignement
+(`../faceMatch/selfieLiveness.ts`). « Passer » continue sans comparaison. La vérification compare
+ensuite ce selfie à la photo de la puce avec SFace sur l'appareil (`../faceMatch/`, modèle
+`services/face-match/models/sface.onnx` embarqué via expo-asset) ; le verdict affiche la
+similarité et la décision. Rien n'est conservé : le selfie ne vit qu'en mémoire le temps de la
+comparaison. Limites (seuils non calibrés, vivacité guidée ≠ détection d'attaque) :
+docs/facial-recognition.md « Reconnaissance faciale hors ligne ».
+
+Nouveau module natif et nouvelle dépendance native (expo-asset) : `pod install` puis recompiler
+dans Xcode. Un binaire plus ancien démarre quand même et saute l'étape selfie.
 
 ## Design v2 — mode sombre, transitions, retours, Réglages
 

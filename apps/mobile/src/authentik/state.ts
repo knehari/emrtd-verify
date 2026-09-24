@@ -13,15 +13,12 @@
  *   `verificationResult` réel existe, `derived` l'utilise à la place des données canned du mode
  *   démo — voir `deriveFromRealResult` plus bas.
  *
- * Hors périmètre de ce premier branchement réel (voir conversation) : liveness active (le module
- * natif ARKit n'existe pas encore, voir apps/mobile/src/liveness/faceLivenessSession.ts) et
- * reconnaissance faciale (aucun détecteur de visage ni décodeur JPEG on-device dans ce dépôt) — le
- * flux réel saute donc directement de "nfc" à "processing" sans passer par "selfie". La
- * réconciliation backend (apps/mobile/src/sync/submissionQueue.ts) n'est pas non plus déclenchée
- * ici : `appConfig` (apps/mobile/src/config.ts) n'a pas d'URL/clé d'API réelles configurées, et
- * sans bundle CSCA synchronisé (`syncCscaBundle`), `computeLocalVerification` n'aura aucune ancre
- * de confiance locale — un document pourtant authentique affichera donc `NO_TRUST_ANCHOR` tant que
- * ni l'un ni l'autre n'est branché. Voir README de ce dossier pour le détail.
+ * Après la lecture NFC, si la puce a livré la photo (DG2) et que la comparaison faciale est activée
+ * (Réglages), l'étape "selfie" filme le porteur (modules/face-kit, séquence de vivacité guidée de
+ * src/faceMatch/selfieLiveness.ts) avant la vérification locale, qui compare alors le selfie à la
+ * photo de la puce (src/faceMatch). La réconciliation backend (apps/mobile/src/sync/
+ * submissionQueue.ts) n'est pas déclenchée ici : `appConfig` (apps/mobile/src/config.ts) n'a pas
+ * d'URL/clé d'API réelles configurées. Voir README de ce dossier pour le détail.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NfcError } from "react-native-nfc-manager";
@@ -41,6 +38,11 @@ import {
 } from "../nfc/emrtdReader";
 import { computeLocalVerification, LocalVerificationError, type LocalVerificationResult } from "../verification/localVerification";
 import { embeddedCountryRows, embeddedStoreRows, fillStoreStats } from "./trustStoreSummary";
+import { bytesToBase64, extractDg2FaceImage } from "@emrtd-verify/emrtd-core";
+import { FaceKit } from "../../modules/face-kit";
+import { faceSampleFromCrop, type NativeFaceCrop } from "../faceMatch/faceCrop";
+import { getSfaceSession } from "../faceMatch/sfaceModel";
+import { SfaceTensor } from "../faceMatch/sfaceSession";
 
 /** Carte d'identité affichée sur le verdict (format "pièce d'identité"). */
 export interface IdCardView {
@@ -166,6 +168,10 @@ interface RawState {
   verificationResult: LocalVerificationResult | null;
   /** Pays dont la fiche CSCA est ouverte (étape "country"). */
   selectedCountry: string | null;
+  /** Réglages : selfie + comparaison à la photo de la puce après la lecture NFC (iOS). */
+  faceMatchEnabled: boolean;
+  /** Pourquoi la comparaison faciale n'a pas eu lieu, le cas échéant (affiché sur le verdict). */
+  faceMatchNote: string | null;
 }
 
 export function useAuthentikDemo() {
@@ -189,6 +195,8 @@ export function useAuthentikDemo() {
     chipResult: null,
     verificationResult: null,
     selectedCountry: null,
+    faceMatchEnabled: true,
+    faceMatchNote: null,
   });
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -301,8 +309,80 @@ export function useAuthentikDemo() {
     setS((prev) => ({ ...prev, step: "place", anim: "push" }));
   }, [fb]);
 
-  // Mode réel : lecture NFC PACE/BAC réelle (readEmrtdChip) puis vérification locale réelle
-  // (computeLocalVerification), sans liveness ni reconnaissance faciale (voir en-tête du fichier).
+  // Vérification locale (computeLocalVerification), avec la comparaison faciale si un selfie a
+  // été capturé : visage de la photo DG2 (JPEG / JPEG 2000) trouvé par modules/face-kit, puis
+  // embeddings SFace (onnxruntime) comparés — voir src/faceMatch/faceMatch.ts.
+  const verifyChip = useCallback(async (chipResult: EmrtdReadResult, selfie: NativeFaceCrop | null, skippedNote: string | null) => {
+    const { mrzForm } = sRef.current;
+    setS((prev) => ({ ...prev, pct: 100, chipResult, step: "processing", anim: "fade", verificationStatus: "verifying", faceMatchNote: skippedNote }));
+
+    let faceMatch: Parameters<typeof computeLocalVerification>[0]["faceMatch"];
+    let faceMatchNote = skippedNote;
+    if (selfie && FaceKit) {
+      try {
+        const portrait = extractDg2FaceImage(chipResult.dataGroups[2]);
+        const reference = faceSampleFromCrop(await FaceKit.detectFaceInImage(bytesToBase64(portrait.imageBytes)));
+        const probe = faceSampleFromCrop(selfie);
+        faceMatch = {
+          session: await getSfaceSession(),
+          tensorConstructor: SfaceTensor,
+          input: {
+            referenceImage: reference.image,
+            referenceFace: reference.face,
+            probeImage: probe.image,
+            probeFace: probe.face,
+            probeFaceCount: probe.faceCount,
+          },
+        };
+      } catch (error) {
+        faceMatchNote = `Comparaison impossible : ${error instanceof Error ? error.message : String(error)}`;
+        if (__DEV__) console.log(`[FACE] ${faceMatchNote}`);
+      }
+    }
+
+    try {
+      const result = await computeLocalVerification({
+        documentType: mrzForm.documentType,
+        chipData: {
+          sod: chipResult.sod,
+          dataGroups: chipResult.dataGroups,
+          activeAuthentication: chipResult.activeAuthentication?.response
+            ? { challenge: chipResult.activeAuthentication.challenge, responseDer: chipResult.activeAuthentication.response }
+            : undefined,
+        },
+        faceMatch,
+        requestedFields: ["documentNumber", "dateOfBirth", "dateOfExpiry", "nationality", "sex", "primaryIdentifier", "secondaryIdentifier"],
+        skippedChecks: {
+          revocation: !sRef.current.requireRevocationCheck,
+          lostStolen: !sRef.current.requireLostStolenCheck,
+        },
+      });
+      if (__DEV__ && result.faceMatch) {
+        console.log(`[FACE] similarité ${result.faceMatch.similarityScore.toFixed(3)} → ${result.faceMatch.matchDecision}`);
+      }
+      setS((prev) => ({ ...prev, verificationResult: result, verificationStatus: "idle", step: "verdict", anim: "verdict", faceMatchNote }));
+      fb(result.verdict === "rejected" ? "error" : result.verdict === "authentic" ? "success" : "warning");
+    } catch (error) {
+      if (__DEV__) console.log(`[VERIF] Échec : ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
+      const described = describeVerificationError(error);
+      fb("error");
+      setS((prev) => ({ ...prev, step: "place", anim: "back", verificationStatus: "idle", verificationError: described }));
+    }
+  }, [fb]);
+
+  /** Fin de l'écran selfie (mode réel) : `null` si l'utilisateur a passé l'étape. */
+  const completeSelfie = useCallback(
+    (capture: NativeFaceCrop | null) => {
+      const chipResult = sRef.current.chipResult;
+      if (!chipResult) return;
+      fb(capture ? "live" : "tap");
+      void verifyChip(chipResult, capture, capture ? null : "Selfie passé");
+    },
+    [fb, verifyChip],
+  );
+
+  // Mode réel : lecture NFC PACE/BAC réelle (readEmrtdChip), puis selfie (SelfieScreen →
+  // completeSelfie) si la puce a livré une photo, puis vérification locale (verifyChip).
   const runVerification = useCallback(async () => {
     const { mrzForm } = sRef.current;
     const accessKey: MrzAccessKey = {
@@ -336,33 +416,19 @@ export function useAuthentikDemo() {
     }
     clear();
     fb("live");
-    setS((prev) => ({ ...prev, pct: 100, chipResult, step: "processing", anim: "fade", verificationStatus: "verifying" }));
-
-    try {
-      const result = await computeLocalVerification({
-        documentType: mrzForm.documentType,
-        chipData: {
-          sod: chipResult.sod,
-          dataGroups: chipResult.dataGroups,
-          activeAuthentication: chipResult.activeAuthentication?.response
-            ? { challenge: chipResult.activeAuthentication.challenge, responseDer: chipResult.activeAuthentication.response }
-            : undefined,
-        },
-        requestedFields: ["documentNumber", "dateOfBirth", "dateOfExpiry", "nationality", "sex", "primaryIdentifier", "secondaryIdentifier"],
-        skippedChecks: {
-          revocation: !sRef.current.requireRevocationCheck,
-          lostStolen: !sRef.current.requireLostStolenCheck,
-        },
-      });
-      setS((prev) => ({ ...prev, verificationResult: result, verificationStatus: "idle", step: "verdict", anim: "verdict" }));
-      fb(result.verdict === "rejected" ? "error" : result.verdict === "authentic" ? "success" : "warning");
-    } catch (error) {
-      if (__DEV__) console.log(`[VERIF] Échec : ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
-      const described = describeVerificationError(error);
-      fb("error");
-      setS((prev) => ({ ...prev, step: "place", anim: "back", verificationStatus: "idle", verificationError: described }));
+    const hasPortrait = chipResult.dataGroups[2] !== undefined;
+    if (sRef.current.faceMatchEnabled && hasPortrait && FaceKit) {
+      // Selfie puis comparaison à la photo DG2 : SelfieScreen appelle completeSelfie.
+      setS((prev) => ({ ...prev, pct: 100, chipResult, step: "selfie", anim: "fade", verificationStatus: "idle", livePhase: 0 }));
+      return;
     }
-  }, [clear, fb]);
+    const note = !sRef.current.faceMatchEnabled
+      ? "Désactivée dans les Réglages"
+      : !hasPortrait
+        ? "Pas de photo (DG2) lue sur la puce"
+        : "Indisponible sur cet appareil (module natif absent : recompiler l'app)";
+    void verifyChip(chipResult, null, note);
+  }, [clear, fb, verifyChip]);
 
   const beginNfc = useCallback(() => {
     clear();
@@ -388,6 +454,7 @@ export function useAuthentikDemo() {
       verificationError: null,
       chipResult: null,
       verificationResult: null,
+      faceMatchNote: null,
     }));
   }, [clear]);
 
@@ -413,6 +480,7 @@ export function useAuthentikDemo() {
   const toggleFeedback = useCallback(() => setS((prev) => ({ ...prev, feedbackOn: !prev.feedbackOn })), []);
   const toggleRevocationCheck = useCallback(() => setS((prev) => ({ ...prev, requireRevocationCheck: !prev.requireRevocationCheck })), []);
   const toggleLostStolenCheck = useCallback(() => setS((prev) => ({ ...prev, requireLostStolenCheck: !prev.requireLostStolenCheck })), []);
+  const toggleFaceMatch = useCallback(() => setS((prev) => ({ ...prev, faceMatchEnabled: !prev.faceMatchEnabled })), []);
   const openShare = useCallback(() => setS((prev) => ({ ...prev, showShare: true })), []);
   const closeShare = useCallback(() => setS((prev) => ({ ...prev, showShare: false })), []);
 
@@ -603,12 +671,44 @@ export function useAuthentikDemo() {
     toggleFeedback,
     toggleRevocationCheck,
     toggleLostStolenCheck,
+    toggleFaceMatch,
+    faceMatchEnabled: s.faceMatchEnabled,
+    faceMatchAvailable: FaceKit !== null,
+    /** Écran selfie en mode réel (caméra frontale) plutôt que l'animation de démonstration. */
+    realSelfie: s.chipResult !== null && s.verificationResult === null,
+    completeSelfie,
     openShare,
     closeShare,
     toggleOnline,
     toggleLang,
     toggleScenario,
     toggleScheme,
+  };
+}
+
+const FACE_WARNINGS: Record<string, string> = {
+  image_too_blurry: "selfie flou",
+  image_resolution_too_low: "selfie trop petit",
+  multiple_faces_detected: "plusieurs visages",
+  no_face_detected: "aucun visage",
+};
+
+/** Ligne « Reconnaissance faciale » du verdict : score SFace et décision, ou pourquoi elle manque. */
+function faceCheckRow(result: LocalVerificationResult, note: string | null, red: string) {
+  const fm = result.faceMatch;
+  if (!fm) {
+    return { label: "Reconnaissance faciale", detail: note ?? "Non réalisée", color: INFO, icon: "dash" as const };
+  }
+  const score = fm.similarityScore.toFixed(2).replace(".", ",");
+  const quality = fm.qualityWarnings.map((w) => FACE_WARNINGS[w] ?? w).join(", ");
+  const decision =
+    fm.matchDecision === "match" ? "même personne" : fm.matchDecision === "no_match" ? "personne différente" : "ressemblance incertaine";
+  const ok = fm.matchDecision === "match" && fm.livenessPassed;
+  return {
+    label: "Reconnaissance faciale",
+    detail: `Similarité ${score} · ${decision}${quality ? ` · ${quality}` : ""}`,
+    color: ok ? OK : fm.matchDecision === "no_match" ? red : WARN,
+    icon: (ok ? "check" : "warn") as "check" | "warn",
   };
 }
 
@@ -806,7 +906,7 @@ function deriveFromRealResult(
       color: s.requireLostStolenCheck ? WARN : INFO,
       icon: (s.requireLostStolenCheck ? "warn" : "dash") as "warn" | "dash",
     },
-    { label: "Reconnaissance faciale", detail: "Non réalisée dans ce PoC", color: INFO, icon: "dash" as const },
+    faceCheckRow(result, s.faceMatchNote, RED),
   ];
 
   const procRows = [

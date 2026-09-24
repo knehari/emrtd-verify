@@ -230,36 +230,41 @@ plutôt qu'en le devinant :
   package `@emrtd-verify/verification-policy`), testé de bout en bout avec le vrai modèle
   (`test/verification/localVerification.test.ts`).
 
-### Ce qui reste hors périmètre — et pourquoi
+### Détection, décodage et capture sur iOS (`apps/mobile/modules/face-kit`)
 
-Ce pipeline part de pixels déjà localisés (bbox + 5 repères) pour DEUX images. Produire ces
-ingrédients à partir d'une capture brute nécessite deux étapes non implémentées ici, pour la même
-raison que la capture ARKit (voir `apps/mobile/src/liveness/faceLivenessSession.ts`) : les
-construire à l'aveugle, sans pouvoir vérifier leur comportement réel, produirait une fausse
-impression d'achèvement sur un mécanisme dont dépend un verdict d'identité.
+Les deux ingrédients qui manquaient au pipeline (visage localisé, pixels décodés) viennent d'un
+module natif Swift, iOS uniquement :
 
-- **Détection de visage (YuNet)** — localiser un visage (bbox + 5 repères) dans une photo brute.
-  Contrairement à `alignCrop`/`feature()`, la fonction de décodage des ancres et le NMS de YuNet
-  n'ont pas pu être reconstruits par la même méthode (comparaison boîte noire à partir d'entrées
-  synthétiques) faute d'accès aux sources d'OpenCV/opencv_zoo depuis cet environnement (dépôts hors
-  du périmètre GitHub accessible à cette session) — reverse-engineer un décodeur d'ancres à l'aveugle,
-  sans jamais pouvoir vérifier sa sortie contre l'implémentation réelle, comporterait le même risque
-  qu'une implémentation BAC non vérifiée. Un détecteur natif (Vision framework iOS / ML Kit Android)
-  serait l'alternative naturelle mais nécessite un module natif non écrit ici (même limite que la
-  capture ARKit).
-- **Décodage JPEG/JPEG2000 du portrait DG2** — `extractDg2FaceImage` (`@emrtd-verify/emrtd-core`)
-  extrait uniquement les octets bruts du conteneur JPEG/JPEG2000 embarqué dans DG2 (voir la section
-  Pipeline ci-dessus) ; les décoder en pixels RGB nécessite une bibliothèque de décodage image
-  portable (React Native/Hermes) qui n'a pas été installée ni vérifiée dans cette session.
-- **Comptage de visages dans l'heuristique de netteté** — voir la limite documentée dans
-  `checkImageQuality` (`faceMatch.ts`) : "exactement un visage détecté" ne peut pas être
-  re-vérifiée une fois qu'un seul `FaceRow` a déjà été fourni par l'appelant.
+- **Photo DG2** — `FaceKit.detectFaceInImage` décode le JPEG ou le JPEG 2000 de la puce avec
+  ImageIO, y cherche les visages avec `VNDetectFaceLandmarksRequest` (Apple Vision) et renvoie un
+  recadrage RGB carré (2,2 × la largeur du visage, au plus 352 px) avec le cadre et 5 repères :
+  centres des pupilles, bas de l'arête du nez, extrémités des lèvres — dans l'ordre de
+  `cv2.FaceDetectorYN` qu'attend `align.ts`.
+- **Selfie** — `FaceCaptureView` filme avec la caméra frontale (images droites, non miroir) et
+  remonte ~15 fois par seconde le nombre de visages, le cadre du principal, l'orientation de la
+  tête (décalage du nez par rapport au milieu des yeux) et l'ouverture des yeux.
+  `src/faceMatch/selfieLiveness.ts` en tire les consignes (« Rapprochez-vous », « Centrez votre
+  visage »…) et la séquence : cadrage de face immobile (l'image comparée est prise à ce moment),
+  rotation de la tête, clignement. Si le visage disparaît ou qu'un second apparaît plus d'une
+  seconde, tout recommence.
+- **Comparaison** — `state.ts` (`verifyChip`) passe les deux recadrages à `compareFaces` avec le
+  vrai `sface.onnx` (chargé par `sfaceModel.ts` via expo-asset, le même fichier que le service
+  serveur) ; le nombre de visages du selfie remplace l'avertissement
+  `face_count_check_unavailable_offline`. Le verdict affiche la similarité et la décision.
 
-En résumé : le socle numérique (alignement, embedding, décision, intégration au verdict) est
-implémenté et vérifié par exécution réelle contre les modèles OpenCV eux-mêmes ; ce qui manque pour
-un pipeline de bout en bout utilisable en production (caméra brute → verdict) est la détection de
-visage et le décodage image — deux modules qui, comme la capture ARKit, méritent d'être écrits et
-testés sur du matériel réel plutôt qu'à l'aveugle dans cet environnement.
+Limites :
+
+- **Repères différents de YuNet** — Vision ne donne pas exactement les 5 points de YuNet (le nez
+  est approché par le bas de son arête). Les deux images passant par le même détecteur, l'erreur
+  est la même des deux côtés, mais les scores ne sont pas strictement comparables à ceux du
+  service serveur (YuNet).
+- **Seuils non calibrés** — mêmes valeurs que le serveur (voir plus haut). Une photo DG2 est petite,
+  compressée et parfois ancienne : des scores « incertains » pour la même personne sont possibles
+  tant que les seuils n'ont pas été calibrés sur de vrais couples DG2/selfie.
+- **Vivacité guidée, pas une détection d'attaque** — la rotation et le clignement écartent une
+  photo imprimée tenue devant la caméra, pas une vidéo rejouée, un écran ni un masque ; ce n'est
+  pas une PAD évaluée ISO/IEC 30107-3.
+- **Android** — pas de module équivalent (ML Kit) : l'étape selfie est sautée.
 
 ## Isolation et minimisation des données
 

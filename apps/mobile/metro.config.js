@@ -26,6 +26,9 @@ config.resolver.nodeModulesPaths = [
 // plutôt que les résoudre vers leur cible réelle.
 config.resolver.unstable_enableSymlinks = true;
 
+// Modèle de reconnaissance faciale SFace (src/faceMatch/sfaceModel.ts) embarqué comme ressource.
+config.resolver.assetExts.push("onnx");
+
 // Le monorepo contient une AUTRE version de react (18.3.1, utilisée par apps/admin-web et
 // apps/tenant-portal en Next.js) en plus de celle que ce projet mobile déclare (18.2.0, requise
 // par react-native@0.74.5). `nodeModulesPaths` ci-dessus fait chercher Metro jusqu'à la racine du

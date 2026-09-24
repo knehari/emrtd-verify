@@ -83,14 +83,10 @@ export interface LocalVerificationInput {
     lightSamples?: LightSignalSample[];
   };
   /**
-   * Comparaison faciale on-device (voir faceMatch/faceMatch.ts) — facultative car elle nécessite
-   * DEUX ingrédients que ce dépôt ne sait pas encore produire seul : l'image DG2 (fournie en JPEG/
-   * JPEG2000 brut par `decodeChipDataEnvelope`, voir `emrtd-core` `extractDg2FaceImage`) décodée
-   * en pixels, et un visage détecté (bbox+landmarks) dans chaque image — aucun décodeur JPEG ni
-   * détecteur de visage on-device n'existe encore ici (voir la docstring de `faceMatch.ts` et
-   * docs/facial-recognition.md "Reconnaissance faciale hors ligne"). L'appelant qui dispose déjà
-   * de ces deux éléments (ex. un futur module natif) peut les fournir ici ; en leur absence, ce
-   * signal est simplement omis du verdict — jamais un score fabriqué à leur place.
+   * Comparaison faciale on-device (voir faceMatch/faceMatch.ts) — facultative : elle demande la
+   * photo DG2 et un selfie, tous deux décodés et localisés par le module natif modules/face-kit
+   * (voir faceMatch/faceCrop.ts et authentik/state.ts `verifyChip`). En son absence (selfie passé,
+   * pas de DG2, Android), ce signal est simplement omis du verdict — jamais un score fabriqué.
    */
   faceMatch?: {
     session: OnnxSessionLike;

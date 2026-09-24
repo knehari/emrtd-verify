@@ -6,24 +6,13 @@
  * formule de netteté (variance du Laplacien, voir `liveness.py`), vérifiées ci-dessous par
  * exécution réelle indépendante (voir test/faceMatch/faceMatch.test.ts).
  *
- * **Périmètre honnête — ce que ce module NE fait PAS** (même discipline que
- * `liveness/faceLivenessSession.ts` pour la capture ARKit) : il ne détecte AUCUN visage lui-même.
- * `referenceFace`/`probeFace` (bbox + 5 landmarks, voir `align.ts` `FaceRow`) doivent être fournis
- * par l'appelant — aucun détecteur on-device (YuNet ou natif) n'existe encore dans ce dépôt.
- * Construire un tel détecteur nécessiterait soit un portage JS de l'anchor-decoding/NMS de YuNet
- * (algorithme non trivial, jamais vérifié dans cette session faute d'accès à ses sources), soit un
- * détecteur natif (Vision/ML Kit) — hors périmètre ici, aucun module caméra n'existe même dans
- * apps/mobile à ce jour (voir `docs/facial-recognition.md` "Reconnaissance faciale hors ligne").
- * De même, `decodeChipDataEnvelope` fournit uniquement les octets JPEG/JPEG2000 bruts de DG2 (voir
- * `emrtd-core` `extractDg2FaceImage`) — les décoder en pixels RGB nécessite une bibliothèque de
- * décodage JPEG non installée/vérifiée ici. Ce module part donc de pixels DÉJÀ décodés.
+ * Détection et décodage : ce module part de pixels déjà décodés et de visages déjà localisés (bbox +
+ * 5 repères, voir `align.ts` `FaceRow`). Dans l'app, c'est le module natif `modules/face-kit`
+ * (Apple Vision + ImageIO) qui décode la photo DG2 (JPEG ou JPEG 2000) et le flux de la caméra
+ * frontale, y trouve le visage et renvoie un recadrage RGB avec ses repères (`faceCrop.ts`).
  *
- * Limite additionnelle sur `livenessPassed` (heuristique passive, voir `checkImageQuality`
- * ci-dessous) : contrairement à `services/face-match` `check_liveness()`, ce module ne peut PAS
- * vérifier "exactement un visage détecté" (ce contrôle a déjà eu lieu, hors de ce module, au
- * moment où l'appelant a produit `probeFace`) — seules la résolution et la netteté sont vérifiées
- * ici ; un avertissement fixe `face_count_check_unavailable_offline` le signale explicitement,
- * jamais silencieusement.
+ * `livenessPassed` (heuristique passive, voir `checkImageQuality`) : résolution, netteté et, si
+ * l'appelant fournit `probeFaceCount`, exactement un visage dans l'image du selfie.
  */
 
 import { alignFace, type FaceRow } from "./align";
@@ -54,6 +43,12 @@ export interface FaceMatchInput {
   referenceFace: FaceRow;
   probeImage: RawImage;
   probeFace: FaceRow;
+  /**
+   * Nombre de visages que le détecteur a vus dans l'image source du selfie (modules/face-kit).
+   * Fourni, il remplace l'avertissement `face_count_check_unavailable_offline` par le vrai contrôle
+   * « exactement un visage » de `check_liveness()`.
+   */
+  probeFaceCount?: number;
 }
 
 function toRgb(image: RawImage): Uint8Array {
@@ -117,10 +112,11 @@ export interface ImageQualityCheck {
 }
 
 /**
- * Équivalent partiel de `check_liveness()` (résolution + netteté uniquement — voir la limite
- * documentée dans l'en-tête du module concernant le comptage de visages).
+ * Équivalent de `check_liveness()` : résolution et netteté, plus « exactement un visage » quand
+ * `faceCount` est fourni par le détecteur (modules/face-kit) ; sans lui, l'avertissement
+ * `face_count_check_unavailable_offline` signale que ce contrôle n'a pas eu lieu.
  */
-export function checkImageQuality(image: RawImage): ImageQualityCheck {
+export function checkImageQuality(image: RawImage, faceCount?: number): ImageQualityCheck {
   const warnings: string[] = [];
   if (image.width < MIN_WIDTH_PX || image.height < MIN_HEIGHT_PX) {
     warnings.push("image_resolution_too_low");
@@ -130,8 +126,12 @@ export function checkImageQuality(image: RawImage): ImageQualityCheck {
   if (variance < BLUR_VARIANCE_THRESHOLD) {
     warnings.push("image_too_blurry");
   }
-  warnings.push("face_count_check_unavailable_offline");
-  return { passed: warnings.length === 1 /* seul face_count_check_unavailable_offline présent */, warnings };
+  if (faceCount === undefined) {
+    warnings.push("face_count_check_unavailable_offline");
+    return { passed: warnings.length === 1 /* seul face_count_check_unavailable_offline présent */, warnings };
+  }
+  if (faceCount !== 1) warnings.push(faceCount === 0 ? "no_face_detected" : "multiple_faces_detected");
+  return { passed: warnings.length === 0, warnings };
 }
 
 function decideMatch(similarityScore: number): MatchDecision {
@@ -173,7 +173,7 @@ export async function compareFaces(
   const similarityScore = Math.min(1, Math.max(0, (rawCosine + 1) / 2));
   const matchDecision = decideMatch(similarityScore);
 
-  const quality = checkImageQuality(input.probeImage);
+  const quality = checkImageQuality(input.probeImage, input.probeFaceCount);
 
   return {
     similarityScore,

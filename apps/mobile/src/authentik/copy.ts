@@ -73,6 +73,11 @@ export interface Copy {
   selfieHead: string;
   selfieHint: string;
   selfieNote: string;
+  selfieSkip: string;
+  selfieBlinkNudge: string;
+  selfieHints: Record<"no-face" | "multiple" | "closer" | "farther" | "center" | "face-camera" | "hold", string>;
+  aboutFace: string;
+  aboutFaceDesc: string;
   procHead: string;
   procNote: string;
   procNoteOnline: string;
@@ -238,6 +243,19 @@ export const FR: Copy = {
   selfieHead: "Regardez l'objectif",
   selfieHint: "Comparaison avec la photo DG2 lue dans la puce.",
   selfieNote: "La capture ne quitte jamais le téléphone. Elle est effacée après la comparaison.",
+  selfieSkip: "Passer",
+  selfieBlinkNudge: "Fermez franchement les yeux une fois, puis rouvrez-les.",
+  selfieHints: {
+    "no-face": "Aucun visage détecté : placez-vous face à l'écran.",
+    multiple: "Une seule personne dans le cadre.",
+    closer: "Rapprochez-vous un peu.",
+    farther: "Reculez un peu.",
+    center: "Centrez votre visage dans le cadre.",
+    "face-camera": "Regardez l'écran, tête droite.",
+    hold: "Ne bougez plus…",
+  },
+  aboutFace: "Comparaison faciale",
+  aboutFaceDesc: "Après la lecture de la puce, un selfie guidé est comparé à la photo du document (SFace, sur l'appareil).",
   procHead: "Vérification en cours",
   procNote: "Tout est calculé sur l'appareil, avec le magasin CSCA embarqué.",
   procNoteOnline: "Calculé sur l'appareil ; la révocation est vérifiée auprès du service KYC.",
@@ -460,6 +478,19 @@ export const EN: Copy = {
   selfieHead: "Look at the camera",
   selfieHint: "Compared with the DG2 photo read from the chip.",
   selfieNote: "The capture never leaves the phone. It is erased after the comparison.",
+  selfieSkip: "Skip",
+  selfieBlinkNudge: "Close your eyes firmly once, then open them.",
+  selfieHints: {
+    "no-face": "No face detected: face the screen.",
+    multiple: "Only one person in the frame.",
+    closer: "Move a little closer.",
+    farther: "Move back a little.",
+    center: "Center your face in the frame.",
+    "face-camera": "Look at the screen, head straight.",
+    hold: "Hold still…",
+  },
+  aboutFace: "Face comparison",
+  aboutFaceDesc: "After the chip is read, a guided selfie is compared with the document photo (SFace, on the device).",
   procHead: "Verification in progress",
   procNote: "Everything is computed on device, against the embedded CSCA store.",
   procNoteOnline: "Computed on device; revocation is checked against the KYC service.",

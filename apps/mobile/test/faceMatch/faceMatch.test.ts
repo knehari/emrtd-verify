@@ -58,6 +58,19 @@ describe("checkImageQuality (parité avec liveness.py check_liveness, résolutio
     const result = checkImageQuality(tiny);
     expect(result.warnings).toContain("image_resolution_too_low");
   });
+
+  it("fait le vrai contrôle « exactement un visage » quand le détecteur fournit le compte", () => {
+    const sharp: RawImage = {
+      data: base64ToBytes(blurFixture.imageRgbBase64),
+      width: blurFixture.width,
+      height: blurFixture.height,
+      channels: 3,
+      channelOrder: "rgb",
+    };
+    expect(checkImageQuality(sharp, 1)).toEqual({ passed: true, warnings: [] });
+    expect(checkImageQuality(sharp, 2)).toEqual({ passed: false, warnings: ["multiple_faces_detected"] });
+    expect(checkImageQuality(sharp, 0).warnings).toEqual(["no_face_detected"]);
+  });
 });
 
 describe("compareFaces (bout en bout, vrai modèle sface.onnx)", () => {

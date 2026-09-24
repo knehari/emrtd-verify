@@ -78,6 +78,15 @@ export function SettingsScreen({ demo }: { demo: AuthentikDemo }) {
           </View>
           <ModeSwitch on={demo.requireLostStolenCheck} onToggle={demo.toggleLostStolenCheck} colors={c} label={t.aboutLostStolen} />
         </View>
+        {demo.faceMatchAvailable ? (
+          <View style={[styles.toggleRow, styles.rule]}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.toggleLabel}>{t.aboutFace}</Text>
+              <Text style={styles.toggleDesc}>{t.aboutFaceDesc}</Text>
+            </View>
+            <ModeSwitch on={demo.faceMatchEnabled} onToggle={demo.toggleFaceMatch} colors={c} label={t.aboutFace} />
+          </View>
+        ) : null}
       </View>
 
       <Text style={styles.sectionTitle}>{t.aboutAppearanceTitle}</Text>
