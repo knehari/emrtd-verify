@@ -21,6 +21,7 @@
     "@emrtd-verify/verification-policy": "workspace:*",
     "@react-native-ml-kit/text-recognition": "^2.0.0",
     "expo": "~51.0.0",
+    "expo-av": "~14.0.7",
     "expo-blur": "13.0.2",
     "expo-build-properties": "0.12.5",
     "expo-camera": "~15.0.16",

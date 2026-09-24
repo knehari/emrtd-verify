@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "Authentik",
+    "name": "BaynID",
     "slug": "emrtd-verify",
     "version": "0.1.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "icon": "./assets/icon.png",
     "ios": {
       "bundleIdentifier": "com.authentik.mobile",

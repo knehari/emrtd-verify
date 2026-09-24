@@ -1,20 +1,24 @@
 /**
- * Écran d'accueil — transcrit depuis le handoff de design, bloc `isHome`
- * (`design_handoff_authentik/eMRTD Verify Mobile.dc.html` lignes 198-296, et README §6.1).
- * Défile désormais (contrainte "sans défilement" du handoff §13.6 levée sur demande explicite de
- * l'utilisateur — voir le README de ce dossier).
+ * Écran d'accueil — design v2 (`Authentik Mobile v2 Dark.dc.html`, bloc `isHome`) :
+ * - un seul cadre d'en-tête regroupe le logo flat + nom de l'app, le mode de vérification (switch
+ *   hors ligne / en ligne) et la ligne d'état du magasin CSCA (→ pays pris en charge) ;
+ * - le bouton Vérifier, en anneau de verre bleu autour d'un disque plein, occupe l'espace central
+ *   (l'espace libre revient à cette zone, pour une répartition équilibrée) ;
+ * - les documents pris en charge et la mention éphémère ferment l'écran, au-dessus du dock.
+ * Reste dans un ScrollView (défilement demandé par l'utilisateur pour les petits écrans) ; sur un
+ * iPhone 6,1" tout tient sans défiler. La bascule clair/sombre, qui était dans l'en-tête, est
+ * désormais dans Réglages.
  */
 import React, { useEffect, useMemo, useRef } from "react";
-import { View, Text, Image, StyleSheet, ScrollView, Animated, Easing } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Animated, Easing } from "react-native";
 import { PressableFX as Pressable } from "../components/PressableFX";
-import Svg, { Defs, RadialGradient, Stop, Rect } from "react-native-svg";
-import { colors, radius, fontMono, type PaletteColors } from "../theme";
-import { NfcIcon, PassportGlyph, IdCardGlyph, ResidencePermitGlyph, SunIcon, MoonIcon } from "../icons";
+import { radius, fontMono, type PaletteColors } from "../theme";
+import { NfcIcon, AppIcon, PassportGlyph, IdCardGlyph, ResidencePermitGlyph } from "../icons";
 import type { AuthentikDemo } from "../state";
 
-const HEADER_ILLUSTRATION = require("../../../assets/authentik/header-illustration.png");
-
 const GLYPHS = [PassportGlyph, IdCardGlyph, ResidencePermitGlyph];
+const RING = 176;
+const DISC = 132;
 
 function WaveRing({ ringStyle }: { ringStyle: object }) {
   const scale = useRef(new Animated.Value(0.55)).current;
@@ -29,148 +33,42 @@ function WaveRing({ ringStyle }: { ringStyle: object }) {
     loop.start();
     return () => loop.stop();
   }, [opacity, scale]);
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[ringStyle, { transform: [{ scale }], opacity }]}
-    />
-  );
+  return <Animated.View pointerEvents="none" style={[ringStyle, { transform: [{ scale }], opacity }]} />;
 }
 
-function ModeSwitch({
-  online,
+/** Switch iOS 51 × 31 — mode hors ligne / en ligne ici, retours et apparence dans Réglages. */
+export function ModeSwitch({
+  on,
   onToggle,
-  trackStyle,
-  thumbStyle,
+  colors,
+  label,
 }: {
-  online: boolean;
+  on: boolean;
   onToggle: () => void;
-  trackStyle: object;
-  thumbStyle: object;
+  colors: PaletteColors;
+  label?: string;
 }) {
-  const shift = useRef(new Animated.Value(online ? 1 : 0)).current;
+  const shift = useRef(new Animated.Value(on ? 1 : 0)).current;
   useEffect(() => {
-    Animated.timing(shift, { toValue: online ? 1 : 0, duration: 180, useNativeDriver: true }).start();
-  }, [online, shift]);
+    Animated.timing(shift, { toValue: on ? 1 : 0, duration: 180, useNativeDriver: true }).start();
+  }, [on, shift]);
   const translateX = shift.interpolate({ inputRange: [0, 1], outputRange: [0, 20] });
   return (
     <Pressable
       onPress={onToggle}
       accessibilityRole="switch"
-      accessibilityState={{ checked: online }}
-      style={[trackStyle, { backgroundColor: online ? colors.switchTrackActive : colors.switchTrackInactive }]}
+      accessibilityLabel={label}
+      accessibilityState={{ checked: on }}
+      style={[switchStyles.track, { backgroundColor: on ? colors.switchTrackActive : colors.switchTrackInactive }]}
     >
-      <Animated.View style={[thumbStyle, { transform: [{ translateX }] }]} />
+      <Animated.View style={[switchStyles.thumb, { transform: [{ translateX }] }]} />
     </Pressable>
   );
 }
 
-export function HomeScreen({ demo }: { demo: AuthentikDemo }) {
-  const styles = useMemo(() => makeStyles(demo.colors), [demo.colors]);
-  return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <View style={styles.headerRow}>
-        <View style={styles.headerText}>
-          <Text style={styles.appName}>{demo.t.appName}</Text>
-          <Text style={styles.appSub}>{demo.homeSub}</Text>
-        </View>
-        <Pressable
-          onPress={demo.toggleScheme}
-          style={styles.themeToggle}
-          accessibilityRole="button"
-          accessibilityLabel={demo.scheme === "dark" ? "Passer en mode clair" : "Passer en mode sombre"}
-        >
-          {demo.scheme === "dark" ? <SunIcon size={18} color={demo.colors.inkSecondary} /> : <MoonIcon size={18} color={demo.colors.inkSecondary} />}
-        </Pressable>
-        <Image source={HEADER_ILLUSTRATION} style={styles.headerImage} resizeMode="contain" />
-      </View>
-
-      <View style={styles.modeCard}>
-        <View style={styles.modeRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.modeLabel}>{demo.modeLabel}</Text>
-            <Text style={styles.modeDesc}>{demo.modeDesc}</Text>
-          </View>
-          <ModeSwitch online={demo.online} onToggle={demo.toggleOnline} trackStyle={styles.switchTrack} thumbStyle={styles.switchThumb} />
-        </View>
-        <Pressable onPress={demo.goCountries} style={styles.trustRow}>
-          <View style={[styles.dot8, { backgroundColor: demo.modeDot }]} />
-          <Text style={styles.trustLine} numberOfLines={1}>
-            {demo.trustLineNow}
-          </Text>
-          <Text style={styles.chevron}>›</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.scanRow}>
-        <Pressable onPress={demo.startScan} style={styles.scanButtonWrap}>
-          <WaveRing ringStyle={styles.waveRing} />
-          <View style={styles.scanButtonShadow}>
-            <View style={styles.scanButton}>
-              {/* radial-gradient(120% 120% at 32% 22%, #3AA0FF 0%, #0A84FF 46%, #0060DF 100%)
-                  — voir eMRTD Verify Mobile.dc.html l.233. expo-linear-gradient ne fait pas de
-                  radial (voir README §"Fidélité connue") ; react-native-svg le peut nativement. */}
-              <Svg width={146} height={146} style={StyleSheet.absoluteFillObject}>
-                <Defs>
-                  <RadialGradient id="scanGrad" cx="32%" cy="22%" r="120%">
-                    <Stop offset="0%" stopColor={colors.gradientTop} />
-                    <Stop offset="46%" stopColor={colors.gradientMid} />
-                    <Stop offset="100%" stopColor={colors.gradientBottom} />
-                  </RadialGradient>
-                </Defs>
-                <Rect x={0} y={0} width={146} height={146} rx={73} ry={73} fill="url(#scanGrad)" />
-              </Svg>
-              <NfcIcon size={40} color="#fff" strokeWidth={1.7} />
-              <Text style={styles.scanLabel}>{demo.t.verifyBtn}</Text>
-            </View>
-          </View>
-        </Pressable>
-      </View>
-      <Text style={styles.autoDetect}>{demo.t.autoDetect}</Text>
-
-      <Text style={styles.sectionTitle}>{demo.t.supportedTitle}</Text>
-      <View style={styles.grid}>
-        {demo.supported.map((doc, i) => {
-          const Glyph = GLYPHS[i];
-          return (
-            <View key={doc.name} style={styles.docCard}>
-              <Glyph />
-              <View style={{ alignItems: "center" }}>
-                <Text style={styles.docName}>{doc.name}</Text>
-                <Text style={styles.docFormat}>{doc.format}</Text>
-              </View>
-            </View>
-          );
-        })}
-      </View>
-
-      <Text style={styles.ephemeral}>{demo.t.ephemeral}</Text>
-    </ScrollView>
-  );
-}
-
-const makeStyles = (colors: PaletteColors) => StyleSheet.create({
-  screen: { flex: 1 },
-  content: { paddingHorizontal: 20, paddingTop: 4 },
-  headerRow: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 4, marginBottom: 14 },
-  headerText: { flex: 1, minWidth: 0 },
-  appName: { fontSize: 30, fontWeight: "700", letterSpacing: -0.9, color: colors.inkPrimary, lineHeight: 33 },
-  appSub: { fontSize: 14, color: colors.inkSecondary, marginTop: 2, lineHeight: 18 },
-  headerImage: { width: 80, height: 80, marginRight: -6, marginBottom: -8 },
-  themeToggle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modeCard: { backgroundColor: colors.surface, borderRadius: radius.cardLg, overflow: "hidden", marginBottom: 10 },
-  modeRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 11, paddingHorizontal: 15 },
-  modeLabel: { fontSize: 15, fontWeight: "600", color: colors.inkPrimary },
-  modeDesc: { fontSize: 11.5, color: colors.inkSecondary, marginTop: 2, lineHeight: 15 },
-  switchTrack: { width: 51, height: 31, borderRadius: 16, padding: 2, justifyContent: "center" },
-  switchThumb: {
+const switchStyles = StyleSheet.create({
+  track: { width: 51, height: 31, borderRadius: 16, padding: 2, justifyContent: "center" },
+  thumb: {
     width: 27,
     height: 27,
     borderRadius: 13.5,
@@ -181,55 +79,130 @@ const makeStyles = (colors: PaletteColors) => StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  trustRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.separator,
-  },
-  dot8: { width: 8, height: 8, borderRadius: 4 },
-  trustLine: { flex: 1, fontSize: 13, color: `rgba(${colors.inkBaseRgb},0.75)` },
-  chevron: { color: colors.chevron, fontSize: 20 },
-  scanRow: { alignItems: "center", paddingVertical: 12 },
-  scanButtonWrap: { width: 146, height: 146, alignItems: "center", justifyContent: "center" },
-  waveRing: {
-    position: "absolute",
-    width: 146 + 28,
-    height: 146 + 28,
-    borderRadius: (146 + 28) / 2,
-    borderWidth: 1.5,
-    borderColor: "rgba(10,132,255,0.28)",
-  },
-  // Le dégradé lui-même ne peut pas porter d'ombre "efficace" (pas de backgroundColor uni) —
-  // l'ombre est donc portée par ce wrapper opaque (entièrement recouvert par le dégradé),
-  // ce qui évite l'avertissement de performance "cannot calculate shadow efficiently".
-  scanButtonShadow: {
-    width: 146,
-    height: 146,
-    borderRadius: 73,
-    backgroundColor: colors.gradientMid,
-    shadowColor: colors.accent,
-    shadowOpacity: 0.34,
-    shadowRadius: 40,
-    shadowOffset: { width: 0, height: 18 },
-    elevation: 10,
-  },
-  scanButton: {
-    width: 146,
-    height: 146,
-    borderRadius: 73,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  scanLabel: { color: "#fff", fontSize: 17, fontWeight: "600", marginTop: 9, letterSpacing: -0.2 },
-  autoDetect: { textAlign: "center", fontSize: 12.5, color: colors.inkSecondary, marginHorizontal: 22, marginTop: 8, marginBottom: 14, lineHeight: 17 },
-  sectionTitle: { fontSize: 12, fontWeight: "600", letterSpacing: 0.6, color: colors.inkSecondary, textTransform: "uppercase", marginBottom: 7, marginLeft: 4 },
-  grid: { flexDirection: "row", gap: 9 },
-  docCard: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.card, paddingVertical: 10, paddingHorizontal: 8, alignItems: "center", gap: 7 },
-  docName: { fontSize: 12, fontWeight: "600", color: colors.inkPrimary, textAlign: "center", lineHeight: 15 },
-  docFormat: { fontSize: 10.5, color: colors.inkTertiary, marginTop: 4, fontFamily: fontMono },
-  ephemeral: { fontSize: 13, color: colors.inkSecondary, marginHorizontal: 4, marginTop: 12, marginBottom: 104, lineHeight: 19 },
 });
+
+export function HomeScreen({ demo }: { demo: AuthentikDemo }) {
+  const c = demo.colors;
+  const styles = useMemo(() => makeStyles(c), [c]);
+  return (
+    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+      <View style={styles.headerCard}>
+        <View style={styles.brandRow}>
+          <AppIcon size={48} />
+          <View style={styles.brandText}>
+            <Text style={styles.appName}>{demo.t.appName}</Text>
+            <Text style={styles.appSub}>{demo.homeSub}</Text>
+          </View>
+        </View>
+        <View style={[styles.modeRow, styles.rule]}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.modeLabel}>{demo.modeLabel}</Text>
+            <Text style={styles.modeDesc}>{demo.modeDesc}</Text>
+          </View>
+          <ModeSwitch on={demo.online} onToggle={demo.toggleOnline} colors={c} label={demo.t.modeTitle} />
+        </View>
+        <Pressable onPress={demo.goCountries} style={[styles.trustRow, styles.rule]}>
+          <View style={[styles.dot8, { backgroundColor: demo.modeDot }]} />
+          <Text style={styles.trustLine} numberOfLines={1}>
+            {demo.trustLineNow}
+          </Text>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.center}>
+        <Pressable onPress={demo.startScan} accessibilityLabel={demo.t.verifyBtn} style={styles.ring}>
+          <WaveRing ringStyle={styles.waveRing} />
+          <View style={styles.disc}>
+            <NfcIcon size={38} color="#fff" strokeWidth={1.8} />
+            <Text style={styles.discLabel}>{demo.t.verifyBtn}</Text>
+          </View>
+        </Pressable>
+        <Text style={styles.autoDetect}>{demo.t.autoDetect}</Text>
+      </View>
+
+      <View>
+        <Text style={styles.sectionTitle}>{demo.t.supportedTitle}</Text>
+        <View style={styles.grid}>
+          {demo.supported.map((doc, i) => {
+            const Glyph = GLYPHS[i];
+            return (
+              <View key={doc.name} style={styles.docCard}>
+                <Glyph fill={c.glyphFill} inkRgb={c.inkBaseRgb} />
+                <View style={{ alignItems: "center" }}>
+                  <Text style={styles.docName}>{doc.name}</Text>
+                  <Text style={styles.docFormat}>{doc.format}</Text>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+        <Text style={styles.ephemeral}>{demo.t.ephemeral}</Text>
+      </View>
+    </ScrollView>
+  );
+}
+
+const makeStyles = (colors: PaletteColors) =>
+  StyleSheet.create({
+    screen: { flex: 1 },
+    content: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 6, paddingBottom: 104, gap: 14 },
+    headerCard: { backgroundColor: colors.surface, borderRadius: radius.verdictCard, overflow: "hidden" },
+    rule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator },
+    brandRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, paddingHorizontal: 15 },
+    brandText: { flex: 1, minWidth: 0 },
+    appName: { fontSize: 22, fontWeight: "700", letterSpacing: -0.5, color: colors.inkPrimary, lineHeight: 24 },
+    appSub: { fontSize: 13, color: colors.inkSecondary, marginTop: 3, lineHeight: 17 },
+    modeRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, paddingHorizontal: 15 },
+    modeLabel: { fontSize: 15, fontWeight: "600", color: colors.inkPrimary, lineHeight: 18 },
+    modeDesc: { fontSize: 11.5, color: colors.inkSecondary, marginTop: 2, lineHeight: 15.5 },
+    trustRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 15 },
+    dot8: { width: 8, height: 8, borderRadius: 4 },
+    trustLine: { flex: 1, fontSize: 13, color: `rgba(${colors.inkBaseRgb},0.75)` },
+    chevron: { color: colors.chevron, fontSize: 20 },
+    center: { flex: 1, minHeight: 236, alignItems: "center", justifyContent: "center", gap: 16 },
+    // Anneau de verre : fond bleu à 10 %, liseré bleu 0,5 px (box-shadow 0 0 0 .5px du prototype).
+    ring: {
+      width: RING,
+      height: RING,
+      borderRadius: RING / 2,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(10,132,255,0.1)",
+      borderWidth: 0.5,
+      borderColor: "rgba(10,132,255,0.35)",
+    },
+    waveRing: {
+      position: "absolute",
+      width: RING,
+      height: RING,
+      borderRadius: RING / 2,
+      borderWidth: 1.5,
+      borderColor: "rgba(10,132,255,0.4)",
+    },
+    // Disque plein ; le reflet haut (inset 0 1px 0 rgba(255,255,255,.3)) devient un liseré supérieur.
+    disc: {
+      width: DISC,
+      height: DISC,
+      borderRadius: DISC / 2,
+      backgroundColor: colors.accent,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      borderTopWidth: 1,
+      borderTopColor: "rgba(255,255,255,0.3)",
+      shadowColor: colors.accent,
+      shadowOpacity: 0.38,
+      shadowRadius: 34,
+      shadowOffset: { width: 0, height: 14 },
+      elevation: 10,
+    },
+    discLabel: { color: "#fff", fontSize: 17, fontWeight: "600", letterSpacing: -0.2 },
+    autoDetect: { textAlign: "center", fontSize: 12.5, lineHeight: 17.5, color: colors.inkSecondary, maxWidth: 260 },
+    sectionTitle: { fontSize: 12, fontWeight: "600", letterSpacing: 0.6, color: colors.inkSecondary, textTransform: "uppercase", marginBottom: 7, marginLeft: 4 },
+    grid: { flexDirection: "row", gap: 9 },
+    docCard: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.card, paddingTop: 10, paddingBottom: 9, paddingHorizontal: 8, alignItems: "center", gap: 7 },
+    docName: { fontSize: 12, fontWeight: "600", color: colors.inkPrimary, textAlign: "center", lineHeight: 15 },
+    docFormat: { fontSize: 10.5, color: colors.inkTertiary, marginTop: 4, fontFamily: fontMono },
+    ephemeral: { fontSize: 12.5, lineHeight: 18, color: `rgba(${colors.inkBaseRgb},0.55)`, marginTop: 12, marginHorizontal: 4 },
+  });

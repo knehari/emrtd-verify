@@ -3,13 +3,26 @@
  * (`design_handoff_authentik/eMRTD Verify Mobile.dc.html` lignes 449-517, README §6.7).
  * "Décisions de design à ne pas défaire" (README §13) : trois verdicts (pas deux), des disques de
  * couleur (pas de pastilles à icône) pour les cinq contrôles, session éphémère rappelée en pied.
+ * Design v2 : les cinq lignes de contrôle apparaissent l'une après l'autre (`rowIn`, 0,45 s,
+ * décalage 0,2 s + 70 ms par ligne) pendant le fondu d'entrée du verdict.
  */
-import React, { useMemo } from "react";
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import React, { useEffect, useMemo, useRef } from "react";
+import { View, Text, StyleSheet, ScrollView, Animated, Easing } from "react-native";
 import { PressableFX as Pressable } from "../components/PressableFX";
 import { fontMono, radius, type PaletteColors } from "../theme";
 import { Icon, ShareIcon } from "../icons";
 import type { AuthentikDemo } from "../state";
+
+const ROW_IN = Easing.bezier(0.2, 0.8, 0.2, 1);
+
+function RowIn({ index, style, children }: { index: number; style: object; children: React.ReactNode }) {
+  const progress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(progress, { toValue: 1, duration: 450, delay: 200 + index * 70, easing: ROW_IN, useNativeDriver: true }).start();
+  }, [index, progress]);
+  const translateY = progress.interpolate({ inputRange: [0, 1], outputRange: [8, 0] });
+  return <Animated.View style={[style, { opacity: progress, transform: [{ translateY }] }]}>{children}</Animated.View>;
+}
 
 export function VerdictScreen({ demo }: { demo: AuthentikDemo }) {
   const styles = useMemo(() => makeStyles(demo.colors), [demo.colors]);
@@ -51,13 +64,13 @@ export function VerdictScreen({ demo }: { demo: AuthentikDemo }) {
 
       <View style={styles.checksCard}>
         {demo.checkRows.map((c, i) => (
-          <View key={c.label} style={[styles.checkRow, i > 0 && styles.checkRowBorder]}>
+          <RowIn key={c.label} index={i} style={[styles.checkRow, i > 0 && styles.checkRowBorder]}>
             <View style={[styles.checkDot, { backgroundColor: c.color }]} />
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.checkLabel}>{c.label}</Text>
               <Text style={styles.checkDetail}>{c.detail}</Text>
             </View>
-          </View>
+          </RowIn>
         ))}
       </View>
 
@@ -102,7 +115,7 @@ const makeStyles = (colors: PaletteColors) => StyleSheet.create({
   decisionScore: { fontSize: 12.5, fontWeight: "500", color: colors.inkSecondary, marginTop: 12 },
   identityCard: { backgroundColor: colors.surface, borderRadius: radius.verdictCard, padding: 18, marginBottom: 14 },
   identityRow: { flexDirection: "row", gap: 15, alignItems: "flex-start" },
-  thumbnail: { width: 72, height: 92, borderRadius: radius.thumbnail, backgroundColor: "#E9E9EC", alignItems: "center", justifyContent: "flex-end", paddingBottom: 6 },
+  thumbnail: { width: 72, height: 92, borderRadius: radius.thumbnail, backgroundColor: colors.thumbnail, alignItems: "center", justifyContent: "flex-end", paddingBottom: 6 },
   thumbnailLabel: { fontFamily: fontMono, fontSize: 8, color: `rgba(${colors.inkBaseRgb},0.55)` },
   surname: { fontSize: 21, fontWeight: "700", letterSpacing: -0.4, color: colors.inkPrimary },
   givenNames: { fontSize: 17, color: colors.inkPrimary, marginTop: 1 },

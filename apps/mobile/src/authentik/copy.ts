@@ -123,15 +123,36 @@ export interface Copy {
   trust: [string, string][];
   verifiedLine: string;
   verifiedLineOnline: string;
+  // Onglet Réglages — design v2 (`Authentik Mobile v2 Dark.dc.html`, `Object.assign(FR/EN, {about…})`).
+  aboutVersion: string;
+  aboutTagline: string;
+  aboutAppTitle: string;
+  aboutApp: [string, string][];
+  aboutStoreTitle: string;
+  aboutStore: [string, string][];
+  aboutStoreCta: string;
+  aboutFbTitle: string;
+  aboutFb: string;
+  aboutFbDesc: string;
+  // Bascule clair/sombre : absente du design v2 (sombre uniquement), conservée à la demande de
+  // l'utilisateur et déplacée ici depuis l'en-tête de l'accueil — copie ajoutée, pas transcrite.
+  aboutAppearanceTitle: string;
+  aboutDarkMode: string;
+  aboutDarkModeDesc: string;
+  aboutPrivacyTitle: string;
+  aboutPrivacy: string;
+  aboutLegalTitle: string;
+  aboutLegal: string[];
+  aboutFooter: string;
 }
 
 export const FR: Copy = {
-  appName: "Authentik",
+  appName: "BaynID",
   homeSub: "Contrôle autonome, hors ligne",
   homeSubOnline: "Contrôle connecté au service KYC",
   tabVerify: "Vérifier",
   tabTrust: "Confiance",
-  tabAbout: "À propos",
+  tabAbout: "Réglages",
   verifyBtn: "Vérifier",
   supportedTitle: "Documents pris en charge",
   autoDetect: "Le type est reconnu automatiquement à la lecture.",
@@ -306,6 +327,33 @@ export const FR: Copy = {
   ],
   verifiedLine: "Vérifié le 21/09/2026 à 09:41 · hors ligne · résultat signé ECDSA P-256 · rien n'est conservé",
   verifiedLineOnline: "Vérifié le 21/09/2026 à 09:41 · en ligne · KYC · révocation vérifiée · résultat signé ECDSA P-256 · rien n'est conservé",
+  aboutVersion: "Version 2.0 (214)",
+  aboutTagline: "Vérification autonome des documents d'identité électroniques.",
+  aboutAppTitle: "Application",
+  aboutApp: [
+    ["Version", "2.0 (214)"],
+    ["Moteur de vérification", "ICAO Doc 9303"],
+    ["Protocoles", "BAC · PACE · AA"],
+  ],
+  aboutStoreTitle: "Magasin CSCA",
+  aboutStore: [
+    ["Ancres CSCA", "312"],
+    ["Dernière synchro.", "19/09/2026"],
+    ["Empreinte", "7f3a…91c2"],
+  ],
+  aboutStoreCta: "Voir le magasin de confiance",
+  aboutFbTitle: "Retours",
+  aboutFb: "Sons et retours haptiques",
+  aboutFbDesc: "Paliers de lecture NFC, vivacité et verdict.",
+  aboutAppearanceTitle: "Apparence",
+  aboutDarkMode: "Mode sombre",
+  aboutDarkModeDesc: "Activé par défaut. Les écrans caméra restent sombres.",
+  aboutPrivacyTitle: "Confidentialité",
+  aboutPrivacy:
+    "Traitement entièrement local. Aucune donnée d'identité ni biométrique n'est conservée ou transmise, à l'exception de la vérification de révocation en mode en ligne.",
+  aboutLegalTitle: "Informations légales",
+  aboutLegal: ["Conditions d'utilisation", "Politique de confidentialité", "Licences open source", "Mentions légales"],
+  aboutFooter: "© 2026 BaynID",
 };
 
 export const EN: Copy = {
@@ -314,7 +362,7 @@ export const EN: Copy = {
   homeSubOnline: "Connected check · KYC service",
   tabVerify: "Verify",
   tabTrust: "Trust",
-  tabAbout: "About",
+  tabAbout: "Settings",
   verifyBtn: "Verify",
   supportedTitle: "Supported documents",
   autoDetect: "The type is recognised automatically on read.",
@@ -489,6 +537,30 @@ export const EN: Copy = {
   ],
   verifiedLine: "Verified 21/09/2026 at 09:41 · offline · result signed ECDSA P-256 · nothing retained",
   verifiedLineOnline: "Verified 21/09/2026 at 09:41 · online · KYC · revocation checked · result signed ECDSA P-256 · nothing retained",
+  aboutTagline: "Standalone verification of electronic identity documents.",
+  aboutApp: [
+    ["Version", "2.0 (214)"],
+    ["Verification engine", "ICAO Doc 9303"],
+    ["Protocols", "BAC · PACE · AA"],
+  ],
+  aboutStoreTitle: "CSCA store",
+  aboutStore: [
+    ["CSCA anchors", "312"],
+    ["Last sync", "19/09/2026"],
+    ["Fingerprint", "7f3a…91c2"],
+  ],
+  aboutStoreCta: "Open the trust store",
+  aboutFbTitle: "Feedback",
+  aboutFb: "Sounds and haptics",
+  aboutFbDesc: "NFC read steps, liveness and verdict.",
+  aboutAppearanceTitle: "Appearance",
+  aboutDarkMode: "Dark mode",
+  aboutDarkModeDesc: "On by default. Camera screens stay dark.",
+  aboutPrivacyTitle: "Privacy",
+  aboutPrivacy:
+    "Fully on-device processing. No identity or biometric data is kept or transmitted, except the revocation check in online mode.",
+  aboutLegalTitle: "Legal",
+  aboutLegal: ["Terms of use", "Privacy policy", "Open source licences", "Legal notice"],
 };
 
 export type Lang = "fr" | "en";

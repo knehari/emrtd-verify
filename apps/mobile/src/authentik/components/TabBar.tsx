@@ -14,7 +14,8 @@
  * pilule "loupe de verre" animée (glissement + étirement élastique + reflet mobile) pour la
  * transition entre onglets, construite avec `Animated` (déjà utilisé partout ailleurs dans ce
  * dossier — ni `react-native-reanimated` ni Skia ne sont des dépendances de ce projet).
- * Le troisième onglet ("À propos") reste inactif, comme dans le prototype.
+ * Design v2 (`Authentik Mobile v2 Dark.dc.html`) : barre de 64 px (rayon 32, marges 16, padding 7),
+ * onglets de 50 px, troisième onglet "Réglages" actif, pilule rgba(255,255,255,.13) en sombre.
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, Animated, Easing } from "react-native";
@@ -22,23 +23,24 @@ import { PressableFX as Pressable } from "./PressableFX";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { type PaletteColors } from "../theme";
-import { NfcIcon, Icon } from "../icons";
+import { NfcIcon, Icon, SettingsIcon } from "../icons";
 import type { AuthentikDemo } from "../state";
 
 const TAB_COUNT = 3;
 // Doit correspondre à `bar.paddingHorizontal` ci-dessous — la pilule et son calcul de largeur
 // doivent tenir compte de ce padding, sinon elle déborde à gauche et dépasse la largeur d'un onglet
 // (bug signalé : "en mode Dark la loupe n'est pas bien alignée et dépasse un peu le dock à gauche").
-const BAR_PADDING = 6;
+const BAR_PADDING = 7;
 
 export function TabBar({ demo, bottomInset }: { demo: AuthentikDemo; bottomInset: number }) {
   const c = demo.colors;
   const dark = demo.scheme === "dark";
-  const styles = useMemo(() => makeStyles(c), [c]);
+  const styles = useMemo(() => makeStyles(c, dark), [c, dark]);
   const inactive = `rgba(${c.inkBaseRgb},0.5)`;
   const homeActive = demo.step === "home";
   const trustActive = demo.step === "trust" || demo.step === "countries";
-  const activeIndex = homeActive ? 0 : trustActive ? 1 : -1;
+  const settingsActive = demo.step === "settings";
+  const activeIndex = homeActive ? 0 : trustActive ? 1 : settingsActive ? 2 : -1;
 
   const [barWidth, setBarWidth] = useState(0);
   const tabWidth = Math.max(0, barWidth - BAR_PADDING * 2) / TAB_COUNT;
@@ -104,33 +106,33 @@ export function TabBar({ demo, bottomInset }: { demo: AuthentikDemo; bottomInset
             <Icon name="shield" size={25} color={trustActive ? c.accent : inactive} strokeWidth={1.7} />
             <Text style={[styles.tabLabel, { color: trustActive ? c.accent : inactive }]}>{demo.t.tabTrust}</Text>
           </Pressable>
-          <View style={styles.tab}>
-            <Icon name="info" size={24} color={inactive} strokeWidth={1.7} />
-            <Text style={styles.tabLabel}>{demo.t.tabAbout}</Text>
-          </View>
+          <Pressable onPress={demo.goSettings} style={styles.tab}>
+            <SettingsIcon size={24} color={settingsActive ? c.accent : inactive} strokeWidth={1.7} />
+            <Text style={[styles.tabLabel, { color: settingsActive ? c.accent : inactive }]}>{demo.t.tabAbout}</Text>
+          </Pressable>
         </BlurView>
       </View>
     </View>
   );
 }
 
-const makeStyles = (colors: PaletteColors) => StyleSheet.create({
-  wrap: { position: "absolute", left: 14, right: 14, height: 62, zIndex: 35 },
+const makeStyles = (colors: PaletteColors, dark: boolean) => StyleSheet.create({
+  wrap: { position: "absolute", left: 16, right: 16, height: 64, zIndex: 35 },
   // BlurView ne peut pas porter de backgroundColor opaque (ça annulerait le flou) : l'ombre est
   // donc portée par ce wrapper opaque, entièrement recouvert par le flou, plutôt que par la
   // BlurView elle-même — évite l'avertissement de performance "cannot calculate shadow efficiently".
   barShadow: {
     flex: 1,
-    borderRadius: 31,
+    borderRadius: 32,
     backgroundColor: colors.surface,
-    shadowColor: "#0A2540",
-    shadowOpacity: 0.18,
-    shadowRadius: 34,
-    shadowOffset: { width: 0, height: 14 },
+    shadowColor: dark ? "#000" : "#0A2540",
+    shadowOpacity: dark ? 0.5 : 0.18,
+    shadowRadius: dark ? 40 : 34,
+    shadowOffset: { width: 0, height: dark ? 18 : 14 },
   },
   bar: {
     flex: 1,
-    borderRadius: 31,
+    borderRadius: 32,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: BAR_PADDING,
@@ -152,8 +154,8 @@ const makeStyles = (colors: PaletteColors) => StyleSheet.create({
     width: "100%",
     height: "100%",
     marginHorizontal: 4,
-    borderRadius: 24,
-    backgroundColor: "rgba(255,255,255,0.4)",
+    borderRadius: 25,
+    backgroundColor: colors.tabPill,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(255,255,255,0.55)",
     shadowColor: "#000",
@@ -172,6 +174,6 @@ const makeStyles = (colors: PaletteColors) => StyleSheet.create({
     borderRadius: 18,
     overflow: "hidden",
   },
-  tab: { flex: 1, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", gap: 3 },
+  tab: { flex: 1, height: 50, borderRadius: 25, alignItems: "center", justifyContent: "center", gap: 3 },
   tabLabel: { fontSize: 10.5, fontWeight: "500", color: `rgba(${colors.inkBaseRgb},0.5)` },
 });

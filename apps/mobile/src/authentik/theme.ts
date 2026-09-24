@@ -47,19 +47,28 @@ export const colors = {
   switchTrackInactive: "rgba(120,120,128,0.22)",
   switchTrackActive: "#30D158",
   nfcDigit: "#0A2540",
+  /** Feuille modale (partage) et ses cartes, voile derrière elle. */
+  sheet: "#F2F2F7",
+  sheetCard: "#FFFFFF",
+  overlay: "rgba(0,0,0,0.34)",
+  /** Fond des pictogrammes de documents de l'accueil, de la vignette DG2 et du document animé de
+   * l'écran de positionnement. */
+  glyphFill: "#F7F7FA",
+  thumbnail: "#E9E9EC",
+  placeDoc: "#F3F5FA",
+  /** Pilule "loupe de verre" de l'onglet actif du dock. */
+  tabPill: "rgba(255,255,255,0.4)",
   /** Triplet RGB (sans alpha) de `inkPrimary`/`inkSecondary`/etc., pour composer des `rgba(...)`
    * ad hoc à la même opacité que ces tokens sans dupliquer le triplet en dur à chaque usage —
    * voir `darkColors` ci-dessous, où ce triplet devient blanc plutôt que noir. */
   inkBaseRgb: "60,60,67",
 } as const;
 
-/** Mode Dark — n'existe pas dans le handoff de design original (aucune maquette sombre livrée),
- * ajouté sur demande de l'utilisateur. Ne redéfinit QUE les tokens dont le rôle est "s'adapter au
- * fond" (encre/surfaces/séparateurs/washs) ; `accent`, les dégradés et les couleurs sémantiques
- * (succès/avertissement/erreur) restent identiques — déjà conçues pour rester lisibles sur les
- * deux fonds. Approximation raisonnable des conventions de couleur système iOS en mode sombre
- * (labelColor blanc à opacité dégressive, systemBackground/secondarySystemBackground), pas une
- * spec fournie par le design handoff. */
+/** Mode Dark — palette par défaut depuis le design v2 (`Authentik Mobile v2 Dark.dc.html`, "noir
+ * pur iOS" : fond #000, surfaces #1C1C1E, encre rgba(235,235,245,…), séparateurs
+ * rgba(84,84,88,.6)). Les washs de verdict et le rouge (#FF453A, rouge système iOS sombre) sont
+ * ceux du design v2. Le mode clair (palette `colors` ci-dessus, handoff v1) reste accessible par
+ * la bascule d'apparence des Réglages. */
 export type PaletteColors = { [K in keyof typeof colors]: string };
 
 export const darkColors: PaletteColors = {
@@ -70,21 +79,31 @@ export const darkColors: PaletteColors = {
   inkTertiary: "rgba(235,235,245,0.5)",
   inkFaint: "rgba(235,235,245,0.3)",
   chevron: "rgba(235,235,245,0.3)",
+  error: "#FF453A",
   screenLight: "#000000",
+  screenDark: "#000000",
   surface: "#1C1C1E",
   separator: "rgba(84,84,88,0.6)",
   separatorFaint: "rgba(84,84,88,0.5)",
-  washGreenBg: "rgba(48,209,88,0.16)",
-  washGreenBorder: "rgba(48,209,88,0.4)",
+  washGreenBg: "rgba(48,209,88,0.12)",
+  washGreenBorder: "rgba(48,209,88,0.34)",
   washGreenInk: "#30D158",
-  washOrangeBg: "rgba(255,159,10,0.16)",
-  washOrangeBorder: "rgba(255,159,10,0.4)",
+  washOrangeBg: "rgba(255,159,10,0.13)",
+  washOrangeBorder: "rgba(255,159,10,0.36)",
   washOrangeInk: "#FF9F0A",
-  washRedBg: "rgba(255,59,48,0.16)",
-  washRedBorder: "rgba(255,59,48,0.4)",
+  washRedBg: "rgba(255,69,58,0.14)",
+  washRedBorder: "rgba(255,69,58,0.38)",
   washRedInk: "#FF453A",
   searchField: "rgba(118,118,128,0.24)",
+  switchTrackInactive: "rgba(120,120,128,0.32)",
   nfcDigit: "#FFFFFF",
+  sheet: "#1C1C1E",
+  sheetCard: "#2C2C2E",
+  overlay: "rgba(0,0,0,0.55)",
+  glyphFill: "#2C2C2E",
+  thumbnail: "#2C2C2E",
+  placeDoc: "#323234",
+  tabPill: "rgba(255,255,255,0.13)",
   inkBaseRgb: "235,235,245",
 };
 

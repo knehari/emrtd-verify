@@ -77,7 +77,7 @@ export function NfcScreen({ demo }: { demo: AuthentikDemo }) {
       <Text style={styles.title}>{demo.t.nfcHead}</Text>
       <Text style={styles.hint}>{demo.t.nfcHint}</Text>
 
-      <BlurView intensity={40} tint={demo.scheme === "dark" ? "dark" : "light"} style={styles.dgCard}>
+      <BlurView intensity={40} tint={demo.scheme === "dark" ? "dark" : "light"} style={[styles.dgCard, demo.scheme === "dark" && styles.dgCardDark]}>
         {demo.dgRows.map((g, i) => (
           <View key={g.id} style={[styles.dgRow, i > 0 && styles.dgRowBorder]}>
             <Text style={[styles.dgId, { color: g.tone }]}>{g.id}</Text>
@@ -112,6 +112,8 @@ const makeStyles = (colors: PaletteColors) => StyleSheet.create({
   title: { textAlign: "center", fontSize: 19, fontWeight: "600", color: colors.inkPrimary, marginHorizontal: 20, marginBottom: 6, lineHeight: 24 },
   hint: { textAlign: "center", fontSize: 14, color: colors.inkSecondary, marginHorizontal: 16, marginBottom: 18, lineHeight: 20 },
   dgCard: { borderRadius: 14, overflow: "hidden" },
+  // Design v2 : rgba(28,28,30,.72) + flou — le flou seul resterait noir sur noir.
+  dgCardDark: { backgroundColor: "rgba(28,28,30,0.72)" },
   dgRow: { flexDirection: "row", alignItems: "center", gap: 11, paddingVertical: 11, paddingHorizontal: 15 },
   dgRowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: `rgba(${colors.inkBaseRgb},0.16)` },
   dgId: { fontFamily: fontMono, fontSize: 11, fontWeight: "600", width: 34 },

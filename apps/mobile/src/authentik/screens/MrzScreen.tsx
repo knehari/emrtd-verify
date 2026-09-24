@@ -38,7 +38,7 @@ export function MrzScreen({ demo }: { demo: AuthentikDemo }) {
 
   if (mode === "camera") {
     return (
-      <View style={styles.screen}>
+      <View style={[styles.screen, { backgroundColor: demo.colors.screenDark }]}>
         <View style={styles.nav}>
           <Pressable onPress={demo.reset}>
             <Text style={styles.navCancel}>{demo.t.cancel}</Text>
@@ -52,7 +52,7 @@ export function MrzScreen({ demo }: { demo: AuthentikDemo }) {
   }
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { backgroundColor: demo.colors.screenDark }]}>
       <View style={styles.nav}>
         <Pressable onPress={demo.reset}>
           <Text style={styles.navCancel}>{demo.t.cancel}</Text>

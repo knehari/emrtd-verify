@@ -24,12 +24,11 @@
  * ni l'un ni l'autre n'est branché. Voir README de ce dossier pour le détail.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Appearance } from "react-native";
-import * as Haptics from "expo-haptics";
 import { NfcError } from "react-native-nfc-manager";
 import type { AnomalySeverity, DocumentType, Verdict } from "@emrtd-verify/shared-types";
 import { copyFor, type Lang } from "./copy";
-import { paletteFor, type ColorScheme } from "./theme";
+import { paletteFor, type ColorScheme, type PaletteColors } from "./theme";
+import { feedback, type FeedbackKind } from "./feedback";
 import {
   readEmrtdChip,
   NfcUnavailableError,
@@ -53,12 +52,17 @@ export type Step =
   | "chain"
   | "anomalies"
   | "trust"
-  | "countries";
+  | "countries"
+  | "settings";
+
+/** Transition d'entrée de l'écran — table `ANIM` du design v2 (voir components/ScreenTransition.tsx). */
+export type ScreenAnim = "push" | "back" | "modal" | "fade" | "tab" | "verdict" | "none";
+
+const TAB_STEPS: Step[] = ["home", "trust", "countries", "settings"];
 
 const OK = "#30D158";
 const WARN = "#FF9F0A";
 const INFO = "#8E8E93";
-const RED = "#FF3B30";
 
 const DG_LABELS: Record<number, string> = {
   1: "MRZ",
@@ -117,6 +121,8 @@ const DEFAULT_MRZ_FORM: MrzFormState = {
 
 interface RawState {
   step: Step;
+  anim: ScreenAnim;
+  feedbackOn: boolean;
   langSel: Lang | null;
   scenarioSel: Scenario | null;
   pct: number;
@@ -134,13 +140,16 @@ interface RawState {
 export function useAuthentikDemo() {
   const [s, setS] = useState<RawState>({
     step: "home",
+    anim: "none",
+    feedbackOn: true,
     langSel: null,
     scenarioSel: null,
     pct: 0,
     showShare: false,
     livePhase: 0,
     online: false,
-    scheme: Appearance.getColorScheme() === "dark" ? "dark" : "light",
+    // Sombre par défaut (design v2) ; le mode clair reste accessible depuis les Réglages.
+    scheme: "dark",
     mrzForm: DEFAULT_MRZ_FORM,
     verificationStatus: "idle",
     verificationError: null,
@@ -168,52 +177,63 @@ export function useAuthentikDemo() {
   useEffect(() => clear, [clear]);
 
   const go = useCallback(
-    (step: Step) => {
+    (step: Step, anim: ScreenAnim = "push") => {
       clear();
-      setS((prev) => ({ ...prev, step }));
+      setS((prev) => ({ ...prev, step, anim, showShare: false }));
     },
     [clear],
   );
 
+  const fb = useCallback((kind: FeedbackKind) => feedback(kind, sRef.current.feedbackOn), []);
+
   const scenario = useCallback((): Scenario => sRef.current.scenarioSel ?? "suspicious", []);
 
-  // Mode démo uniquement — inchangé. Le mode réel ne passe jamais par "selfie" (voir en-tête).
+  // Mode démo : verdict du scénario choisi (design v2, `toVerdict`).
+  const toVerdict = useCallback(() => {
+    const sc = scenario();
+    setS((prev) => ({ ...prev, step: "verdict", anim: "verdict" }));
+    fb(sc === "alert" ? "error" : sc === "suspicious" ? "warning" : "success");
+  }, [scenario, fb]);
+
+  const toProcessing = useCallback(() => {
+    setS((prev) => ({ ...prev, step: "processing", anim: "fade" }));
+    toRef.current = setTimeout(toVerdict, 1700);
+  }, [toVerdict]);
+
+  // Mode démo uniquement. Le mode réel ne passe jamais par "selfie" (voir en-tête).
   const runSelfie = useCallback(() => {
     const scNow = scenario();
     const face = scNow === "suspicious" || scNow === "alert";
     if (!face) {
-      setS((prev) => ({ ...prev, step: "processing" }));
-      toRef.current = setTimeout(() => setS((prev) => ({ ...prev, step: "verdict" })), 1700);
+      toProcessing();
       return;
     }
-    setS((prev) => ({ ...prev, step: "selfie", livePhase: 0 }));
+    setS((prev) => ({ ...prev, step: "selfie", livePhase: 0, anim: "fade" }));
     tickRef.current = 0;
     timerRef.current = setInterval(() => {
       tickRef.current += 1;
       const n = Math.min(3, tickRef.current);
       setS((prev) => ({ ...prev, livePhase: n }));
+      fb(n >= 3 ? "live" : "tick");
       if (n >= 3) {
         if (timerRef.current) {
           clearInterval(timerRef.current);
           timerRef.current = null;
         }
-        toRef.current = setTimeout(() => {
-          setS((prev) => ({ ...prev, step: "processing" }));
-          toRef.current = setTimeout(() => setS((prev) => ({ ...prev, step: "verdict" })), 1700);
-        }, 1500);
+        toRef.current = setTimeout(toProcessing, 1500);
       }
     }, 1400);
-  }, [scenario]);
+  }, [scenario, toProcessing, fb]);
 
-  // Mode démo uniquement — inchangé (minuteurs canned).
+  // Mode démo uniquement (minuteurs canned).
   const runNfcDemo = useCallback(() => {
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setS((prev) => ({ ...prev, step: "nfc", pct: 0 }));
+    setS((prev) => ({ ...prev, step: "nfc", pct: 0, anim: "push" }));
     tickRef.current = 0;
     timerRef.current = setInterval(() => {
       tickRef.current += 1;
       const p = Math.min(100, tickRef.current * 25);
       setS((prev) => ({ ...prev, pct: p }));
+      fb(p >= 100 ? "live" : "tick");
       if (p >= 100) {
         if (timerRef.current) {
           clearInterval(timerRef.current);
@@ -222,12 +242,13 @@ export function useAuthentikDemo() {
         toRef.current = setTimeout(() => runSelfie(), 550);
       }
     }, 700);
-  }, [runSelfie]);
+  }, [runSelfie, fb]);
 
   const startScan = useCallback(() => {
     clear();
-    setS((prev) => ({ ...prev, step: "mrz", pct: 0, showShare: false, verificationError: null }));
-  }, [clear]);
+    fb("tap");
+    setS((prev) => ({ ...prev, step: "mrz", anim: "modal", pct: 0, showShare: false, verificationError: null }));
+  }, [clear, fb]);
 
   const updateMrzForm = useCallback((patch: Partial<MrzFormState>) => {
     setS((prev) => ({ ...prev, mrzForm: { ...prev.mrzForm, ...patch } }));
@@ -239,12 +260,12 @@ export function useAuthentikDemo() {
   }, [s.mrzForm]);
 
   const submitMrz = useCallback(() => {
-    setS((prev) => {
-      const f = prev.mrzForm;
-      const valid = f.documentNumber.trim().length > 0 && /^\d{6}$/.test(f.dateOfBirth) && /^\d{6}$/.test(f.dateOfExpiry);
-      return valid ? { ...prev, step: "place" } : prev;
-    });
-  }, []);
+    const f = sRef.current.mrzForm;
+    const valid = f.documentNumber.trim().length > 0 && /^\d{6}$/.test(f.dateOfBirth) && /^\d{6}$/.test(f.dateOfExpiry);
+    if (!valid) return;
+    fb("tick");
+    setS((prev) => ({ ...prev, step: "place", anim: "push" }));
+  }, [fb]);
 
   // Mode réel : lecture NFC/BAC réelle (readEmrtdChip) puis vérification locale réelle
   // (computeLocalVerification), sans liveness ni reconnaissance faciale (voir en-tête du fichier).
@@ -256,10 +277,10 @@ export function useAuthentikDemo() {
       dateOfExpiry: mrzForm.dateOfExpiry,
     };
 
-    // Retour tactile unique au tout début de la lecture NFC réelle (recommandé par le handoff de
-    // design, README §7 "Retour tactile") — un seul déclenchement ici, pas un par palier franchi.
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setS((prev) => ({ ...prev, step: "nfc", pct: 0, verificationStatus: "reading-nfc", verificationError: null }));
+    // readEmrtdChip() ne remonte aucun palier réel (voir plus bas) : un seul retour au démarrage et
+    // un à la fin de la lecture, plutôt qu'un "tick" par palier simulé.
+    fb("tap");
+    setS((prev) => ({ ...prev, step: "nfc", anim: "push", pct: 0, verificationStatus: "reading-nfc", verificationError: null }));
 
     // readEmrtdChip() est un seul appel asynchrone sans callback de progression (voir sa
     // signature dans emrtdReader.ts) : on simule une montée fluide jusqu'à 90 % pendant l'attente
@@ -274,16 +295,19 @@ export function useAuthentikDemo() {
     } catch (error) {
       clear();
       const described = describeVerificationError(error);
+      fb("error");
       setS((prev) => ({
         ...prev,
         step: described.action === "rescan-mrz" ? "mrz" : "place",
+        anim: "back",
         verificationStatus: "idle",
         verificationError: described,
       }));
       return;
     }
     clear();
-    setS((prev) => ({ ...prev, pct: 100, chipResult, step: "processing", verificationStatus: "verifying" }));
+    fb("live");
+    setS((prev) => ({ ...prev, pct: 100, chipResult, step: "processing", anim: "fade", verificationStatus: "verifying" }));
 
     try {
       const result = await computeLocalVerification({
@@ -291,12 +315,14 @@ export function useAuthentikDemo() {
         chipData: { sod: chipResult.sod, dataGroups: chipResult.dataGroups },
         requestedFields: ["documentNumber", "dateOfBirth", "dateOfExpiry", "nationality", "sex", "primaryIdentifier", "secondaryIdentifier"],
       });
-      setS((prev) => ({ ...prev, verificationResult: result, verificationStatus: "idle", step: "verdict" }));
+      setS((prev) => ({ ...prev, verificationResult: result, verificationStatus: "idle", step: "verdict", anim: "verdict" }));
+      fb(result.verdict === "rejected" ? "error" : result.verdict === "authentic" ? "success" : "warning");
     } catch (error) {
       const described = describeVerificationError(error);
-      setS((prev) => ({ ...prev, step: "place", verificationStatus: "idle", verificationError: described }));
+      fb("error");
+      setS((prev) => ({ ...prev, step: "place", anim: "back", verificationStatus: "idle", verificationError: described }));
     }
-  }, [clear]);
+  }, [clear, fb]);
 
   const beginNfc = useCallback(() => {
     clear();
@@ -314,6 +340,7 @@ export function useAuthentikDemo() {
     setS((prev) => ({
       ...prev,
       step: "home",
+      anim: TAB_STEPS.includes(prev.step) ? "tab" : "fade",
       pct: 0,
       showShare: false,
       mrzForm: DEFAULT_MRZ_FORM,
@@ -334,7 +361,7 @@ export function useAuthentikDemo() {
       const suspicious = (prev.scenarioSel ?? "suspicious") === "suspicious";
       const alert = (prev.scenarioSel ?? "suspicious") === "alert";
       const next: Scenario = suspicious ? "authentic" : alert ? "suspicious" : "alert";
-      return { ...prev, scenarioSel: next, step: "home", showShare: false };
+      return { ...prev, scenarioSel: next, step: "home", anim: "fade", showShare: false };
     });
   }, [clear]);
 
@@ -343,6 +370,7 @@ export function useAuthentikDemo() {
     () => setS((prev) => ({ ...prev, scheme: prev.scheme === "dark" ? "light" : "dark" })),
     [],
   );
+  const toggleFeedback = useCallback(() => setS((prev) => ({ ...prev, feedbackOn: !prev.feedbackOn })), []);
   const openShare = useCallback(() => setS((prev) => ({ ...prev, showShare: true })), []);
   const closeShare = useCallback(() => setS((prev) => ({ ...prev, showShare: false })), []);
 
@@ -357,6 +385,7 @@ export function useAuthentikDemo() {
       return deriveFromRealResult(s.verificationResult, s, t, lang);
     }
 
+    const RED = paletteColors.error;
     const alert = currentScenario === "alert";
     const suspicious = currentScenario === "suspicious";
     const color = alert ? RED : suspicious ? WARN : OK;
@@ -397,18 +426,19 @@ export function useAuthentikDemo() {
       return { code: a[0], sev: a[1], message: a[2], color: a[1] === "critical" ? RED : a[1] === "warning" ? WARN : INFO };
     });
 
+    const ink = (a: number) => `rgba(${paletteColors.inkBaseRgb},${a})`;
     const dgRows = t.dgs.map((g, i) => ({
       id: g.id,
       label: g.label,
-      tone: i < done ? "rgba(60,60,67,.55)" : i === done ? "#000" : "rgba(60,60,67,.3)",
+      tone: i < done ? ink(0.55) : i === done ? paletteColors.inkPrimary : ink(0.3),
       state: i < done ? ("done" as const) : i === done ? ("current" as const) : ("upcoming" as const),
-      markTone: i < done ? OK : i === done ? "#0A84FF" : "rgba(60,60,67,.22)",
+      markTone: i < done ? OK : i === done ? "#0A84FF" : ink(0.22),
     }));
 
     const procRows = t.procSteps.slice(0, suspicious || alert ? 5 : 4).map((label, i) => ({
       label,
-      dot: i < 3 ? OK : "rgba(60,60,67,.2)",
-      tone: i < 3 ? "rgba(60,60,67,.6)" : "#000",
+      dot: i < 3 ? OK : ink(0.2),
+      tone: i < 3 ? ink(0.6) : paletteColors.inkPrimary,
     }));
 
     const fieldRows = t.fields.map((f, i) => ({ label: f[0], value: f[1], checks: f[2], color: OK, first: i === 0 }));
@@ -431,7 +461,7 @@ export function useAuthentikDemo() {
       langLabel: lang === "en" ? "EN" : "FR",
       scenarioLabel: alert ? "rejected" : suspicious ? "suspicious" : "authentic",
       darkScreen: s.step === "mrz" || s.step === "selfie" || s.scheme === "dark",
-      screenBg: s.step === "mrz" || s.step === "selfie" ? "#0B0B0C" : paletteColors.screenLight,
+      screenBg: s.step === "mrz" || s.step === "selfie" ? paletteColors.screenDark : paletteColors.screenLight,
       pctLabel: `${s.pct} %`,
       pct: s.pct,
       barWidth: `${s.pct}%`,
@@ -442,7 +472,7 @@ export function useAuthentikDemo() {
       modeDot: s.online ? OK : "#0A84FF",
       trustLineNow: s.online ? t.trustLineOnline : t.trustLine,
       procNote: s.online ? t.procNoteOnline : t.procNote,
-      showTabs: s.step === "home" || s.step === "trust" || s.step === "countries",
+      showTabs: TAB_STEPS.includes(s.step),
       livePhase: s.livePhase,
       liveDone: s.livePhase >= 3,
       liveTitle: t.livePhases[s.livePhase] ?? t.livePhases[0],
@@ -481,6 +511,8 @@ export function useAuthentikDemo() {
 
   return {
     step: s.step,
+    anim: s.anim,
+    feedbackOn: s.feedbackOn,
     lang,
     scenario: currentScenario,
     showShare: s.showShare,
@@ -497,13 +529,16 @@ export function useAuthentikDemo() {
     beginNfc,
     reset,
     go,
-    goTrust: () => go("trust"),
+    goTrust: () => go("trust", "tab"),
+    goTrustPush: () => go("trust", "push"),
+    goSettings: () => go("settings", "tab"),
     goFields: () => go("fields"),
     goChain: () => go("chain"),
     goAnomalies: () => go("anomalies"),
-    goVerdict: () => go("verdict"),
+    goVerdict: () => go("verdict", "back"),
     goCountries: () => go("countries"),
-    backFromCountries: () => go("trust"),
+    backFromCountries: () => go("trust", "back"),
+    toggleFeedback,
     openShare,
     closeShare,
     toggleOnline,
@@ -525,7 +560,9 @@ function deriveFromRealResult(
   t: ReturnType<typeof copyFor>,
   lang: Lang,
 ) {
-  const paletteColors = paletteFor(s.scheme);
+  const paletteColors: PaletteColors = paletteFor(s.scheme);
+  const RED = paletteColors.error;
+  const ink = (a: number) => `rgba(${paletteColors.inkBaseRgb},${a})`;
   const verdict: Verdict = result.verdict;
   const alert = verdict === "rejected";
   const suspicious = verdict === "suspicious" || verdict === "manual_review_required";
@@ -547,7 +584,7 @@ function deriveFromRealResult(
     code: a.code,
     sev: a.severity,
     message: a.message,
-    color: severityColor(a.severity),
+    color: severityColor(a.severity, RED),
   }));
 
   const trust = result.trustChain;
@@ -589,7 +626,7 @@ function deriveFromRealResult(
     return {
       id: `DG${id}`,
       label: DG_LABELS[id] ?? `DG${id}`,
-      tone: "rgba(60,60,67,.55)",
+      tone: ink(0.55),
       state: "done" as const,
       markTone: OK,
     };
@@ -614,12 +651,12 @@ function deriveFromRealResult(
   ];
 
   const procRows = [
-    { label: "Lecture MRZ", dot: OK, tone: "rgba(60,60,67,.6)" },
-    { label: "Lecture de la puce NFC", dot: OK, tone: "rgba(60,60,67,.6)" },
+    { label: "Lecture MRZ", dot: OK, tone: ink(0.6) },
+    { label: "Lecture de la puce NFC", dot: OK, tone: ink(0.6) },
     {
       label: "Vérification locale",
-      dot: s.verificationStatus === "verifying" ? "rgba(60,60,67,.2)" : OK,
-      tone: s.verificationStatus === "verifying" ? "#000" : "rgba(60,60,67,.6)",
+      dot: s.verificationStatus === "verifying" ? ink(0.2) : OK,
+      tone: s.verificationStatus === "verifying" ? paletteColors.inkPrimary : ink(0.6),
     },
   ];
 
@@ -633,7 +670,7 @@ function deriveFromRealResult(
     langLabel: lang === "en" ? "EN" : "FR",
     scenarioLabel: verdict,
     darkScreen: s.step === "mrz" || s.step === "selfie" || s.scheme === "dark",
-    screenBg: s.step === "mrz" || s.step === "selfie" ? "#0B0B0C" : paletteColors.screenLight,
+    screenBg: s.step === "mrz" || s.step === "selfie" ? paletteColors.screenDark : paletteColors.screenLight,
     pctLabel: `${s.pct} %`,
     pct: s.pct,
     barWidth: `${s.pct}%`,
@@ -644,7 +681,7 @@ function deriveFromRealResult(
     modeDot: s.online ? OK : "#0A84FF",
     trustLineNow: s.online ? t.trustLineOnline : t.trustLine,
     procNote: "Vérification locale — voir README pour ce qui reste hors périmètre (liveness, reconnaissance faciale, réconciliation backend).",
-    showTabs: s.step === "home" || s.step === "trust" || s.step === "countries",
+    showTabs: TAB_STEPS.includes(s.step),
     livePhase: s.livePhase,
     liveDone: s.livePhase >= 3,
     liveTitle: t.livePhases[0],
@@ -685,7 +722,7 @@ function deriveFromRealResult(
   };
 }
 
-function severityColor(sev: AnomalySeverity) {
+function severityColor(sev: AnomalySeverity, RED: string) {
   return sev === "critical" ? RED : sev === "warning" ? WARN : INFO;
 }
 

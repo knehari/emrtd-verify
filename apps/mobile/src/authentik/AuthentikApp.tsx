@@ -24,9 +24,11 @@ import { ChainScreen } from "./screens/ChainScreen";
 import { AnomaliesScreen } from "./screens/AnomaliesScreen";
 import { TrustScreen } from "./screens/TrustScreen";
 import { CountriesScreen } from "./screens/CountriesScreen";
+import { SettingsScreen } from "./screens/SettingsScreen";
 import { TabBar } from "./components/TabBar";
 import { ShareModal } from "./components/ShareModal";
 import { DemoControls } from "./components/DemoControls";
+import { ScreenTransition } from "./components/ScreenTransition";
 
 function AuthentikRoot() {
   const demo = useAuthentikDemo();
@@ -70,12 +72,19 @@ function AuthentikRoot() {
     case "countries":
       Screen = <CountriesScreen demo={demo} />;
       break;
+    case "settings":
+      Screen = <SettingsScreen demo={demo} />;
+      break;
   }
 
   return (
     <View style={[styles.root, { backgroundColor: demo.screenBg }]}>
       <StatusBar style={demo.darkScreen ? "light" : "dark"} />
-      <View style={[styles.content, { paddingTop: insets.top, paddingBottom: demo.showTabs ? 0 : insets.bottom }]}>{Screen}</View>
+      <View style={[styles.content, { paddingTop: insets.top, paddingBottom: demo.showTabs ? 0 : insets.bottom }]}>
+        <ScreenTransition key={demo.step} anim={demo.anim}>
+          {Screen}
+        </ScreenTransition>
+      </View>
       {demo.showTabs ? <TabBar demo={demo} bottomInset={insets.bottom} /> : null}
       {demo.step === "home" ? <DemoControls demo={demo} topInset={insets.top} /> : null}
       <ShareModal demo={demo} />
@@ -93,5 +102,6 @@ export function AuthentikApp() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  content: { flex: 1 },
+  // Découpe l'écran entrant pendant les transitions push/modal (il part hors champ).
+  content: { flex: 1, overflow: "hidden" },
 });

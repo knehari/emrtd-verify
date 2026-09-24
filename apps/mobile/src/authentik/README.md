@@ -76,30 +76,43 @@ document, dates de naissance/expiration) servant de clé d'accès NFC/BAC. Une v
   de saisie manuelle, avec un bandeau de confirmation) avant de continuer — pas d'avance automatique
   sans confirmation visuelle.
 
-## Mode Dark (ajouté, hors handoff original)
+## Design v2 — mode sombre, transitions, retours, Réglages
 
-Le handoff de design ne livre aucune maquette sombre (§9 "Design tokens" ne documente qu'une
-palette claire, plus les surfaces sombres des écrans caméra Mrz/Selfie qui restent volontairement
-sombres quel que soit le mode). Un bascule clair/sombre a été ajouté sur demande, sur le même
-principe que le mode hors ligne/en ligne déjà présent :
+Deuxième livraison de Claude Design (`Authentik Mobile v2 Dark.dc.html`, non versionné ici non
+plus). Ce qu'elle change, et comment c'est transcrit :
 
-- `theme.ts` : `darkColors`, une approximation raisonnable des conventions système iOS en mode
-  sombre (labelColor blanc à opacité dégressive, systemBackground/secondarySystemBackground) pour
-  les tokens qui doivent s'adapter au fond — `accent`, les dégradés et les couleurs sémantiques
-  (succès/avertissement/erreur) restent identiques dans les deux modes.
-- `state.ts` : `scheme`/`toggleScheme`, initialisé depuis `Appearance.getColorScheme()` puis
-  bascule manuelle via l'icône soleil/lune de l'écran d'accueil.
-- Chaque écran calcule ses styles via `useMemo(() => makeStyles(demo.colors), [demo.colors])`
-  plutôt qu'un `StyleSheet.create` statique au chargement du module, pour réagir au changement de
-  palette.
-- Les écrans caméra (Mrz, Selfie) restent sombres dans les deux modes — c'est déjà leur traitement
-  dans le handoff, pas une conséquence du bascule.
+- **Sombre par défaut** — `theme.ts` `darkColors` reprend la palette "noir pur iOS" du design (fond
+  #000, surfaces #1C1C1E, encre rgba(235,235,245,…), rouge #FF453A, washs de verdict du design). Le
+  mode clair (palette v1) reste accessible : la bascule a quitté l'en-tête de l'accueil pour la
+  section Apparence des Réglages (ajout hors design, le design v2 est sombre uniquement).
+- **Nom provisoire "BaynID"** (`copy.ts` `appName`, `app.json` `name`) — le design proposait
+  ClearID/PuceID/IDSure/VeraID/TrueID ; l'utilisateur teste BaynID. Les identifiants de code
+  (`authentik/`, `useAuthentikDemo`) et l'identifiant de bundle iOS ne changent pas.
+- **Accueil** (`screens/HomeScreen.tsx`) — logo flat, nom, mode hors ligne/en ligne et état du
+  magasin CSCA dans un seul cadre ; bouton Vérifier en anneau de verre (176 px) autour d'un disque
+  plein (132 px) qui occupe l'espace central. L'illustration d'en-tête
+  (`assets/authentik/header-illustration.png`) n'est plus affichée.
+- **Onglet Réglages** (`screens/SettingsScreen.tsx`, étape `settings`) — remplace l'onglet "À
+  propos" inactif : version, magasin CSCA (→ magasin de confiance), sons et retours haptiques,
+  apparence, confidentialité, informations légales (lignes décoratives, comme dans le prototype).
+- **Transitions** (`components/ScreenTransition.tsx`) — table `ANIM` du design : push iOS entre
+  écrans, retour, montée modale au lancement du parcours, fondu entre onglets et vers le
+  traitement, fondu + léger zoom vers le verdict, dont les cinq contrôles apparaissent l'un après
+  l'autre. Seul l'écran entrant est animé, comme dans le prototype.
+- **Retours haptiques et sonores** (`feedback.ts`) — mêmes déclencheurs que `fb()` du design : tap
+  au lancement, tick à chaque palier NFC / phase de vivacité / MRZ validée, "live" en fin de
+  lecture et à la vivacité confirmée, succès/avertissement/erreur au verdict (et erreur sur un
+  échec de lecture réelle). Haptique via `expo-haptics` ; sons via `expo-av` (nouvelle dépendance
+  native : **recompiler le dev client**), tonalités du design pré-rendues en WAV par
+  `scripts/generate-feedback-tones.js`. Coupables dans Réglages. La bulle "Haptique · …" du
+  prototype n'est pas reprise : elle ne servait qu'à montrer les vibrations dans un navigateur.
+- **Dock** (`components/TabBar.tsx`) — géométrie v2 (64 px, rayon 32, marges 16), pilule
+  rgba(255,255,255,.13) en sombre, trois onglets actifs.
 
-## Retour tactile (ajouté)
+Corrigé au passage : le journal DG de l'écran NFC et l'écran de traitement écrivaient l'étape en
+cours en `#000` codé en dur, invisible sur fond noir — ils suivent désormais la palette.
 
-Chaque `Pressable` de `authentik/` passe par `components/PressableFX.tsx` (léger retrait
-d'échelle + baisse d'opacité au contact) — le handoff ne spécifie aucun état "pressed" (prototype
-HTML statique). `expo-haptics` déclenche une vibration unique (`impactAsync`, style `Medium`) au
-tout début d'une lecture NFC (`state.ts`, `runVerification`/`runNfcDemo`) — recommandé par le
-handoff (§7 "Interactions, animations, états" : "Retour tactile : recommandé sur franchissement de
-palier NFC...") mais implémenté ici seulement au démarrage de la lecture, comme demandé.
+Toujours valable depuis la v1 : chaque écran calcule ses styles via
+`useMemo(() => makeStyles(demo.colors), [demo.colors])` pour suivre la palette active, et chaque
+`Pressable` passe par `components/PressableFX.tsx` (léger retrait d'échelle + opacité au contact,
+état "pressed" absent du design).
