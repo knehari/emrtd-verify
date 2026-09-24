@@ -1,6 +1,13 @@
 import { isSuccess, formatStatusWord, type CommandApduInput } from "./apdu";
-import { unwrapResponseApdu, wrapCommandApdu, type SecureMessagingKeys } from "./secureMessaging";
+import { SecureMessagingError, unwrapResponseApdu, wrapCommandApdu, type SecureMessagingKeys } from "./secureMessaging";
 import type { ApduTransceiver } from "./bac";
+import {
+  parseDg14ChipAuthentication,
+  prepareChipAuthentication,
+  selectChipAuthentication,
+  verifyPaceCam,
+  type PaceCamData,
+} from "./chipAuthentication";
 
 /**
  * Lecture des fichiers eMRTD (EF.SOD + groupes de données) via SELECT/READ BINARY protégés par
@@ -51,6 +58,25 @@ export interface ChipReaderConfig {
    * la puce porte DG15, INTERNAL AUTHENTICATE est envoyé après la lecture des DG.
    */
   activeAuthenticationChallenge?: Uint8Array;
+  /**
+   * Chip Authentication quand DG14 l'annonce (activée par défaut) — voir chipAuthentication.ts.
+   * `paceCam` : données PACE-CAM de la session, vérifiées contre DG14 sans échange supplémentaire.
+   */
+  chipAuthentication?: { enabled?: boolean; paceCam?: PaceCamData; generatePrivateKey?: (order: bigint) => bigint };
+}
+
+/**
+ * Résultat anti-clonage par Chip Authentication. `performed` : la puce a accepté l'échange et les
+ * clés ont basculé (ou les données PACE-CAM ont été vérifiées) ; `valid` : elle a prouvé détenir la
+ * clé privée de DG14. `performed && !valid` est un signal fort de clonage.
+ */
+export interface ChipAuthenticationResult {
+  performed: boolean;
+  valid: boolean;
+  protocol?: "CA" | "PACE-CAM";
+  /** OID du protocole CA utilisé (id-CA-ECDH-AES-CBC-CMAC-128…). */
+  oid?: string;
+  reason?: string;
 }
 
 const DEFAULT_MAX_CHUNK_SIZE = 200;
@@ -185,6 +211,89 @@ export interface ChipReadResult {
   missingDataGroups: number[];
   /** Réponse brute à INTERNAL AUTHENTICATE (à vérifier contre DG15), ou l'erreur renvoyée par la puce. */
   activeAuthentication?: { challenge: Uint8Array; response?: Uint8Array; error?: string };
+  /** Chip Authentication (ou PACE-CAM), si DG14 l'annonce. */
+  chipAuthentication?: ChipAuthenticationResult;
+}
+
+function isSmIntegrityFailure(error: unknown, sw?: { sw1: number; sw2: number }): boolean {
+  // 6987/6988 : objets de messagerie sécurisée manquants ou incorrects côté puce.
+  return error instanceof SecureMessagingError || (sw !== undefined && sw.sw1 === 0x69 && (sw.sw2 === 0x87 || sw.sw2 === 0x88));
+}
+
+/**
+ * Chip Authentication v1 (Doc 9303 Part 11 §6.2) sous la messagerie sécurisée en cours, puis preuve :
+ * relecture du début de DG1 sous les NOUVELLES clés — une puce qui ne détient pas la clé privée de
+ * DG14 ne peut pas produire une réponse authentifiée, et les octets relus doivent être ceux déjà lus.
+ */
+async function runChipAuthentication(
+  transceiver: ApduTransceiver,
+  keys: SecureMessagingKeys,
+  sscRef: SscRef,
+  dg14: Uint8Array,
+  dg1: Uint8Array | undefined,
+  options: NonNullable<ChipReaderConfig["chipAuthentication"]>,
+): Promise<ChipAuthenticationResult> {
+  let parsed;
+  try {
+    parsed = parseDg14ChipAuthentication(dg14);
+  } catch (error) {
+    return { performed: false, valid: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+  if (parsed.publicKeys.length === 0) {
+    return { performed: false, valid: false, reason: "DG14 n'annonce pas de Chip Authentication" };
+  }
+
+  let camNote: string | undefined;
+  if (options.paceCam) {
+    const cam = verifyPaceCam(options.paceCam, parsed);
+    if (cam.valid) return { performed: true, valid: true, protocol: "PACE-CAM" };
+    // Ne conclut pas au clone sur les seules données CAM : la CA classique tranche.
+    camNote = `PACE-CAM non concluant (${cam.reason})`;
+  }
+
+  let exchange;
+  let selection;
+  try {
+    selection = selectChipAuthentication(parsed);
+    exchange = prepareChipAuthentication(selection, options.generatePrivateKey);
+  } catch (error) {
+    return { performed: false, valid: false, reason: [camNote, error instanceof Error ? error.message : String(error)].filter(Boolean).join(" ; ") };
+  }
+  const oid = selection.info.oid;
+
+  // Échange sous les clés en cours : un refus ici signifie « non réalisée », pas « clone ».
+  try {
+    for (const command of exchange.commands) {
+      const response = await smExchange(transceiver, keys, sscRef, command);
+      if (!isSuccess(response)) {
+        return { performed: false, valid: false, protocol: "CA", oid, reason: `Chip Authentication refusée par la puce : SW=${formatStatusWord(response)}` };
+      }
+    }
+  } catch (error) {
+    return { performed: false, valid: false, protocol: "CA", oid, reason: `Chip Authentication interrompue : ${error instanceof Error ? error.message : String(error)}` };
+  }
+
+  // Bascule sur les clés dérivées de la clé de DG14, SSC à zéro, et preuve par relecture.
+  const newSsc: SscRef = { current: exchange.ssc };
+  try {
+    await selectByFileId(transceiver, exchange.keys, newSsc, dataGroupFileId(1));
+    const response = await smExchange(transceiver, exchange.keys, newSsc, { cla: 0x00, ins: 0xb0, p1: 0x00, p2: 0x00, le: 8 });
+    if (!isSuccess(response)) {
+      return isSmIntegrityFailure(undefined, response)
+        ? { performed: true, valid: false, protocol: "CA", oid, reason: `La puce n'a pas pu répondre sous les nouvelles clés (SW=${formatStatusWord(response)})` }
+        : { performed: false, valid: false, protocol: "CA", oid, reason: `Relecture après Chip Authentication refusée : SW=${formatStatusWord(response)}` };
+    }
+    if (dg1 && !response.data.every((byte, i) => byte === dg1[i])) {
+      return { performed: true, valid: false, protocol: "CA", oid, reason: "Les octets relus sous les nouvelles clés diffèrent de DG1" };
+    }
+    return { performed: true, valid: true, protocol: "CA", oid };
+  } catch (error) {
+    if (isSmIntegrityFailure(error)) {
+      return { performed: true, valid: false, protocol: "CA", oid, reason: "Réponse de la puce non authentifiée sous les clés de Chip Authentication : elle ne détient pas la clé privée de DG14" };
+    }
+    // Rupture de la liaison NFC, etc. : pas de conclusion possible.
+    return { performed: false, valid: false, protocol: "CA", oid, reason: `Preuve de Chip Authentication interrompue : ${error instanceof Error ? error.message : String(error)}` };
+  }
 }
 
 /**
@@ -231,7 +340,14 @@ export async function readEmrtdChipData(
       : { challenge, error: `INTERNAL AUTHENTICATE refusé : SW=${formatStatusWord(response)}` };
   }
 
-  return { sod, dataGroups, missingDataGroups, activeAuthentication };
+  // En dernier : après la bascule de clés, la session ne sert plus qu'à la preuve.
+  let chipAuthentication: ChipAuthenticationResult | undefined;
+  const caOptions = config?.chipAuthentication ?? {};
+  if (caOptions.enabled !== false && dataGroups[14]) {
+    chipAuthentication = await runChipAuthentication(transceiver, keys, sscRef, dataGroups[14], dataGroups[1], caOptions);
+  }
+
+  return { sod, dataGroups, missingDataGroups, activeAuthentication, chipAuthentication };
 }
 
 export { EF_SOD_FID, EF_COM_FID, EMRTD_APPLICATION_AID, dataGroupFileId };

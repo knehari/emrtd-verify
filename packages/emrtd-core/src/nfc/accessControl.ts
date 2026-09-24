@@ -16,6 +16,8 @@ export interface SecureChannel {
   ssc: Uint8Array;
   protocol: "PACE" | "BAC";
   paceInfo?: PaceInfo;
+  /** PACE-CAM : données de Chip Authentication à vérifier contre DG14 (voir `readEmrtdChipData`). */
+  paceCam?: { chipAuthenticationData: Uint8Array; chipMappingPublicKey: Uint8Array };
 }
 
 const EF_CARD_ACCESS_SFI = 0x1c;
@@ -100,7 +102,7 @@ export async function establishSecureChannel(
     options.onProtocol?.("PACE");
     try {
       const result = await performPace(transceiver, { kind: "mrz", accessKey }, paceInfo, options.pace);
-      return { ...result, protocol: "PACE" };
+      return { smKeys: result.smKeys, ssc: result.ssc, paceInfo: result.paceInfo, paceCam: result.cam, protocol: "PACE" };
     } catch (error) {
       if (error instanceof PaceAuthenticationError || !(error instanceof PaceError)) throw error;
       paceFailure = error;

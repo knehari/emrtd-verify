@@ -192,6 +192,41 @@ describe("detectAnomalies", () => {
       expect(findings.some((f) => f.code === "MISSING_ACTIVE_CHIP_AUTH")).toBe(false);
     });
 
+    it("une Chip Authentication réussie suffit comme preuve anti-clonage, sans AA", () => {
+      const findings = detectAnomalies({
+        trustChain: baseTrustChain,
+        mrzValidation: validMrz,
+        documentExpectedToSupportAaOrCa: true,
+        chipAuthentication: { performed: true, valid: true },
+        lostStolenCheck: baseLostStolenCheck,
+      });
+      expect(findings.some((f) => f.code === "MISSING_ACTIVE_CHIP_AUTH" || f.severity === "critical")).toBe(false);
+    });
+
+    it("une Chip Authentication réalisée mais non prouvée est critique (clone)", () => {
+      const findings = detectAnomalies({
+        trustChain: baseTrustChain,
+        mrzValidation: validMrz,
+        documentExpectedToSupportAaOrCa: true,
+        chipAuthentication: { performed: true, valid: false, reason: "réponse non authentifiée" },
+        lostStolenCheck: baseLostStolenCheck,
+      });
+      expect(findings).toContainEqual(expect.objectContaining({ code: "CHIP_AUTHENTICATION_FAILED", severity: "critical" }));
+      expect(findings.some((f) => f.code === "MISSING_ACTIVE_CHIP_AUTH")).toBe(false);
+    });
+
+    it("une Chip Authentication non réalisée (refus, liaison coupée) reste un simple avertissement", () => {
+      const findings = detectAnomalies({
+        trustChain: baseTrustChain,
+        mrzValidation: validMrz,
+        documentExpectedToSupportAaOrCa: true,
+        chipAuthentication: { performed: false, valid: false, reason: "Chip Authentication refusée par la puce : SW=6A80" },
+        lostStolenCheck: baseLostStolenCheck,
+      });
+      expect(findings).toContainEqual(expect.objectContaining({ code: "MISSING_ACTIVE_CHIP_AUTH", severity: "warning" }));
+      expect(findings.some((f) => f.severity === "critical")).toBe(false);
+    });
+
     it("signale un échec de vérification AA en critique (indice de clonage) — plus grave qu'une simple absence", () => {
       const findings = detectAnomalies({
         trustChain: baseTrustChain,

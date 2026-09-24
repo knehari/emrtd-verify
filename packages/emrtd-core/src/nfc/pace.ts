@@ -2,9 +2,9 @@ import { fromBER, Integer, ObjectIdentifier, Sequence, Set as Asn1Set } from "as
 import { buildCommandApdu, formatStatusWord, isSuccess, parseResponseApdu } from "./apdu";
 import type { ApduTransceiver } from "./bac";
 import type { SecureMessagingKeys } from "./secureMessaging";
-import { aesCbcDecrypt, aesCmac8 } from "../crypto/aes";
+import { aesCbcDecrypt, aesCmac8, aesEcbEncryptBlock } from "../crypto/aes";
 import { tripleDesCbcDecrypt } from "../crypto/tripleDes";
-import { computeRetailMac, constantTimeEquals, padIso9797Method2 } from "../crypto/retailMac";
+import { computeRetailMac, constantTimeEquals, padIso9797Method2, unpadIso9797Method2 } from "../crypto/retailMac";
 import { sha1 } from "../crypto/sha1";
 import { sha256 } from "../crypto/sha256";
 import { bigIntToBytes, bytesToBigInt, decodePoint, encodePoint, standardizedEcDomain, type EcDomain, type EcPoint } from "../crypto/ecCurves";
@@ -16,9 +16,9 @@ import { buildMrzInformation, type BacAccessKeyInput } from "../mrz/bacKey";
  * (règlement (UE) 2019/1157) et SEUL protocole accepté par de nombreuses cartes d'identité
  * (CNI françaises depuis 2021, cartes allemandes…). Les passeports le proposent en plus de BAC.
  *
- * Pris en charge : mappage générique ECDH (GM) et Chip Authentication Mapping (CAM, traité comme
- * GM pour l'établissement du canal — les données CAM renvoyées par la puce ne sont pas vérifiées
- * ici, la vérification locale s'appuie sur l'authentification passive + active), 3DES et AES
+ * Pris en charge : mappage générique ECDH (GM) et Chip Authentication Mapping (CAM : même canal que
+ * GM, plus les données de Chip Authentication de la puce, déchiffrées ici et vérifiées contre DG14
+ * par `verifyPaceCam`, chipAuthentication.ts), 3DES et AES
  * 128/192/256, les 11 courbes standardisées (ids 8–18). Non pris en charge (repli sur BAC par
  * l'appelant) : groupes MODP (DH), mappage intégré (IM), paramètres propriétaires.
  *
@@ -53,6 +53,8 @@ export interface PaceResult {
   /** SSC initial après PACE : zéro (8 octets en 3DES, 16 en AES). */
   ssc: Uint8Array;
   paceInfo: PaceInfo;
+  /** PACE-CAM uniquement : CA_IC déchiffré et clé publique de mappage de la puce. */
+  cam?: { chipAuthenticationData: Uint8Array; chipMappingPublicKey: Uint8Array };
 }
 
 const PACE_OID_PREFIX = "0.4.0.127.0.7.2.2.4.";
@@ -125,7 +127,7 @@ function encodeLength(length: number): Uint8Array {
   return Uint8Array.of(0x82, (length >> 8) & 0xff, length & 0xff);
 }
 
-function tlv(tag: number, value: Uint8Array): Uint8Array {
+export function tlv(tag: number, value: Uint8Array): Uint8Array {
   const tagBytes = tag > 0xff ? Uint8Array.of(tag >> 8, tag & 0xff) : Uint8Array.of(tag);
   return concatBytes(tagBytes, encodeLength(value.length), value);
 }
@@ -200,7 +202,7 @@ function paceMac(info: PaceInfo, key: Uint8Array, data: Uint8Array): Uint8Array 
   return info.cipher === "AES" ? aesCmac8(key, data) : computeRetailMac(key, padIso9797Method2(data));
 }
 
-function randomScalar(order: bigint, byteLength: number): bigint {
+export function randomScalar(order: bigint, byteLength: number): bigint {
   if (typeof globalThis.crypto?.getRandomValues === "undefined") {
     throw new Error("crypto.getRandomValues indisponible : importer `react-native-get-random-values` avant toute lecture NFC.");
   }
@@ -299,9 +301,26 @@ export async function performPace(
     throw new PaceAuthenticationError("Jeton d'authentification de la puce invalide — document non authentique ou MRZ incorrecte");
   }
 
+  // PACE-CAM : A_IC = E(KSenc, CA_IC), AES-CBC avec IV = E(KSenc, -1) (SSC tout à 1), padding
+  // ISO 9797-1 méthode 2 (Doc 9303 Part 11 §4.4.3.5.1). CA_IC se vérifie une fois DG14 lu.
+  let cam: PaceResult["cam"];
+  const encryptedCam = tokenObjects.get(0x8a);
+  if (info.mapping === "CAM" && encryptedCam && info.cipher === "AES") {
+    try {
+      const iv = aesEcbEncryptBlock(ksEnc, new Uint8Array(16).fill(0xff));
+      cam = {
+        chipAuthenticationData: unpadIso9797Method2(aesCbcDecrypt(ksEnc, iv, encryptedCam)),
+        chipMappingPublicKey: encodePoint(domain, chipMapPublic),
+      };
+    } catch {
+      cam = undefined; // Données illisibles : la Chip Authentication classique prendra le relais.
+    }
+  }
+
   return {
     smKeys: { ksEnc, ksMac, cipher: info.cipher },
     ssc: new Uint8Array(info.cipher === "AES" ? 16 : 8),
     paceInfo: info,
+    cam,
   };
 }

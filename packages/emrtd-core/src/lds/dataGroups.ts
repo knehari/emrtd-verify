@@ -167,7 +167,10 @@ export interface DataGroup2 {
   imageBytes: Uint8Array;
 }
 
-/** DG14 — infos de sécurité pour Chip Authentication (Doc 9303 Part 11 §5). */
+/**
+ * DG14 — infos de sécurité pour Chip Authentication (Doc 9303 Part 11 §5). Analyse complète des
+ * SecurityInfos et protocole lui-même : nfc/chipAuthentication.ts.
+ */
 export interface DataGroup14 {
   chipAuthenticationPublicKeyOid: string;
   chipAuthenticationPublicKey: Uint8Array;

@@ -2,6 +2,7 @@ import {
   buildChipDataEnvelope,
   decodeChipDataEnvelope,
   bytesToBase64,
+  parseDg14ChipAuthentication,
   verifyLivenessResponse,
   type LivenessChallenge,
   type LivenessSignalFrame,
@@ -57,6 +58,8 @@ export interface LocalVerificationResult {
   };
   /** Active Authentication : `undefined` si la puce n'a pas de DG15 (non proposée par le document). */
   activeAuthentication?: { performed: boolean; valid: boolean; reason?: string };
+  /** Chip Authentication / PACE-CAM : `undefined` si DG14 n'en annonce pas. */
+  chipAuthentication?: { performed: boolean; valid: boolean; protocol?: "CA" | "PACE-CAM"; reason?: string };
   /** Photo du porteur extraite de DG2 (JPEG ou JPEG 2000, affichable par <Image> sur iOS). */
   faceImage?: { dataUri: string; format: "jpeg" | "jpeg2000" };
   activeLiveness?: ActiveLivenessResult;
@@ -76,6 +79,8 @@ export interface LocalVerificationInput {
     sod: Uint8Array;
     dataGroups: Record<number, Uint8Array>;
     activeAuthentication?: { challenge: Uint8Array; responseDer: Uint8Array };
+    /** Résultat de la Chip Authentication faite pendant la lecture (voir emrtd-core chipReader.ts). */
+    chipAuthentication?: { performed: boolean; valid: boolean; protocol?: "CA" | "PACE-CAM"; reason?: string };
   };
   activeLiveness?: {
     challenge: LivenessChallenge;
@@ -157,10 +162,10 @@ export async function computeLocalVerification(input: LocalVerificationInput): P
     trustChain,
     mrzValidation: decoded.mrzValidation,
     activeAuthentication: decoded.activeAuthentication,
-    // Attendue dès que la puce porte DG15 (clé d'AA) : l'app envoie alors toujours le défi. Une
-    // puce qui n'a que DG14 (Chip Authentication, ex. CNI française) n'est pas pénalisée tant que
-    // CA n'est pas implémentée ici.
-    documentExpectedToSupportAaOrCa: input.chipData.dataGroups[15] !== undefined,
+    chipAuthentication: input.chipData.chipAuthentication,
+    // Attendue dès que la puce porte DG15 (clé d'AA, l'app envoie toujours le défi) ou une clé de
+    // Chip Authentication dans DG14 (l'app lance toujours la CA) : AA ou CA doit alors aboutir.
+    documentExpectedToSupportAaOrCa: input.chipData.dataGroups[15] !== undefined || dg14AnnouncesChipAuthentication(input.chipData.dataGroups[14]),
     // Registre perdu/volé : serveur uniquement, jamais interrogeable hors ligne — `checked: false`
     // dégrade honnêtement le verdict (voir detectAnomalies) plutôt que de prétendre l'avoir vérifié.
     // Conséquence assumée : ceci déclenche systématiquement LOST_STOLEN_STATUS_NOT_CHECKED
@@ -233,8 +238,18 @@ export async function computeLocalVerification(input: LocalVerificationInput): P
         : decoded.activeAuthentication
           ? { performed: true, valid: decoded.activeAuthentication.valid, reason: decoded.activeAuthentication.reason }
           : { performed: false, valid: false, reason: "Défi non signé par la puce" },
+    chipAuthentication: input.chipData.chipAuthentication,
     activeLiveness,
     faceMatch,
     anomalies,
   };
+}
+
+function dg14AnnouncesChipAuthentication(dg14: Uint8Array | undefined): boolean {
+  if (!dg14) return false;
+  try {
+    return parseDg14ChipAuthentication(dg14).publicKeys.length > 0;
+  } catch {
+    return false;
+  }
 }

@@ -349,6 +349,7 @@ export function useAuthentikDemo() {
           activeAuthentication: chipResult.activeAuthentication?.response
             ? { challenge: chipResult.activeAuthentication.challenge, responseDer: chipResult.activeAuthentication.response }
             : undefined,
+          chipAuthentication: chipResult.chipAuthentication,
         },
         faceMatch,
         requestedFields: ["documentNumber", "dateOfBirth", "dateOfExpiry", "nationality", "sex", "primaryIdentifier", "secondaryIdentifier"],
@@ -686,6 +687,24 @@ export function useAuthentikDemo() {
   };
 }
 
+/** Ligne « Chip Authentication » du verdict (DG14) : preuve anti-clonage des documents récents. */
+function chipAuthenticationRow(result: LocalVerificationResult, red: string) {
+  const ca = result.chipAuthentication;
+  const label = "Chip Authentication (CA, anti-clonage)";
+  if (!ca) return { label, detail: "Non proposée par ce document (pas de clé dans DG14)", color: INFO, icon: "dash" as const };
+  if (ca.valid) {
+    return {
+      label,
+      detail: ca.protocol === "PACE-CAM" ? "Prouvée pendant PACE (CAM) : la puce détient la clé privée de DG14" : "La puce a prouvé détenir la clé privée de DG14",
+      color: OK,
+      icon: "check" as const,
+    };
+  }
+  return ca.performed
+    ? { label, detail: `Échec : la puce ne détient pas la clé privée de DG14${ca.reason ? ` — ${ca.reason}` : ""}`, color: red, icon: "warn" as const }
+    : { label, detail: `Non aboutie${ca.reason ? ` — ${ca.reason}` : ""}`, color: WARN, icon: "warn" as const };
+}
+
 const FACE_WARNINGS: Record<string, string> = {
   image_too_blurry: "selfie flou",
   image_resolution_too_low: "selfie trop petit",
@@ -868,7 +887,7 @@ function deriveFromRealResult(
     },
     { label: `Accès à la puce (${protocol})`, detail: `Canal sécurisé ${protocol} établi avec succès`, color: OK, icon: "check" as const },
     {
-      label: "Authentification active (anti-clonage)",
+      label: "Authentification active (AA, anti-clonage)",
       detail: !result.activeAuthentication
         ? "Non proposée par ce document (pas de DG15)"
         : result.activeAuthentication.valid
@@ -879,6 +898,7 @@ function deriveFromRealResult(
       color: !result.activeAuthentication ? INFO : result.activeAuthentication.valid ? OK : result.activeAuthentication.performed ? RED : WARN,
       icon: (!result.activeAuthentication ? "dash" : result.activeAuthentication.valid ? "check" : "warn") as "check" | "warn" | "dash",
     },
+    chipAuthenticationRow(result, RED),
     {
       label: "Champs du document",
       detail: `${fieldRows.length} champ${fieldRows.length > 1 ? "s" : ""} contrôlé${fieldRows.length > 1 ? "s" : ""}`,

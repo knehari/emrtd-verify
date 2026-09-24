@@ -13,7 +13,7 @@ Vue d'ensemble de tout ce que `VerificationModule` évalue pour produire un `Ver
 ## 2. Authenticité de la puce (anti-clonage)
 
 - [ ] **Active Authentication (AA)** présente et valide si supportée par le document (challenge/réponse avec la clé privée de la puce, Doc 9303 Part 11 §6) — son absence n'est pas rédhibitoire mais est un signal d'anomalie
-- [ ] **Chip Authentication (CA)**, quand EAC/PACE avec CA est supporté (Doc 9303 Part 11 §5) — remplace/renforce AA, établit aussi un canal sécurisé post-authentification
+- [x] **Chip Authentication (CA)**, dès que DG14 publie une clé de Chip Authentication, quel que soit le pays (Doc 9303 Part 11 §6.2, `packages/emrtd-core/src/nfc/chipAuthentication.ts`) : CA version 1 en ECDH (courbes nommées, explicites ou standardisées) et en DH (X9.42 / PKCS #3), 3DES (MSE:Set KAT) ou AES 128/192/256 (MSE:Set AT + GENERAL AUTHENTICATE), puis relecture de DG1 sous les nouvelles clés comme preuve. PACE-CAM : les données CA_IC renvoyées pendant PACE sont vérifiées contre DG14 (PK_map = CA_IC · PK_IC) ; si ce contrôle n'aboutit pas, la CA classique tranche. Réalisée mais non prouvée → `CHIP_AUTHENTICATION_FAILED` (critique) ; non aboutie (refus, liaison coupée) → `MISSING_ACTIVE_CHIP_AUTH` (avertissement) si ni AA ni CA n'a abouti. Testée contre une puce simulée (clone compris) et la trace réelle d'une carte allemande en PACE-CAM ; à confirmer sur des documents réels.
 - [ ] Cohérence entre le mécanisme d'accès effectivement utilisé (BAC vs PACE) et ce qui est annoncé par le document
 
 ## 3. Cohérence des champs

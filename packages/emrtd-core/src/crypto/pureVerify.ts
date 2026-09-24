@@ -31,6 +31,8 @@ export function hashBytes(hash: string, data: Uint8Array): Uint8Array {
 const RSA_KEY_OIDS = new Set(["1.2.840.113549.1.1.1", "1.2.840.113549.1.1.10"]);
 const EC_KEY_OID = "1.2.840.10045.2.1";
 const PRIME_FIELD_OID = "1.2.840.10045.1.1";
+/** BSI TR-03110-3 A.2.1.1 : paramètres de domaine désignés par leur identifiant standardisé (INTEGER). */
+const STANDARDIZED_DOMAIN_PARAMETERS_OID = "0.4.0.127.0.7.1.2";
 
 /** OID de courbe nommée → identifiant de paramètres standardisés (ecCurves.ts). */
 const NAMED_CURVE_OIDS: Record<string, number> = {
@@ -47,9 +49,9 @@ const NAMED_CURVE_OIDS: Record<string, number> = {
   "1.3.132.0.35": 18, // P-521
 };
 
-type EcPublicKey = { kind: "EC"; Point: WeierstrassPointCons<bigint>; order: bigint; Q: WeierstrassPoint<bigint> };
-type RsaPublicKey = { kind: "RSA"; n: bigint; e: bigint };
-type ParsedPublicKey = RsaPublicKey | EcPublicKey;
+export type EcPublicKey = { kind: "EC"; Point: WeierstrassPointCons<bigint>; order: bigint; Q: WeierstrassPoint<bigint> };
+export type RsaPublicKey = { kind: "RSA"; n: bigint; e: bigint };
+export type ParsedPublicKey = RsaPublicKey | EcPublicKey;
 
 function parseDer(bytes: Uint8Array, what: string) {
   const asn1 = fromBER(bytes.slice().buffer);
@@ -109,7 +111,7 @@ export function parseSubjectPublicKeyInfo(spkiDer: Uint8Array): ParsedPublicKey 
     return { kind: "RSA", n: integerValue(nNode), e: integerValue(eNode) };
   }
 
-  if (keyOid === EC_KEY_OID) {
+  if (keyOid === EC_KEY_OID || keyOid === STANDARDIZED_DOMAIN_PARAMETERS_OID) {
     let Point: WeierstrassPointCons<bigint>;
     let order: bigint;
     if (params instanceof ObjectIdentifier) {
@@ -121,6 +123,12 @@ export function parseSubjectPublicKeyInfo(spkiDer: Uint8Array): ParsedPublicKey 
       order = domain.order;
     } else if (params instanceof Sequence) {
       ({ Point, order } = explicitCurve(params));
+    } else if (params instanceof Integer) {
+      // Clés de Chip Authentication (DG14) : courbe standardisée désignée par son numéro (8 à 18).
+      const domain = standardizedEcDomain(Number(integerValue(params)));
+      if (!domain) throw new Error(`Paramètres de domaine standardisés non pris en charge : ${integerValue(params)}`);
+      Point = domain.Point;
+      order = domain.order;
     } else {
       throw new Error("Clé EC sans paramètres de courbe exploitables");
     }

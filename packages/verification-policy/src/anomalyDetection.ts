@@ -24,6 +24,12 @@ export interface AnomalyDetectionInput {
    * (packages/emrtd-core/src/lds/activeAuthentication.ts).
    */
   activeAuthentication?: ActiveAuthenticationVerification;
+  /**
+   * Chip Authentication (ou PACE-CAM) faite pendant la lecture — interactive, donc constatée par
+   * le lecteur lui-même (packages/emrtd-core/src/nfc/chipReader.ts). `performed && !valid` : la
+   * puce a accepté l'échange mais n'a pas prouvé détenir la clé privée de DG14.
+   */
+  chipAuthentication?: { performed: boolean; valid: boolean; reason?: string };
   documentExpectedToSupportAaOrCa: boolean;
   cscaExpiresWithinDays?: number;
   /**
@@ -128,15 +134,28 @@ export function detectAnomalies(input: AnomalyDetectionInput): AnomalyFinding[] 
     );
   }
 
-  if (!input.activeAuthentication) {
-    if (input.documentExpectedToSupportAaOrCa) {
+  const aa = input.activeAuthentication;
+  const ca = input.chipAuthentication;
+  const caProven = ca?.performed === true && ca.valid;
+  if (ca?.performed && !ca.valid) {
+    // Même gravité qu'un échec d'AA : les données (dont DG14) sont authentiques, mais la puce ne
+    // détient pas la clé privée correspondante — copie des données sur une autre puce.
+    findings.push({
+      code: "CHIP_AUTHENTICATION_FAILED",
+      severity: "critical",
+      message: `Échec de la Chip Authentication : la puce ne détient pas la clé privée de DG14${ca.reason ? ` (${ca.reason})` : ""}`,
+    });
+  }
+
+  if (!aa) {
+    if (input.documentExpectedToSupportAaOrCa && !caProven && !(ca?.performed && !ca.valid)) {
       findings.push({
         code: "MISSING_ACTIVE_CHIP_AUTH",
         severity: "warning",
-        message: "Active/Chip Authentication absente alors que le document devrait la supporter (indice possible de clonage)",
+        message: `Active/Chip Authentication absente alors que le document devrait la supporter (indice possible de clonage)${ca?.reason ? ` — ${ca.reason}` : ""}`,
       });
     }
-  } else if (input.activeAuthentication.supported && !input.activeAuthentication.valid) {
+  } else if (aa.supported && !aa.valid) {
     // Le défi a été signé, mais pas avec la clé privée correspondant à DG15 : la puce ne
     // possède pas la clé attendue — signal fort de clonage (SOD copié sans la clé privée),
     // bien plus grave qu'une simple absence d'AA (voir docs/verification-checklist.md §2).
@@ -145,11 +164,11 @@ export function detectAnomalies(input: AnomalyDetectionInput): AnomalyFinding[] 
       severity: "critical",
       message: "Échec de la vérification Active/Chip Authentication : la puce ne détient pas la clé privée attendue",
     });
-  } else if (!input.activeAuthentication.supported) {
+  } else if (!aa.supported && !caProven) {
     findings.push({
       code: "ACTIVE_AUTHENTICATION_UNSUPPORTED_ALGORITHM",
       severity: "info",
-      message: input.activeAuthentication.reason ?? "Algorithme Active Authentication non supporté par cette implémentation",
+      message: aa.reason ?? "Algorithme Active Authentication non supporté par cette implémentation",
     });
   }
 
