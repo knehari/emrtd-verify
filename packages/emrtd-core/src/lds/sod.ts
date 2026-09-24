@@ -69,10 +69,34 @@ export interface DecodedSod {
  * Décode un EF.SOD (CMS SignedData, Doc 9303 Part 11 §4) : extrait le LDSSecurityObject,
  * le certificat Document Signer embarqué, et prépare la vérification de signature.
  */
+/**
+ * EF.SOD tel que lu sur la puce est enveloppé dans une balise applicative 0x77 (Doc 9303 Part 10
+ * §4.6.2 : "77 L ContentInfo") ; le CMS SignedData est à l'intérieur. Accepte aussi un ContentInfo
+ * déjà nu (SEQUENCE 0x30), pour les appelants qui l'auraient extrait eux-mêmes.
+ */
+export function unwrapEfSod(sod: Uint8Array): Uint8Array {
+  if (sod[0] !== 0x77) return sod;
+  const first = sod[1];
+  let length: number;
+  let headerLength: number;
+  if (first < 0x80) {
+    length = first;
+    headerLength = 2;
+  } else {
+    const lengthBytes = first & 0x7f;
+    if (lengthBytes < 1 || lengthBytes > 3) throw new Error(`EF.SOD : longueur de la balise 0x77 non prise en charge (0x${first.toString(16)})`);
+    length = 0;
+    for (let i = 0; i < lengthBytes; i++) length = (length << 8) | sod[2 + i];
+    headerLength = 2 + lengthBytes;
+  }
+  if (headerLength + length > sod.length) throw new Error("EF.SOD tronqué : la balise 0x77 annonce plus d'octets que lus");
+  return sod.subarray(headerLength, headerLength + length);
+}
+
 export function decodeSod(sodDer: Uint8Array): DecodedSod {
   ensurePkiEngine();
 
-  const asn1 = fromBER(toArrayBuffer(sodDer));
+  const asn1 = fromBER(toArrayBuffer(unwrapEfSod(sodDer)));
   if (asn1.offset === -1) {
     throw new Error("SOD invalide : échec du décodage ASN.1 du ContentInfo");
   }

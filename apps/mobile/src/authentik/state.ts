@@ -318,6 +318,7 @@ export function useAuthentikDemo() {
       setS((prev) => ({ ...prev, verificationResult: result, verificationStatus: "idle", step: "verdict", anim: "verdict" }));
       fb(result.verdict === "rejected" ? "error" : result.verdict === "authentic" ? "success" : "warning");
     } catch (error) {
+      if (__DEV__) console.log(`[VERIF] Échec : ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
       const described = describeVerificationError(error);
       fb("error");
       setS((prev) => ({ ...prev, step: "place", anim: "back", verificationStatus: "idle", verificationError: described }));

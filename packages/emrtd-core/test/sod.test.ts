@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
-import { decodeSod, verifyDataGroupHashes } from "../src/lds/sod";
+import { decodeSod, unwrapEfSod, verifyDataGroupHashes } from "../src/lds/sod";
 import { encodeLdsSecurityObject } from "../src/lds/ldsSecurityObjectAsn1";
 import { buildSignedSod, generateCscaAndDsc, generateCertificate } from "./support/pkiFixtures";
 
@@ -39,6 +39,18 @@ describe("decodeSod", () => {
     expect(decoded.document.signerCertificate.subject).toContain("CN=DSC UTO");
     expect(decoded.document.signerCertificate.serialNumber.length).toBeGreaterThan(0);
     void dsc;
+  });
+
+  it("décode EF.SOD tel que lu sur la puce, enveloppé dans la balise applicative 0x77 (Doc 9303 Part 10)", async () => {
+    const { sodDer } = await buildSampleSod();
+    const length = sodDer.length;
+    const header = length < 0x80 ? [0x77, length] : length <= 0xff ? [0x77, 0x81, length] : [0x77, 0x82, length >> 8, length & 0xff];
+    const efSod = Uint8Array.from([...header, ...sodDer]);
+    const decoded = decodeSod(efSod);
+    expect(decoded.document.ldsSecurityObject.dataGroupHashes.length).toBeGreaterThan(0);
+    await expect(decoded.verifySignature()).resolves.toBe(true);
+    expect(Array.from(unwrapEfSod(efSod))).toEqual(Array.from(sodDer));
+    expect(unwrapEfSod(sodDer)).toBe(sodDer);
   });
 
   it("valide une signature authentique", async () => {
