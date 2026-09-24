@@ -188,7 +188,12 @@ plus). Ce qu'elle change, et comment c'est transcrit :
   `scripts/generate-feedback-tones.js`. Coupables dans Réglages. La bulle "Haptique · …" du
   prototype n'est pas reprise : elle ne servait qu'à montrer les vibrations dans un navigateur.
 - **Dock** (`components/TabBar.tsx`) — géométrie v2 (64 px, rayon 32, marges 16), pilule
-  rgba(255,255,255,.13) en sombre, trois onglets actifs.
+  rgba(255,255,255,.13) en sombre, trois onglets actifs. Fond en verre natif
+  (`modules/glass-kit`) : vrai Liquid Glass (`UIGlassEffect`) quand l'app est compilée avec
+  Xcode 26 et tourne sous iOS 26 ; sinon flou système très fin, voile, reflet haut, liseré
+  lumineux dégradé et ombre extérieure seulement. L'ancien rendu floutait un fond opaque (le
+  porteur d'ombre) et ne laissait donc rien transparaître ; il ne sert plus qu'aux binaires
+  compilés sans le module.
 
 Corrigé au passage : le journal DG de l'écran NFC et l'écran de traitement écrivaient l'étape en
 cours en `#000` codé en dur, invisible sur fond noir — ils suivent désormais la palette.

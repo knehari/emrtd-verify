@@ -6,14 +6,14 @@
  * matériau système `systemChromeMaterial` (celui des barres d'outils/onglets natives iOS), pas le
  * flou générique `light`/`dark` utilisé précédemment.
  *
- * Le vrai "Liquid Glass" (iOS 26, `UIGlassEffect`/`.glassEffect()` en SwiftUI/UIKit) n'est PAS
- * accessible depuis React Native/Expo : c'est une API native ajoutée en iOS 26 sans équivalent
- * dans `expo-blur` (qui expose `UIVisualEffectView`/`UIBlurEffect`, antérieur) — l'obtenir à
- * l'identique demanderait d'écrire un module natif Expo dédié. Ce fichier approxime la sensation
- * avec ce qui EST accessible : le matériau système natif le plus proche pour le fond, et une
- * pilule "loupe de verre" animée (glissement + étirement élastique + reflet mobile) pour la
- * transition entre onglets, construite avec `Animated` (déjà utilisé partout ailleurs dans ce
- * dossier — ni `react-native-reanimated` ni Skia ne sont des dépendances de ce projet).
+ * Fond : vrai Liquid Glass via le module natif local `modules/glass-kit` (`UIGlassEffect`, app
+ * compilée avec Xcode 26 et appareil sous iOS 26 — réfraction, reflets et adaptation au contenu
+ * dessinés par le système). Avant iOS 26, ce même module rend un flou système très fin avec voile,
+ * reflet haut, liseré lumineux dégradé et ombre limitée à l'extérieur du verre. Le premier rendu
+ * posait le flou sur un fond opaque (le porteur d'ombre) : il ne floutait rien, d'où un dock mat.
+ * Un binaire sans le module garde l'ancien rendu expo-blur. La pilule "loupe de verre" animée
+ * (glissement + étirement élastique + reflet mobile) marque l'onglet actif, construite avec
+ * `Animated` (ni `react-native-reanimated` ni Skia ne sont des dépendances de ce projet).
  * Design v2 (`Authentik Mobile v2 Dark.dc.html`) : barre de 64 px (rayon 32, marges 16, padding 7),
  * onglets de 50 px, troisième onglet "Réglages" actif, pilule rgba(255,255,255,.13) en sombre.
  */
@@ -24,6 +24,7 @@ import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { type PaletteColors } from "../theme";
 import { NfcIcon, Icon, SettingsIcon } from "../icons";
+import { GlassEffectView } from "../../../modules/glass-kit";
 import type { AuthentikDemo } from "../state";
 
 const TAB_COUNT = 3;
@@ -64,6 +65,52 @@ export function TabBar({ demo, bottomInset }: { demo: AuthentikDemo; bottomInset
     ]).start();
   }, [activeIndex, tabWidth]);
 
+  const pill =
+    activeIndex >= 0 && tabWidth > 0 ? (
+      <Animated.View pointerEvents="none" style={[styles.pillSlot, { width: tabWidth, transform: [{ translateX }, { scaleX: stretch }] }]}>
+        <View style={styles.pill} />
+        <Animated.View style={[styles.pillSheen, { opacity: sheen }]}>
+          <LinearGradient
+            pointerEvents="none"
+            colors={["rgba(255,255,255,0.75)", "rgba(255,255,255,0)"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+        </Animated.View>
+      </Animated.View>
+    ) : null;
+
+  const tabs = (
+    <>
+      <Pressable onPress={demo.reset} style={styles.tab}>
+        <NfcIcon size={25} color={homeActive ? c.accent : inactive} strokeWidth={1.7} />
+        <Text style={[styles.tabLabel, { color: homeActive ? c.accent : inactive }]}>{demo.t.tabVerify}</Text>
+      </Pressable>
+      <Pressable onPress={demo.goTrust} style={styles.tab}>
+        <Icon name="shield" size={25} color={trustActive ? c.accent : inactive} strokeWidth={1.7} />
+        <Text style={[styles.tabLabel, { color: trustActive ? c.accent : inactive }]}>{demo.t.tabTrust}</Text>
+      </Pressable>
+      <Pressable onPress={demo.goSettings} style={styles.tab}>
+        <SettingsIcon size={24} color={settingsActive ? c.accent : inactive} strokeWidth={1.7} />
+        <Text style={[styles.tabLabel, { color: settingsActive ? c.accent : inactive }]}>{demo.t.tabAbout}</Text>
+      </Pressable>
+    </>
+  );
+
+  if (GlassEffectView) {
+    return (
+      <View pointerEvents="box-none" style={[styles.wrap, { bottom: 16 + bottomInset }]}>
+        <View style={styles.glassBar} onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}>
+          <GlassEffectView pointerEvents="none" style={StyleSheet.absoluteFill} cornerRadius={32} colorScheme={dark ? "dark" : "light"} />
+          {pill}
+          {tabs}
+        </View>
+      </View>
+    );
+  }
+
+  // Binaire sans modules/glass-kit (compilé avant son ajout) : rendu expo-blur d'origine.
   return (
     <View pointerEvents="box-none" style={[styles.wrap, { bottom: 16 + bottomInset }]}>
       <View style={styles.barShadow}>
@@ -79,37 +126,8 @@ export function TabBar({ demo, bottomInset }: { demo: AuthentikDemo; bottomInset
             colors={dark ? ["rgba(255,255,255,0.14)", "rgba(255,255,255,0)"] : ["rgba(255,255,255,0.45)", "rgba(255,255,255,0)"]}
             style={styles.specular}
           />
-
-          {activeIndex >= 0 && tabWidth > 0 ? (
-            <Animated.View
-              pointerEvents="none"
-              style={[styles.pillSlot, { width: tabWidth, transform: [{ translateX }, { scaleX: stretch }] }]}
-            >
-              <View style={styles.pill} />
-              <Animated.View style={[styles.pillSheen, { opacity: sheen }]}>
-                <LinearGradient
-                  pointerEvents="none"
-                  colors={["rgba(255,255,255,0.75)", "rgba(255,255,255,0)"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={StyleSheet.absoluteFillObject}
-                />
-              </Animated.View>
-            </Animated.View>
-          ) : null}
-
-          <Pressable onPress={demo.reset} style={styles.tab}>
-            <NfcIcon size={25} color={homeActive ? c.accent : inactive} strokeWidth={1.7} />
-            <Text style={[styles.tabLabel, { color: homeActive ? c.accent : inactive }]}>{demo.t.tabVerify}</Text>
-          </Pressable>
-          <Pressable onPress={demo.goTrust} style={styles.tab}>
-            <Icon name="shield" size={25} color={trustActive ? c.accent : inactive} strokeWidth={1.7} />
-            <Text style={[styles.tabLabel, { color: trustActive ? c.accent : inactive }]}>{demo.t.tabTrust}</Text>
-          </Pressable>
-          <Pressable onPress={demo.goSettings} style={styles.tab}>
-            <SettingsIcon size={24} color={settingsActive ? c.accent : inactive} strokeWidth={1.7} />
-            <Text style={[styles.tabLabel, { color: settingsActive ? c.accent : inactive }]}>{demo.t.tabAbout}</Text>
-          </Pressable>
+          {pill}
+          {tabs}
         </BlurView>
       </View>
     </View>
@@ -129,6 +147,14 @@ const makeStyles = (colors: PaletteColors, dark: boolean) => StyleSheet.create({
     shadowOpacity: dark ? 0.5 : 0.18,
     shadowRadius: dark ? 40 : 34,
     shadowOffset: { width: 0, height: dark ? 18 : 14 },
+  },
+  // Verre natif (modules/glass-kit) : ni fond, ni rognage — le verre dessine son bord et son ombre.
+  glassBar: {
+    flex: 1,
+    borderRadius: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: BAR_PADDING,
   },
   bar: {
     flex: 1,
