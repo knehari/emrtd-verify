@@ -107,7 +107,7 @@ export interface MrzFormState {
   documentType: DocumentType;
   documentNumber: string;
   // AAMMJJ — rempli soit par la saisie manuelle, soit par la capture caméra + OCR (voir
-  // authentik/components/MrzCameraScanner.tsx, ../../mrz/scanMrz.ts) ; identique dans les deux cas.
+  // authentik/components/MrzCameraScanner.tsx, ../../mrz/mrzFromLines.ts) ; identique dans les deux cas.
   dateOfBirth: string;
   dateOfExpiry: string; // AAMMJJ
 }

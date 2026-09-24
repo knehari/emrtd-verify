@@ -1,6 +1,6 @@
 /**
- * Lecture MRZ — capture caméra + OCR par défaut (voir authentik/README.md §"Capture caméra MRZ",
- * components/MrzCameraScanner.tsx, ../../mrz/scanMrz.ts), avec repli vers la saisie manuelle
+ * Lecture MRZ — lecture caméra en direct par défaut sur iOS (voir authentik/README.md §"Capture
+ * caméra MRZ", components/MrzCameraScanner.tsx, ../../mrz/mrzFromLines.ts), avec repli vers la saisie manuelle
  * transcrite depuis le handoff, bloc `isMrz` (`design_handoff_authentik/eMRTD Verify Mobile.dc.html`
  * lignes 299-317, README §6.2). Le handoff simule la caméra par un aplat texturé (son README §2/§3)
  * ; ici la caméra est réelle et produit les mêmes trois champs (numéro de document, dates de
@@ -9,23 +9,25 @@
  * reste du parcours ne fait aucune différence.
  */
 import React, { useState } from "react";
-import { View, Text, StyleSheet, TextInput } from "react-native";
+import { View, Text, StyleSheet, TextInput, Platform } from "react-native";
 import { PressableFX as Pressable } from "../components/PressableFX";
 import { MrzCameraScanner } from "../components/MrzCameraScanner";
 import type { DocumentType } from "@emrtd-verify/shared-types";
 import { colors, fontMono } from "../theme";
 import type { AuthentikDemo } from "../state";
-import type { MrzScanSuccess } from "../../mrz/scanMrz";
+import type { MrzRead } from "../../mrz/mrzFromLines";
 
 const DOCUMENT_TYPES: DocumentType[] = ["ePassport", "eID", "eResidenceCard"];
+// Le scanner en direct repose sur Apple Vision (modules/mrz-scanner) : iOS uniquement pour l'instant.
+const CAMERA_SCAN_SUPPORTED = Platform.OS === "ios";
 
 export function MrzScreen({ demo }: { demo: AuthentikDemo }) {
   const fr = demo.lang === "fr";
   const { mrzForm, updateMrzForm } = demo;
-  const [mode, setMode] = useState<"camera" | "manual">("camera");
+  const [mode, setMode] = useState<"camera" | "manual">(CAMERA_SCAN_SUPPORTED ? "camera" : "manual");
   const [autoFilled, setAutoFilled] = useState(false);
 
-  const handleCaptured = (result: MrzScanSuccess) => {
+  const handleCaptured = (result: MrzRead) => {
     updateMrzForm({
       documentType: result.parsed.identity.documentType,
       documentNumber: result.documentNumber,
@@ -139,9 +141,11 @@ export function MrzScreen({ demo }: { demo: AuthentikDemo }) {
         />
       </View>
 
-      <Pressable onPress={() => setMode("camera")} style={styles.scanLink}>
-        <Text style={styles.scanLinkText}>{demo.t.mrzScanCamera}</Text>
-      </Pressable>
+      {CAMERA_SCAN_SUPPORTED ? (
+        <Pressable onPress={() => setMode("camera")} style={styles.scanLink}>
+          <Text style={styles.scanLinkText}>{demo.t.mrzScanCamera}</Text>
+        </Pressable>
+      ) : null}
 
       <Pressable
         onPress={demo.submitMrz}

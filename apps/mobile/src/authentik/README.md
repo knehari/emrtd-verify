@@ -47,31 +47,30 @@ approximait ou les aplatissait.
 
 Le handoff simule la caméra par un aplat texturé (son README §2/§3) ; l'écran MRZ (`screens/
 MrzScreen.tsx`) proposait donc jusqu'ici seulement une saisie manuelle des trois champs (numéro de
-document, dates de naissance/expiration) servant de clé d'accès NFC/BAC. Une vraie capture caméra a
-été ajoutée sur demande (`components/MrzCameraScanner.tsx`, `../mrz/scanMrz.ts`) :
+document, dates de naissance/expiration) servant de clé d'accès NFC/BAC. Une lecture caméra en direct
+a été ajoutée sur demande (`components/MrzCameraScanner.tsx`, `../mrz/mrzFromLines.ts`,
+`../../modules/mrz-scanner`) :
 
-- `expo-camera` pour l'aperçu et la prise de vue, `expo-image-manipulator` pour recadrer la photo
-  sur le cadre-guide affiché à l'écran avant OCR.
-- OCR on-device (`@react-native-ml-kit/text-recognition`, Google ML Kit, aucun appel réseau —
-  cohérent avec le reste du pipeline hors ligne) sur la zone recadrée.
-- Le texte reconnu est filtré aux lignes de forme MRZ (alphabet `[A-Z0-9<]`, longueur exacte 44 ou
-  30 après suppression des espaces), puis une lecture n'est acceptée que si elle passe le vrai
-  parseur/chiffres de contrôle ICAO 9303 déjà existant (`@emrtd-verify/emrtd-core`, `mrzParser.ts`)
-  — jamais l'OCR seul.
-- Détection automatique par sondage plutôt qu'un bouton à appuyer : une photo est prise et analysée
-  toutes les 700 ms tant que l'écran est ouvert ; dès qu'une lecture valide est trouvée, le cadre
-  passe au vert et l'écran avance seul. Un vrai suivi image par image (rectangle qui suit le texte
-  en continu) demanderait de remplacer `expo-camera` par `react-native-vision-camera` + un plugin
-  d'analyse par frame — nouveaux modules natifs non vérifiables dans cet environnement de
-  développement (pas d'Xcode/simulateur ici), écarté pour cette raison après discussion. Le bouton
-  au centre des contrôles force une tentative immédiate plutôt que d'attendre le prochain sondage ;
-  la saisie manuelle reste toujours accessible en repli (document mal aligné, lumière insuffisante,
-  etc.).
-- Le mappage du cadre-guide (fraction de l'aperçu écran) vers un rectangle de recadrage en pixels
-  de la photo capturée est une approximation (suppose que l'aperçu remplit son conteneur sans
-  letterboxing) — acceptable ici car un recadrage trop généreux n'affecte que le nombre de lignes
-  candidates à filtrer, pas la validité de la lecture retenue (toujours vérifiée par chiffres de
-  contrôle).
+- **Module natif Expo local, iOS** (`apps/mobile/modules/mrz-scanner`, Swift) : session
+  AVFoundation dont chaque image vidéo (jusqu'à ~10 par seconde) passe par `VNRecognizeTextRequest`
+  d'Apple Vision, limité à la zone du cadre élargie, correction linguistique désactivée (la MRZ n'est
+  pas du langage naturel). Aucune photo n'est prise, rien ne quitte l'appareil. Mise au point
+  rapprochée et zoom calculé d'après la distance minimale de mise au point de l'appareil (méthode de
+  l'exemple AVCamBarcode d'Apple) pour que la carte reste nette sur les iPhone Pro récents. Le
+  module renvoie au JS les lignes reconnues avec leur position dans la vue.
+- **Validation en JS** (`../mrz/mrzFromLines.ts`, testée dans `test/mrz/mrzFromLines.test.ts`) :
+  regroupement des morceaux de texte par ligne, corrections guidées par le format MRZ (`«`→`<<`,
+  O/0, I/1, S/5… selon que la position attend un chiffre ou une lettre ; variantes ambiguës du
+  numéro de document départagées par son chiffre de contrôle), puis vrai parseur ICAO 9303 de
+  `@emrtd-verify/emrtd-core` — une lecture n'est jamais acceptée sans chiffres de contrôle corrects
+  pour le numéro, la naissance et l'expiration. Elle n'est retenue qu'une fois lue à l'identique sur
+  deux images, ce qui écarte les confusions OCR ponctuelles.
+- Les lignes de forme MRZ sont surlignées en vert en direct, le cadre verdit quand une lecture
+  valide apparaît, puis l'écran avance seul (retour haptique) sans bouton à appuyer.
+- L'ancienne CNI française (avant août 2021, MRZ non ICAO sur 2 × 36 caractères) est reconnue et
+  signalée : elle n'a pas de puce, la vérification NFC est impossible.
+- Android : pas encore de scanner en direct (le module est iOS uniquement) — l'écran s'ouvre sur la
+  saisie manuelle.
 - Après une lecture réussie, les champs sont pré-remplis mais restent visibles et modifiables (écran
   de saisie manuelle, avec un bandeau de confirmation) avant de continuer — pas d'avance automatique
   sans confirmation visuelle.
