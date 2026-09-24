@@ -57,7 +57,7 @@ async function buildSignedBundle(privateKey: CryptoKey): Promise<CscaBundle> {
 describe("syncCscaBundle", () => {
   beforeEach(() => {
     files.clear();
-    appConfig.apiBaseUrl = "https://api.test.invalid";
+    appConfig.apiBaseUrl = "https://api.test.example";
     appConfig.apiKey = "test-key";
     appConfig.cscaBundleSigningPublicKeyBase64 = "";
     vi.unstubAllGlobals();

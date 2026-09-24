@@ -181,6 +181,9 @@ public final class FaceCaptureView: ExpoView, AVCaptureVideoDataOutputSampleBuff
     handledCapture = requested
     capture["faceCount"] = faces.count
     capture["request"] = requested
+    if let jpeg = FaceGeometry.jpegBase64(cgImage) {
+      capture["jpeg"] = jpeg
+    }
     DispatchQueue.main.async { [weak self] in
       self?.onCaptured(capture)
     }

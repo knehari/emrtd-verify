@@ -123,6 +123,38 @@ docs/facial-recognition.md « Reconnaissance faciale hors ligne ».
 Nouveau module natif et nouvelle dépendance native (expo-asset) : `pod install` puis recompiler
 dans Xcode. Un binaire plus ancien démarre quand même et saute l'étape selfie.
 
+## Mode en ligne · KYC — branchement sur apps/api
+
+Réglages › Serveur KYC (`screens/ServerScreen.tsx`, `../backend/backendClient.ts`) : adresse du
+serveur et clé API du client KYC (créée par `pnpm --filter @emrtd-verify/api create-kyc-client`),
+« Tester la connexion » (GET /health, puis GET /v1/verifications/signing-key avec la clé API), puis
+**épinglage** des clés publiques du serveur après comparaison de leurs empreintes avec celles
+données par l'exploitant (`generate-signing-key` / `generate-csca-bundle-signing-key` les
+affichent). Rien n'est envoyé tant que la clé qui signe les résultats n'est pas épinglée ; sans
+serveur prêt, le commutateur « En ligne » de l'accueil ouvre ce réglage.
+
+En ligne, après la vérification locale (inchangée, toujours calculée), `state.ts` envoie la puce
+lue (`encodeChipDataEnvelope` : SOD, DG, réponse AA) et le selfie (JPEG ≤ 720 px produit par
+`modules/face-kit`) à POST /v1/verifications, puis attend le résultat ~30 s :
+
+- **signé par la clé épinglée** → il fait foi : verdict du serveur, registre des documents
+  perdus/volés interrogé par le serveur, anomalies propres au serveur ajoutées (préfixe
+  « Serveur · »), ligne « Serveur KYC » au verdict, identifiant de vérification ;
+- **signature absente ou invalide** → ignoré, affiché comme tel ; le verdict local reste ;
+- **pas de réponse à temps / réseau** → verdict local provisoire, soumission mise en file
+  (`../sync/submissionQueue.ts`) : renvoyée (ou seulement réconciliée si le serveur l'avait déjà
+  acceptée) au lancement suivant ou via « Synchroniser maintenant ».
+
+Le magasin CSCA signé du serveur (GET /v1/pki-trust/csca-bundle) est téléchargé au lancement et à
+la demande quand sa clé est épinglée ; il s'ajoute au magasin embarqué (`../pki/cscaBundleSync.ts`).
+
+Limite honnête : la Chip Authentication et PACE-CAM sont des échanges interactifs avec la puce —
+le serveur ne peut ni les rejouer ni les vérifier après coup. Il peut donc signaler
+`MISSING_ACTIVE_CHIP_AUTH` sur un passeport sans AA alors que l'appareil a prouvé la CA ; l'écran
+des anomalies le précise, mais le verdict signé du serveur n'est pas modifié par l'app. La
+vérification bout en bout contre un vrai apps/api est dans `test/backend/backendE2E.test.ts`
+(ignorée sans `E2E_API_URL`/`E2E_API_KEY`).
+
 ## Design v2 — mode sombre, transitions, retours, Réglages
 
 Deuxième livraison de Claude Design (`Authentik Mobile v2 Dark.dc.html`, non versionné ici non

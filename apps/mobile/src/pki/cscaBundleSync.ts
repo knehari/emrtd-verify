@@ -1,8 +1,8 @@
 import * as FileSystem from "expo-file-system";
-import { verifyJsonPayloadSignature, importEcdsaP256PublicKeyFromSpkiBase64, base64ToBytes, sameCountry } from "@emrtd-verify/emrtd-core";
+import { verifyJsonPayloadSignatureWithSpki, base64ToBytes, sameCountry } from "@emrtd-verify/emrtd-core";
 import type { CscaBundle, CscaBundleAnchor } from "@emrtd-verify/shared-types";
 import type { CscaTrustAnchor } from "@emrtd-verify/pki-trust";
-import { appConfig } from "../config";
+import { loadBackendSettings } from "../backend/backendClient";
 // Ancres CSCA par défaut, EMBARQUÉES à la compilation (jamais récupérées sur le réseau) — générées
 // hors ligne par apps/api/scripts/build-mobile-default-csca-bundle.ts à partir d'une Master List
 // ICAO globale (signataire vérifié contre config/master-list-signer-trust-anchors.json) et de
@@ -32,28 +32,31 @@ function bundleFileUri(): string {
 }
 
 /**
- * Récupère GET /v1/pki-trust/csca-bundle, vérifie sa signature ECDSA contre la clé embarquée à la
- * compilation (appConfig.cscaBundleSigningPublicKeyBase64 — voir src/config.ts pour pourquoi elle
- * ne doit JAMAIS être récupérée dynamiquement) et ne persiste localement que si elle est valide —
+ * Récupère GET /v1/pki-trust/csca-bundle, vérifie sa signature ECDSA contre la clé épinglée
+ * (Réglages › Serveur KYC, après confirmation de son empreinte par l'opérateur — voir
+ * backend/backendClient.ts — ou, à défaut, celle compilée dans src/config.ts ; jamais une clé
+ * acceptée silencieusement depuis le réseau) et ne persiste localement que si elle est valide —
  * un bundle non signé ou dont la signature ne vérifie pas est rejeté sans toucher au magasin local
  * existant, voir docs/pki-trust-model.md "Vérification hors ligne".
  */
 export async function syncCscaBundle(): Promise<CscaBundle> {
-  const response = await fetch(`${appConfig.apiBaseUrl}/v1/pki-trust/csca-bundle`, {
-    headers: { Authorization: `Bearer ${appConfig.apiKey}` },
+  const settings = await loadBackendSettings();
+  if (!settings) throw new CscaBundleSyncError("Aucun serveur configuré (Réglages)");
+  const response = await fetch(`${settings.apiBaseUrl}/v1/pki-trust/csca-bundle`, {
+    headers: { Authorization: `Bearer ${settings.apiKey}` },
   });
   if (!response.ok) {
     throw new CscaBundleSyncError(`Synchronisation du bundle CSCA échouée (HTTP ${response.status})`);
   }
   const bundle = (await response.json()) as CscaBundle;
-  await verifyAndPersistBundle(bundle);
+  await verifyAndPersistBundle(bundle, settings.cscaBundleSigningKeySpkiBase64);
   return bundle;
 }
 
-async function verifyAndPersistBundle(bundle: CscaBundle): Promise<void> {
-  if (!appConfig.cscaBundleSigningPublicKeyBase64) {
+async function verifyAndPersistBundle(bundle: CscaBundle, signingKeySpkiBase64: string | undefined): Promise<void> {
+  if (!signingKeySpkiBase64) {
     throw new CscaBundleSyncError(
-      "Aucune clé publique de signature du bundle CSCA configurée (appConfig.cscaBundleSigningPublicKeyBase64) — synchronisation refusée",
+      "Aucune clé publique de signature du bundle CSCA épinglée (Réglages › Serveur KYC) — synchronisation refusée",
     );
   }
   if (!bundle.signature) {
@@ -61,8 +64,8 @@ async function verifyAndPersistBundle(bundle: CscaBundle): Promise<void> {
   }
 
   const { signature, ...bundleWithoutSignature } = bundle;
-  const publicKey = await importEcdsaP256PublicKeyFromSpkiBase64(appConfig.cscaBundleSigningPublicKeyBase64);
-  const valid = await verifyJsonPayloadSignature(bundleWithoutSignature, signature, publicKey);
+  // JavaScript pur : Hermes n'a pas Web Crypto (voir emrtd-core jsonSigning.ts).
+  const valid = verifyJsonPayloadSignatureWithSpki(bundleWithoutSignature, signature, signingKeySpkiBase64);
   if (!valid) {
     throw new CscaBundleSyncError("Signature du bundle CSCA invalide — rejeté, magasin de confiance local inchangé");
   }

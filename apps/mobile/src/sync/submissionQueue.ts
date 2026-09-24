@@ -2,7 +2,7 @@ import * as FileSystem from "expo-file-system";
 import type { LivenessChallenge, LivenessSignalFrame, LightSignalSample } from "@emrtd-verify/emrtd-core";
 import type { DocumentType, VerificationResult } from "@emrtd-verify/shared-types";
 import type { LocalVerificationResult } from "../verification/localVerification";
-import { appConfig } from "../config";
+import { loadBackendSettings, verifyResultSignature, type BackendSettings } from "../backend/backendClient";
 
 const QUEUE_FILE_NAME = "submission-queue.json";
 const MAX_ATTEMPTS_BEFORE_LONG_BACKOFF = 5;
@@ -49,6 +49,8 @@ export interface QueuedSubmission {
   lastAttemptAt?: string;
   lastError?: string;
   reconciledResult?: VerificationResult;
+  /** Signature du résultat vérifiée contre la clé épinglée (Réglages › Serveur KYC) ; false si absente ou non épinglée. */
+  reconciledSignatureValid?: boolean;
 }
 
 function queueFileUri(): string {
@@ -80,14 +82,22 @@ function generateLocalId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/**
+ * `verificationId` : soumission déjà acceptée par le serveur (mode en ligne) dont le résultat
+ * n'était pas prêt à temps — elle entre en file directement à l'état `submitted`, pour être
+ * seulement réconciliée (jamais renvoyée, ce qui créerait une seconde vérification).
+ */
 export async function enqueueSubmission(
-  input: Omit<QueuedSubmission, "id" | "createdAt" | "status" | "attempts" | "verificationId" | "lastAttemptAt" | "lastError" | "reconciledResult">,
+  input: Omit<QueuedSubmission, "id" | "createdAt" | "status" | "attempts" | "verificationId" | "lastAttemptAt" | "lastError" | "reconciledResult" | "reconciledSignatureValid">,
+  options: { verificationId?: string; lastError?: string } = {},
 ): Promise<QueuedSubmission> {
   const item: QueuedSubmission = {
     ...input,
     id: generateLocalId(),
     createdAt: new Date().toISOString(),
-    status: "pending",
+    status: options.verificationId ? "submitted" : "pending",
+    verificationId: options.verificationId,
+    lastError: options.lastError,
     attempts: 0,
   };
   const queue = await readQueue();
@@ -125,6 +135,8 @@ function buildSubmitBody(item: QueuedSubmission) {
  * `localResult` : seul `reconciledResult` (voir `reconcileSubmittedResults`) fait foi.
  */
 export async function submitPendingSubmissions(): Promise<{ attempted: number; succeeded: number }> {
+  const settings = await loadBackendSettings();
+  if (!settings) return { attempted: 0, succeeded: 0 }; // aucun serveur configuré : tout reste en file
   const queue = await readQueue();
   const now = Date.now();
   let attempted = 0;
@@ -138,9 +150,9 @@ export async function submitPendingSubmissions(): Promise<{ attempted: number; s
     item.attempts++;
     item.lastAttemptAt = new Date().toISOString();
     try {
-      const response = await fetch(`${appConfig.apiBaseUrl}/v1/verifications`, {
+      const response = await fetch(`${settings.apiBaseUrl}/v1/verifications`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${appConfig.apiKey}`, "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${settings.apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify(buildSubmitBody(item)),
       });
       if (!response.ok) {
@@ -170,6 +182,8 @@ export async function submitPendingSubmissions(): Promise<{ attempted: number; s
  * traité) et n'est PAS une erreur : l'élément reste `submitted` pour le prochain cycle.
  */
 export async function reconcileSubmittedResults(): Promise<{ attempted: number; reconciled: number }> {
+  const settings = await loadBackendSettings();
+  if (!settings) return { attempted: 0, reconciled: 0 };
   const queue = await readQueue();
   let attempted = 0;
   let reconciled = 0;
@@ -178,8 +192,8 @@ export async function reconcileSubmittedResults(): Promise<{ attempted: number; 
     if (item.status !== "submitted" || !item.verificationId) continue;
     attempted++;
     try {
-      const response = await fetch(`${appConfig.apiBaseUrl}/v1/verifications/${item.verificationId}`, {
-        headers: { Authorization: `Bearer ${appConfig.apiKey}` },
+      const response = await fetch(`${settings.apiBaseUrl}/v1/verifications/${item.verificationId}`, {
+        headers: { Authorization: `Bearer ${settings.apiKey}` },
       });
       if (response.status === 404) {
         continue; // pas encore traité côté serveur — normal, on réessaiera
@@ -188,7 +202,9 @@ export async function reconcileSubmittedResults(): Promise<{ attempted: number; 
         item.lastError = `HTTP ${response.status}`;
         continue;
       }
-      item.reconciledResult = (await response.json()) as VerificationResult;
+      const result = (await response.json()) as VerificationResult;
+      item.reconciledResult = result;
+      item.reconciledSignatureValid = await resultSignatureValid(result, settings);
       item.status = "reconciled";
       item.lastError = undefined;
       reconciled++;
@@ -199,6 +215,10 @@ export async function reconcileSubmittedResults(): Promise<{ attempted: number; 
 
   await writeQueue(queue);
   return { attempted, reconciled };
+}
+
+async function resultSignatureValid(result: VerificationResult, settings: BackendSettings): Promise<boolean> {
+  return settings.resultSigningKeySpkiBase64 ? verifyResultSignature(result, settings.resultSigningKeySpkiBase64) : false;
 }
 
 /** Enchaîne soumission puis réconciliation — à appeler périodiquement (retour au premier plan, reconnexion réseau, minuteur applicatif). */

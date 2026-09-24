@@ -16,13 +16,18 @@
  * Après la lecture NFC, si la puce a livré la photo (DG2) et que la comparaison faciale est activée
  * (Réglages), l'étape "selfie" filme le porteur (modules/face-kit, séquence de vivacité guidée de
  * src/faceMatch/selfieLiveness.ts) avant la vérification locale, qui compare alors le selfie à la
- * photo de la puce (src/faceMatch). La réconciliation backend (apps/mobile/src/sync/
- * submissionQueue.ts) n'est pas déclenchée ici : `appConfig` (apps/mobile/src/config.ts) n'a pas
- * d'URL/clé d'API réelles configurées. Voir README de ce dossier pour le détail.
+ * photo de la puce (src/faceMatch).
+ *
+ * MODE EN LIGNE · KYC (serveur réglé dans Réglages › Serveur KYC, clé de signature épinglée —
+ * src/backend/backendClient.ts) : après la vérification locale, la puce lue et le selfie (JPEG)
+ * sont envoyés au serveur (POST /v1/verifications) et son résultat signé est attendu ~30 s. Signé
+ * par la clé épinglée, il fait foi (verdict, registre perdus/volés, révocation côté serveur) ; sinon
+ * le verdict local provisoire reste affiché et la soumission part dans la file d'attente
+ * (src/sync/submissionQueue.ts), réconciliée au prochain cycle.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NfcError } from "react-native-nfc-manager";
-import type { AnomalySeverity, DocumentType, Verdict } from "@emrtd-verify/shared-types";
+import type { AnomalySeverity, DocumentType, Verdict, VerificationResult } from "@emrtd-verify/shared-types";
 import { copyFor, type Lang } from "./copy";
 import { paletteFor, type ColorScheme, type PaletteColors } from "./theme";
 import { feedback, type FeedbackKind } from "./feedback";
@@ -44,6 +49,10 @@ import { faceSampleFromCrop, type NativeFaceCrop } from "../faceMatch/faceCrop";
 import { getSfaceSession } from "../faceMatch/sfaceModel";
 import { refreshRevocationLists, revocationListsFor } from "../pki/crlCache";
 import { SfaceTensor } from "../faceMatch/sfaceSession";
+import { encodeChipDataEnvelope } from "@emrtd-verify/emrtd-core";
+import { isBackendReady, loadBackendSettings, submitAndAwaitResult, type BackendSettings, type ServerOutcome } from "../backend/backendClient";
+import { enqueueSubmission, runSyncCycle } from "../sync/submissionQueue";
+import { syncCscaBundle } from "../pki/cscaBundleSync";
 
 /** Carte d'identité affichée sur le verdict (format "pièce d'identité"). */
 export interface IdCardView {
@@ -79,12 +88,13 @@ export type Step =
   | "trust"
   | "countries"
   | "country"
-  | "settings";
+  | "settings"
+  | "server";
 
 /** Transition d'entrée de l'écran — table `ANIM` du design v2 (voir components/ScreenTransition.tsx). */
 export type ScreenAnim = "push" | "back" | "modal" | "fade" | "tab" | "verdict" | "none";
 
-const TAB_STEPS: Step[] = ["home", "trust", "countries", "country", "settings"];
+const TAB_STEPS: Step[] = ["home", "trust", "countries", "country", "settings", "server"];
 
 const OK = "#30D158";
 const WARN = "#FF9F0A";
@@ -173,7 +183,13 @@ interface RawState {
   faceMatchEnabled: boolean;
   /** Pourquoi la comparaison faciale n'a pas eu lieu, le cas échéant (affiché sur le verdict). */
   faceMatchNote: string | null;
+  /** Serveur KYC réglé dans l'app (Réglages › Serveur KYC), `null` si aucun. */
+  backend: BackendSettings | null;
+  /** Vérification serveur de la dernière lecture (mode en ligne seulement). */
+  server: ServerState | null;
 }
+
+export type ServerState = { phase: "sending" } | { phase: "done"; outcome: ServerOutcome; queued: boolean };
 
 export function useAuthentikDemo() {
   const [s, setS] = useState<RawState>({
@@ -198,6 +214,8 @@ export function useAuthentikDemo() {
     selectedCountry: null,
     faceMatchEnabled: true,
     faceMatchNote: null,
+    backend: null,
+    server: null,
   });
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -218,6 +236,22 @@ export function useAuthentikDemo() {
   }, []);
 
   useEffect(() => clear, [clear]);
+
+  // Serveur KYC : réglages relus au lancement ; s'il est prêt, mode en ligne par défaut, envoi de la
+  // file d'attente et mise à jour du magasin CSCA signé (échecs silencieux : on reste hors ligne).
+  const refreshBackend = useCallback(async () => {
+    const backend = await loadBackendSettings();
+    const ready = isBackendReady(backend);
+    setS((prev) => ({ ...prev, backend, online: ready ? prev.online || prev.backend === null : false }));
+    if (!ready) return;
+    runSyncCycle().catch((error) => __DEV__ && console.log(`[SYNC] ${String(error)}`));
+    if (backend?.cscaBundleSigningKeySpkiBase64) {
+      syncCscaBundle().catch((error) => __DEV__ && console.log(`[CSCA] ${String(error)}`));
+    }
+  }, []);
+  useEffect(() => {
+    void refreshBackend();
+  }, [refreshBackend]);
 
   const go = useCallback(
     (step: Step, anim: ScreenAnim = "push") => {
@@ -314,8 +348,18 @@ export function useAuthentikDemo() {
   // été capturé : visage de la photo DG2 (JPEG / JPEG 2000) trouvé par modules/face-kit, puis
   // embeddings SFace (onnxruntime) comparés — voir src/faceMatch/faceMatch.ts.
   const verifyChip = useCallback(async (chipResult: EmrtdReadResult, selfie: NativeFaceCrop | null, skippedNote: string | null) => {
-    const { mrzForm } = sRef.current;
-    setS((prev) => ({ ...prev, pct: 100, chipResult, step: "processing", anim: "fade", verificationStatus: "verifying", faceMatchNote: skippedNote }));
+    const { mrzForm, online, backend } = sRef.current;
+    const sendToServer = online && isBackendReady(backend);
+    setS((prev) => ({
+      ...prev,
+      pct: 100,
+      chipResult,
+      step: "processing",
+      anim: "fade",
+      verificationStatus: "verifying",
+      faceMatchNote: skippedNote,
+      server: sendToServer ? { phase: "sending" } : null,
+    }));
 
     let faceMatch: Parameters<typeof computeLocalVerification>[0]["faceMatch"];
     let faceMatchNote = skippedNote;
@@ -362,7 +406,7 @@ export function useAuthentikDemo() {
           }
           return revocationListsFor(country, anchors);
         },
-        requestedFields: ["documentNumber", "dateOfBirth", "dateOfExpiry", "nationality", "sex", "primaryIdentifier", "secondaryIdentifier"],
+        requestedFields: REQUESTED_FIELDS,
         skippedChecks: {
           revocation: !sRef.current.requireRevocationCheck,
           lostStolen: !sRef.current.requireLostStolenCheck,
@@ -371,8 +415,14 @@ export function useAuthentikDemo() {
       if (__DEV__ && result.faceMatch) {
         console.log(`[FACE] similarité ${result.faceMatch.similarityScore.toFixed(3)} → ${result.faceMatch.matchDecision}`);
       }
-      setS((prev) => ({ ...prev, verificationResult: result, verificationStatus: "idle", step: "verdict", anim: "verdict", faceMatchNote }));
-      fb(result.verdict === "rejected" ? "error" : result.verdict === "authentic" ? "success" : "warning");
+      let server: ServerState | null = null;
+      if (sendToServer && isBackendReady(backend)) {
+        server = await verifyOnServer(backend, mrzForm.documentType, chipResult, selfie, result);
+      }
+      const signed = server?.phase === "done" && server.outcome.kind === "result" && server.outcome.signatureValid ? server.outcome.result : null;
+      const verdict = signed?.verdict ?? result.verdict;
+      setS((prev) => ({ ...prev, verificationResult: result, verificationStatus: "idle", step: "verdict", anim: "verdict", faceMatchNote, server }));
+      fb(verdict === "rejected" ? "error" : verdict === "authentic" ? "success" : "warning");
     } catch (error) {
       if (__DEV__) console.log(`[VERIF] Échec : ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
       const described = describeVerificationError(error);
@@ -466,6 +516,7 @@ export function useAuthentikDemo() {
       chipResult: null,
       verificationResult: null,
       faceMatchNote: null,
+      server: null,
     }));
   }, [clear]);
 
@@ -483,7 +534,15 @@ export function useAuthentikDemo() {
     });
   }, [clear]);
 
-  const toggleOnline = useCallback(() => setS((prev) => ({ ...prev, online: !prev.online })), []);
+  // Sans serveur prêt (URL, clé API, clé de signature épinglée), le commutateur ouvre son réglage.
+  const toggleOnline = useCallback(() => {
+    if (!isBackendReady(sRef.current.backend)) {
+      clear();
+      setS((prev) => ({ ...prev, step: "server", anim: "push", showShare: false }));
+      return;
+    }
+    setS((prev) => ({ ...prev, online: !prev.online }));
+  }, [clear]);
   const toggleScheme = useCallback(
     () => setS((prev) => ({ ...prev, scheme: prev.scheme === "dark" ? "light" : "dark" })),
     [],
@@ -640,7 +699,7 @@ export function useAuthentikDemo() {
       identityFieldsCount: 12,
       chainDetailValue: "ICAO PKD",
     };
-  }, [lang, currentScenario, s.pct, s.online, s.step, s.livePhase, s.verificationResult, s.scheme, paletteColors]);
+  }, [lang, currentScenario, s.pct, s.online, s.step, s.livePhase, s.verificationResult, s.server, s.scheme, paletteColors]);
 
   return {
     step: s.step,
@@ -658,6 +717,12 @@ export function useAuthentikDemo() {
     scheme: s.scheme,
     colors: paletteColors,
     ...derived,
+    modeDesc: !isBackendReady(s.backend) && !s.online ? derived.t.modeServerMissing : derived.modeDesc,
+    backend: s.backend,
+    backendReady: isBackendReady(s.backend),
+    refreshBackend,
+    goServer: () => go("server", "push"),
+    backFromServer: () => go("settings", "back"),
     startScan,
     updateMrzForm,
     submitMrz,
@@ -695,6 +760,59 @@ export function useAuthentikDemo() {
     toggleScenario,
     toggleScheme,
   };
+}
+
+const REQUESTED_FIELDS = ["documentNumber", "dateOfBirth", "dateOfExpiry", "nationality", "sex", "primaryIdentifier", "secondaryIdentifier"];
+
+/**
+ * Mode en ligne : envoie la puce lue (+ selfie JPEG) au serveur KYC et attend son résultat signé.
+ * Sans résultat à temps (réseau, serveur occupé), la soumission part dans la file d'attente —
+ * déjà acceptée (`verificationId`) : seulement réconciliée plus tard ; sinon renvoyée plus tard.
+ */
+async function verifyOnServer(
+  backend: BackendSettings & { resultSigningKeySpkiBase64: string },
+  documentType: DocumentType,
+  chipResult: EmrtdReadResult,
+  selfie: NativeFaceCrop | null,
+  localResult: LocalVerificationResult,
+): Promise<ServerState> {
+  const activeAuthentication = chipResult.activeAuthentication?.response
+    ? { challenge: chipResult.activeAuthentication.challenge, responseDer: chipResult.activeAuthentication.response }
+    : undefined;
+  const submission = {
+    documentType,
+    chipDataBase64: encodeChipDataEnvelope({ sod: chipResult.sod, dataGroups: chipResult.dataGroups, activeAuthentication }),
+    liveCaptureBase64: selfie?.jpeg,
+    requestedFields: REQUESTED_FIELDS,
+  };
+  const outcome = await submitAndAwaitResult(backend, submission);
+  if (__DEV__) console.log(`[KYC] ${outcome.kind}${outcome.kind === "failed" ? ` : ${outcome.error}` : ` · ${outcome.verificationId}`}`);
+  if (outcome.kind === "result") return { phase: "done", outcome, queued: false };
+  try {
+    await enqueueSubmission(
+      { ...submission, localResult },
+      outcome.kind === "pending" ? { verificationId: outcome.verificationId } : { lastError: outcome.error },
+    );
+    return { phase: "done", outcome, queued: true };
+  } catch {
+    return { phase: "done", outcome, queued: false };
+  }
+}
+
+/** Ligne « Serveur KYC » du verdict : résultat signé, en attente ou échec (mode en ligne seulement). */
+function serverCheckRow(server: ServerState | null, red: string) {
+  const label = "Serveur KYC";
+  if (!server) return null;
+  if (server.phase === "sending") return { label, detail: "Envoi en cours…", color: INFO, icon: "dash" as const };
+  const o = server.outcome;
+  const queued = server.queued ? " — mis en file d'attente, réconcilié automatiquement" : "";
+  if (o.kind === "result") {
+    return o.signatureValid
+      ? { label, detail: `Résultat signé (clé épinglée vérifiée) · ${o.verificationId.slice(0, 8)}`, color: OK, icon: "check" as const }
+      : { label, detail: "Signature du résultat absente ou invalide — résultat serveur ignoré", color: red, icon: "warn" as const };
+  }
+  if (o.kind === "pending") return { label, detail: `Traitement serveur en cours${queued}`, color: WARN, icon: "warn" as const };
+  return { label, detail: `${o.error}${queued}`, color: WARN, icon: "warn" as const };
 }
 
 /** Ligne « Chip Authentication » du verdict (DG14) : preuve anti-clonage des documents récents. */
@@ -756,7 +874,10 @@ function deriveFromRealResult(
   const paletteColors: PaletteColors = paletteFor(s.scheme);
   const RED = paletteColors.error;
   const ink = (a: number) => `rgba(${paletteColors.inkBaseRgb},${a})`;
-  const verdict: Verdict = result.verdict;
+  // Mode en ligne : le résultat du serveur ne fait foi que signé par la clé épinglée.
+  const serverOutcome = s.server?.phase === "done" ? s.server.outcome : null;
+  const signed = serverOutcome?.kind === "result" && serverOutcome.signatureValid ? serverOutcome.result : null;
+  const verdict: Verdict = signed?.verdict ?? result.verdict;
   const alert = verdict === "rejected";
   const suspicious = verdict === "suspicious" || verdict === "manual_review_required";
   const color = alert ? RED : suspicious ? WARN : OK;
@@ -773,7 +894,17 @@ function deriveFromRealResult(
   }));
   const allFieldsValid = fieldEntries.every(([, f]) => f.valid);
 
-  const anomalyRows = result.anomalies.map((a) => ({
+  const localCodes = new Set(result.anomalies.map((a) => a.code));
+  const serverOnlyAnomalies = (signed?.anomalies ?? [])
+    .filter((a) => !localCodes.has(a.code))
+    .map((a) => ({
+      ...a,
+      message:
+        `Serveur · ${a.message}` +
+        // La Chip Authentication est un protocole interactif avec la puce : le serveur ne peut pas la rejouer.
+        (a.code === "MISSING_ACTIVE_CHIP_AUTH" && result.chipAuthentication?.valid ? " — CA prouvée sur l'appareil, non transmissible au serveur" : ""),
+    }));
+  const anomalyRows = [...result.anomalies, ...serverOnlyAnomalies].map((a) => ({
     code: a.code,
     sev: a.severity,
     message: a.message,
@@ -932,13 +1063,9 @@ function deriveFromRealResult(
         | "warn"
         | "dash",
     },
-    {
-      label: "Registre perdus/volés",
-      detail: s.requireLostStolenCheck ? "Exigé mais registre injoignable hors ligne" : "Non exigé (Réglages)",
-      color: s.requireLostStolenCheck ? WARN : INFO,
-      icon: (s.requireLostStolenCheck ? "warn" : "dash") as "warn" | "dash",
-    },
+    lostStolenRow(signed, s.requireLostStolenCheck, RED),
     faceCheckRow(result, s.faceMatchNote, RED),
+    ...[serverCheckRow(s.server, RED)].filter((row): row is NonNullable<typeof row> => row !== null),
   ];
 
   const procRows = [
@@ -954,8 +1081,10 @@ function deriveFromRealResult(
   // Score sur les seuls contrôles exigés : les lignes grises (non exigés / non réalisés) ne comptent pas.
   const requiredChecks = checkRows.filter((c) => c.color !== INFO);
   const passedCount = requiredChecks.filter((c) => c.color === OK).length;
-  const blockingAnomalies = result.anomalies.filter((a) => a.severity !== "info").length;
-  const skippedCount = result.anomalies.length - blockingAnomalies;
+  const shownAnomalies = signed ? signed.anomalies : result.anomalies;
+  const blockingAnomalies = shownAnomalies.filter((a) => a.severity !== "info").length;
+  const skippedCount = shownAnomalies.length - blockingAnomalies;
+  const verdictSource = signed ? "Verdict du serveur KYC (signé)" : "Verdict local provisoire";
 
   return {
     t,
@@ -963,7 +1092,7 @@ function deriveFromRealResult(
     suspicious,
     authentic: !alert && !suspicious,
     langLabel: lang === "en" ? "EN" : "FR",
-    scenarioLabel: lang === "en" ? "provisional" : "provisoire",
+    scenarioLabel: signed ? (lang === "en" ? "server" : "serveur") : lang === "en" ? "provisional" : "provisoire",
     darkScreen: s.step === "mrz" || s.step === "selfie" || s.scheme === "dark",
     screenBg: s.step === "mrz" || s.step === "selfie" ? paletteColors.screenDark : paletteColors.screenLight,
     pctLabel: `${s.pct} %`,
@@ -975,7 +1104,7 @@ function deriveFromRealResult(
     modeDesc: s.online ? t.modeOnlineDesc : t.modeOfflineDesc,
     modeDot: s.online ? OK : "#0A84FF",
     trustLineNow: fillStoreStats(s.online ? t.trustLineOnline : t.trustLine),
-    procNote: "Vérification locale — voir README pour ce qui reste hors périmètre (liveness, reconnaissance faciale, réconciliation backend).",
+    procNote: s.server ? t.procNoteOnline : "Vérification locale, sur l'appareil.",
     showTabs: TAB_STEPS.includes(s.step),
     livePhase: s.livePhase,
     liveDone: s.livePhase >= 3,
@@ -992,9 +1121,10 @@ function deriveFromRealResult(
           : "Document authentique",
     decisionSub:
       (blockingAnomalies === 0
-        ? "Verdict local provisoire — aucune anomalie."
-        : `Verdict local provisoire — ${blockingAnomalies} anomalie${blockingAnomalies > 1 ? "s" : ""} détectée${blockingAnomalies > 1 ? "s" : ""}.`) +
-      (skippedCount > 0 ? ` ${skippedCount} contrôle${skippedCount > 1 ? "s" : ""} non exigé${skippedCount > 1 ? "s" : ""}.` : ""),
+        ? `${verdictSource} — aucune anomalie.`
+        : `${verdictSource} — ${blockingAnomalies} anomalie${blockingAnomalies > 1 ? "s" : ""} détectée${blockingAnomalies > 1 ? "s" : ""}.`) +
+      (skippedCount > 0 ? ` ${skippedCount} contrôle${skippedCount > 1 ? "s" : ""} non exigé${skippedCount > 1 ? "s" : ""}.` : "") +
+      (signed && signed.verdict !== result.verdict ? ` Verdict local : ${VERDICT_FR[result.verdict]}.` : ""),
     decisionBg: alert ? paletteColors.washRedBg : suspicious ? paletteColors.washOrangeBg : paletteColors.washGreenBg,
     decisionBorder: alert ? paletteColors.washRedBorder : suspicious ? paletteColors.washOrangeBorder : paletteColors.washGreenBorder,
     passedLabel: `${passedCount} vérification${passedCount > 1 ? "s" : ""} passée${passedCount > 1 ? "s" : ""} sur ${requiredChecks.length}`,
@@ -1012,7 +1142,11 @@ function deriveFromRealResult(
     chainRows,
     trustRows,
     countryRows: embeddedCountryRows(lang, t.anchorsWord),
-    verifiedLine: "Vérification locale — résultat provisoire tant qu'aucune réconciliation backend n'a eu lieu.",
+    verifiedLine: signed
+      ? `Résultat signé par le serveur KYC · ${signed.verificationId} · ${signed.verifiedAt.slice(0, 16).replace("T", " ")}`
+      : s.server?.phase === "done" && s.server.queued
+        ? "Vérification locale provisoire — envoyée au serveur KYC dès qu'il répondra (file d'attente)."
+        : "Vérification locale — résultat provisoire tant qu'aucune réconciliation backend n'a eu lieu.",
     supported: t.types3.map((d) => ({ name: d[0], format: d[1] })),
     idCard: {
       countryCode: result.document.issuingCountry,
@@ -1031,6 +1165,29 @@ function deriveFromRealResult(
     identityFieldsCount: fieldRows.length,
     chainDetailValue: trustSourceLabel,
   };
+}
+
+const VERDICT_FR: Record<Verdict, string> = {
+  authentic: "authentique",
+  suspicious: "suspect",
+  manual_review_required: "revue manuelle",
+  rejected: "rejeté",
+};
+
+/** Registre perdus/volés : interrogé par le serveur en ligne (résultat signé), injoignable hors ligne. */
+function lostStolenRow(signed: VerificationResult | null, required: boolean, red: string) {
+  const label = "Registre perdus/volés";
+  if (signed) {
+    const codes = new Set(signed.anomalies.map((a) => a.code));
+    if (codes.has("DOCUMENT_REPORTED_LOST_OR_STOLEN")) return { label, detail: "Document signalé perdu ou volé", color: red, icon: "warn" as const };
+    if (codes.has("LOST_STOLEN_STATUS_NOT_CHECKED") || codes.has("LOST_STOLEN_CHECK_DISABLED")) {
+      return { label, detail: "Registre non interrogé par le serveur", color: WARN, icon: "warn" as const };
+    }
+    return { label, detail: "Non signalé (registre interrogé par le serveur)", color: OK, icon: "check" as const };
+  }
+  return required
+    ? { label, detail: "Exigé mais registre injoignable hors ligne", color: WARN, icon: "warn" as const }
+    : { label, detail: "Non exigé (Réglages)", color: INFO, icon: "dash" as const };
 }
 
 function severityColor(sev: AnomalySeverity, RED: string) {

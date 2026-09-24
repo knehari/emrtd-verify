@@ -39,7 +39,7 @@ export function TabBar({ demo, bottomInset }: { demo: AuthentikDemo; bottomInset
   const inactive = `rgba(${c.inkBaseRgb},0.5)`;
   const homeActive = demo.step === "home";
   const trustActive = demo.step === "trust" || demo.step === "countries" || demo.step === "country";
-  const settingsActive = demo.step === "settings";
+  const settingsActive = demo.step === "settings" || demo.step === "server";
   const activeIndex = homeActive ? 0 : trustActive ? 1 : settingsActive ? 2 : -1;
 
   const [barWidth, setBarWidth] = useState(0);

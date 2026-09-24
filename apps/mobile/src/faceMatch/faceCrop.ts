@@ -19,6 +19,8 @@ export interface NativeFaceCrop {
   box: number[];
   /** Visages détectés dans l'image source (le recadrage porte sur le plus grand). */
   faceCount: number;
+  /** Selfie seulement : image entière en JPEG base64 (≤ 720 px), envoyée au serveur en mode en ligne. */
+  jpeg?: string;
 }
 
 export interface FaceSample {

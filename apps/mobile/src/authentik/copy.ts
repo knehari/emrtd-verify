@@ -159,6 +159,35 @@ export interface Copy {
   aboutCrlCacheNone: string;
   aboutLostStolen: string;
   aboutLostStolenDesc: string;
+  aboutServerTitle: string;
+  aboutServer: string;
+  aboutServerNone: string;
+  modeServerMissing: string;
+  srv: {
+    title: string;
+    sub: string;
+    url: string;
+    urlPh: string;
+    key: string;
+    keyPh: string;
+    test: string;
+    testing: string;
+    reachable: string;
+    resultKey: string;
+    bundleKey: string;
+    noBundleKey: string;
+    keyChanged: string;
+    pinHint: string;
+    pin: string;
+    pinned: string;
+    forget: string;
+    queueTitle: string;
+    queueEmpty: string;
+    syncNow: string;
+    syncing: string;
+    cscaSync: string;
+    cscaSyncing: string;
+  };
   idCardLabels: { surname: string; givenNames: string; birth: string; sex: string; nationality: string; number: string; expiry: string };
   idDocTypes: { ePassport: string; eID: string; eResidenceCard: string };
   // Bascule clair/sombre : absente du design v2 (sombre uniquement), conservée à la demande de
@@ -200,7 +229,7 @@ export const FR: Copy = {
   modeOffline: "Hors ligne",
   modeOnline: "En ligne · KYC",
   modeOfflineDesc: "Tout est calculé sur l'appareil, avec le magasin CSCA embarqué.",
-  modeOnlineDesc: "Connecté au service KYC : listes de révocation vérifiées en temps réel.",
+  modeOnlineDesc: "Résultat signé par le serveur KYC : révocation, registre perdus/volés et trace d'audit.",
   trustLineOnline: "Magasin CSCA embarqué · {countries} pays · {anchors} ancres",
   offlineTitle: "Hors ligne",
   trustLine: "Magasin CSCA embarqué · {countries} pays · {anchors} ancres",
@@ -260,7 +289,7 @@ export const FR: Copy = {
   aboutFaceDesc: "Après la lecture de la puce, un selfie guidé est comparé à la photo du document (SFace, sur l'appareil).",
   procHead: "Vérification en cours",
   procNote: "Tout est calculé sur l'appareil, avec le magasin CSCA embarqué.",
-  procNoteOnline: "Calculé sur l'appareil ; la révocation est vérifiée auprès du service KYC.",
+  procNoteOnline: "Calculé sur l'appareil, puis confirmé par le serveur KYC (résultat signé).",
   procSteps: ["Hashs DG ↔ SOD", "Signature du SOD (DSC)", "Chaîne DSC ↔ CSCA", "Cohérence des champs", "Correspondance faciale"],
   expLabel: "Expire le",
   tabFields: "Champs vérifiés",
@@ -398,6 +427,35 @@ export const FR: Copy = {
   aboutCrlCacheNone: "aucune pour l'instant",
   aboutLostStolen: "Registre des documents perdus/volés",
   aboutLostStolenDesc: "Exiger l'interrogation du registre (en ligne uniquement). Activé sans accès au registre, le résultat sera « À vérifier ».",
+  aboutServerTitle: "Serveur KYC",
+  aboutServer: "Serveur",
+  aboutServerNone: "non configuré",
+  modeServerMissing: "Aucun serveur KYC configuré — touchez pour le régler.",
+  srv: {
+    title: "Serveur KYC",
+    sub: "En ligne, la puce lue et le selfie sont envoyés à ce serveur, qui renvoie un résultat signé : chaîne de confiance, révocation, registre des documents perdus/volés et comparaison faciale côté serveur, avec trace d'audit. Sa clé de signature est épinglée après vérification de son empreinte.",
+    url: "Adresse du serveur",
+    urlPh: "https://kyc.exemple.fr",
+    key: "Clé API du client KYC",
+    keyPh: "kyc_…",
+    test: "Tester la connexion",
+    testing: "Connexion…",
+    reachable: "Serveur joignable, clé API acceptée",
+    resultKey: "Clé qui signe les résultats",
+    bundleKey: "Clé qui signe le magasin CSCA",
+    noBundleKey: "non publiée (le magasin embarqué reste utilisé)",
+    keyChanged: "Cette clé diffère de celle épinglée : ne l'acceptez que si l'opérateur du serveur confirme ce changement.",
+    pinHint: "Comparez ces empreintes avec celles communiquées par l'opérateur du serveur avant d'épingler.",
+    pin: "Empreintes vérifiées : épingler et enregistrer",
+    pinned: "Épinglée le",
+    forget: "Oublier ce serveur",
+    queueTitle: "File d'attente",
+    queueEmpty: "Aucune vérification en attente",
+    syncNow: "Synchroniser maintenant",
+    syncing: "Synchronisation…",
+    cscaSync: "Mettre à jour le magasin CSCA",
+    cscaSyncing: "Mise à jour…",
+  },
   idCardLabels: { surname: "Nom", givenNames: "Prénoms", birth: "Né(e) le", sex: "Sexe", nationality: "Nationalité", number: "N° du document", expiry: "Expire le" },
   idDocTypes: { ePassport: "Passeport", eID: "Carte nationale d'identité", eResidenceCard: "Titre de séjour" },
   aboutAppearanceTitle: "Apparence",
@@ -405,7 +463,7 @@ export const FR: Copy = {
   aboutDarkModeDesc: "Activé par défaut. Les écrans caméra restent sombres.",
   aboutPrivacyTitle: "Confidentialité",
   aboutPrivacy:
-    "Traitement entièrement local. Aucune donnée d'identité ni biométrique n'est conservée ou transmise, à l'exception de la vérification de révocation en mode en ligne.",
+    "Hors ligne, tout est traité sur l'appareil : aucune donnée d'identité ni biométrique n'est conservée ou transmise (seules les CRL publiques sont téléchargées). En ligne · KYC, les données de la puce et le selfie sont envoyés au serveur KYC configuré dans ces Réglages.",
   aboutLegalTitle: "Informations légales",
   aboutLegal: ["Conditions d'utilisation", "Politique de confidentialité", "Licences open source", "Mentions légales"],
   aboutFooter: "© 2026 BaynID",
@@ -438,7 +496,7 @@ export const EN: Copy = {
   modeOffline: "Offline",
   modeOnline: "Online · KYC",
   modeOfflineDesc: "Everything is computed on device, against the embedded CSCA store.",
-  modeOnlineDesc: "Connected to the KYC service: revocation lists checked in real time.",
+  modeOnlineDesc: "Signed result from the KYC server: revocation, lost/stolen registry and audit trail.",
   trustLineOnline: "Embedded CSCA store · {countries} countries · {anchors} anchors",
   offlineTitle: "Offline",
   trustLine: "Embedded CSCA store · {countries} countries · {anchors} anchors",
@@ -498,7 +556,7 @@ export const EN: Copy = {
   aboutFaceDesc: "After the chip is read, a guided selfie is compared with the document photo (SFace, on the device).",
   procHead: "Verification in progress",
   procNote: "Everything is computed on device, against the embedded CSCA store.",
-  procNoteOnline: "Computed on device; revocation is checked against the KYC service.",
+  procNoteOnline: "Computed on device, then confirmed by the KYC server (signed result).",
   procSteps: ["DG hashes ↔ SOD", "SOD signature (DSC)", "DSC ↔ CSCA chain", "Field consistency", "Face match"],
   expLabel: "Expires",
   tabFields: "Verified fields",
@@ -634,6 +692,35 @@ export const EN: Copy = {
   aboutCrlCacheNone: "none yet",
   aboutLostStolen: "Lost/stolen documents registry",
   aboutLostStolenDesc: "Require a registry lookup (online only). When on without registry access, the result will be “Needs review”.",
+  aboutServerTitle: "KYC server",
+  aboutServer: "Server",
+  aboutServerNone: "not configured",
+  modeServerMissing: "No KYC server configured — tap to set one up.",
+  srv: {
+    title: "KYC server",
+    sub: "Online, the chip data and the selfie are sent to this server, which returns a signed result: trust chain, revocation, lost/stolen registry and server-side face match, with an audit trail. Its signing key is pinned once you have checked its fingerprint.",
+    url: "Server address",
+    urlPh: "https://kyc.example.com",
+    key: "KYC client API key",
+    keyPh: "kyc_…",
+    test: "Test connection",
+    testing: "Connecting…",
+    reachable: "Server reachable, API key accepted",
+    resultKey: "Result signing key",
+    bundleKey: "CSCA store signing key",
+    noBundleKey: "not published (the embedded store stays in use)",
+    keyChanged: "This key differs from the pinned one: accept it only if the server operator confirms the change.",
+    pinHint: "Compare these fingerprints with the ones given by the server operator before pinning.",
+    pin: "Fingerprints checked: pin and save",
+    pinned: "Pinned on",
+    forget: "Forget this server",
+    queueTitle: "Queue",
+    queueEmpty: "No verification waiting",
+    syncNow: "Sync now",
+    syncing: "Syncing…",
+    cscaSync: "Update the CSCA store",
+    cscaSyncing: "Updating…",
+  },
   idCardLabels: { surname: "Surname", givenNames: "Given names", birth: "Date of birth", sex: "Sex", nationality: "Nationality", number: "Document no.", expiry: "Expires" },
   idDocTypes: { ePassport: "Passport", eID: "National identity card", eResidenceCard: "Residence permit" },
   aboutAppearanceTitle: "Appearance",
@@ -641,7 +728,7 @@ export const EN: Copy = {
   aboutDarkModeDesc: "On by default. Camera screens stay dark.",
   aboutPrivacyTitle: "Privacy",
   aboutPrivacy:
-    "Fully on-device processing. No identity or biometric data is kept or transmitted, except the revocation check in online mode.",
+    "Offline, everything is processed on device: no identity or biometric data is kept or transmitted (only public CRLs are downloaded). Online · KYC, the chip data and the selfie are sent to the KYC server configured in these Settings.",
   aboutLegalTitle: "Legal",
   aboutLegal: ["Terms of use", "Privacy policy", "Open source licences", "Legal notice"],
 };

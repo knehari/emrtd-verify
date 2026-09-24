@@ -149,10 +149,15 @@ qu'il aurait lui-même récupérés ou reçus d'un tiers. Concrètement :
    le magasin étendu — voir ci-dessus, ses ancres `medium`/`low` ne doivent jamais être servies à
    un appareil qui ne peut pas les réévaluer) sous forme d'un bundle JSON signé (ECDSA P-256/
    SHA-256, `CscaBundleSignerService`, `packages/pki-trust/src/cscaBundleSigning.ts`).
-2. **Clé publique embarquée au build**, jamais récupérée dynamiquement (`appConfig.
-   cscaBundleSigningPublicKeyBase64`, `apps/mobile/src/config.ts`) — même principe que
-   `config/master-list-signer-trust-anchors.json` : une clé de confiance ne doit jamais transiter
-   par un canal qu'elle est censée sécuriser (bootstrap circulaire/MITM).
+2. **Clé publique épinglée, jamais acceptée silencieusement depuis le réseau** — soit compilée
+   dans l'app (`appConfig.cscaBundleSigningPublicKeyBase64`, `apps/mobile/src/config.ts`), soit
+   récupérée par Réglages › Serveur KYC (`apps/mobile/src/backend/backendClient.ts`) puis
+   **épinglée seulement après que l'opérateur a comparé son empreinte** (SHA-256 du SPKI) à celle
+   communiquée hors bande par l'exploitant du serveur. Une fois épinglée, un bundle signé par une
+   autre clé est refusé ; un changement de clé exige une nouvelle confirmation explicite. Même
+   principe que `config/master-list-signer-trust-anchors.json` : une clé de confiance ne doit
+   jamais être acceptée par le canal même qu'elle est censée sécuriser (bootstrap circulaire/MITM)
+   — la confirmation hors bande de l'empreinte en tient lieu.
 3. **Cache local vérifié** (`cscaBundleSync.ts`) : le bundle est persisté via `expo-file-system`,
    et RE-VÉRIFIÉ à chaque lecture (`getLocalCscaAnchors`), pas seulement à la réception — un fichier
    local altéré après coup (device compromis) est détecté, pas seulement une transmission altérée.

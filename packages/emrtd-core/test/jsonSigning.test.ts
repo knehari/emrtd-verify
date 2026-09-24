@@ -6,6 +6,7 @@ import {
   verifyJsonPayloadSignature,
   importEcdsaP256PrivateKeyFromPkcs8Base64,
   importEcdsaP256PublicKeyFromSpkiBase64,
+  verifyJsonPayloadSignatureWithSpki,
 } from "../src/crypto/jsonSigning";
 
 describe("canonicalJsonStringify", () => {
@@ -57,5 +58,20 @@ describe("signJsonPayload / verifyJsonPayloadSignature", () => {
 
     const signature = await signJsonPayload({ verdict: "authentic" }, privateKey);
     await expect(verifyJsonPayloadSignature({ verdict: "authentic" }, signature, otherPublicKey)).resolves.toBe(false);
+  });
+});
+
+describe("verifyJsonPayloadSignatureWithSpki (JavaScript pur, sans Web Crypto — React Native)", () => {
+  it("vérifie une signature produite par signJsonPayload (Web Crypto, côté serveur) et refuse toute altération", async () => {
+    const keyPair = (await webcrypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
+    const spki = Buffer.from(await webcrypto.subtle.exportKey("spki", keyPair.publicKey)).toString("base64");
+    const payload = { verdict: "authentic", document: { issuingCountry: "FRA", fields: {} }, anomalies: [] };
+    const signature = await signJsonPayload(payload, keyPair.privateKey);
+    expect(verifyJsonPayloadSignatureWithSpki({ anomalies: [], document: { fields: {}, issuingCountry: "FRA" }, verdict: "authentic" }, signature, spki)).toBe(true);
+    expect(verifyJsonPayloadSignatureWithSpki({ ...payload, verdict: "rejected" }, signature, spki)).toBe(false);
+    const other = (await webcrypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
+    const otherSpki = Buffer.from(await webcrypto.subtle.exportKey("spki", other.publicKey)).toString("base64");
+    expect(verifyJsonPayloadSignatureWithSpki(payload, signature, otherSpki)).toBe(false);
+    expect(verifyJsonPayloadSignatureWithSpki(payload, "pas-une-signature", spki)).toBe(false);
   });
 });

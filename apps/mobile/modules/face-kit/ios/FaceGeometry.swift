@@ -112,6 +112,40 @@ enum FaceGeometry {
     )
   }
 
+  /// Image entière réduite (côté max `maxSide`) encodée en JPEG base64 — le selfie envoyé au serveur
+  /// (POST /v1/verifications, `liveCapture`), dont le service face-match détecte lui-même le visage.
+  static func jpegBase64(_ image: CGImage, maxSide: CGFloat = 720, quality: Double = 0.85) -> String? {
+    let scale = min(1, maxSide / CGFloat(max(image.width, image.height)))
+    let width = Int((CGFloat(image.width) * scale).rounded())
+    let height = Int((CGFloat(image.height) * scale).rounded())
+    guard width > 0, height > 0,
+          let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+          ) else {
+      return nil
+    }
+    context.interpolationQuality = .high
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    guard let scaled = context.makeImage() else {
+      return nil
+    }
+    let data = NSMutableData()
+    guard let destination = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else {
+      return nil
+    }
+    CGImageDestinationAddImage(destination, scaled, [kCGImageDestinationLossyCompressionQuality as String: quality] as CFDictionary)
+    guard CGImageDestinationFinalize(destination) else {
+      return nil
+    }
+    return (data as Data).base64EncodedString()
+  }
+
   /// Recadrage carré centré sur le visage, réduit à `maxCropSide`, en RGB entrelacé (base64) avec
   /// le cadre et les 5 repères exprimés dans ce recadrage — format consommé par
   /// src/faceMatch/faceCrop.ts. Les zones hors de l'image restent noires.

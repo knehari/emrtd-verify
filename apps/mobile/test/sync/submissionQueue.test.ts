@@ -52,7 +52,7 @@ async function enqueueSample() {
 describe("submissionQueue", () => {
   beforeEach(() => {
     files.clear();
-    appConfig.apiBaseUrl = "https://api.test.invalid";
+    appConfig.apiBaseUrl = "https://api.test.example";
     appConfig.apiKey = "test-key";
     vi.unstubAllGlobals();
   });
@@ -71,7 +71,7 @@ describe("submissionQueue", () => {
   it("submitPendingSubmissions transmet et passe l'élément à submitted avec son verificationId", async () => {
     await enqueueSample();
     const fetchMock = vi.fn(async (url: string) => {
-      expect(url).toBe("https://api.test.invalid/v1/verifications");
+      expect(url).toBe("https://api.test.example/v1/verifications");
       return { ok: true, json: async () => ({ verificationId: "vid-1" }) };
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -135,7 +135,7 @@ describe("submissionQueue", () => {
     await submitPendingSubmissions();
 
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-      expect(url).toBe("https://api.test.invalid/v1/verifications/vid-1");
+      expect(url).toBe("https://api.test.example/v1/verifications/vid-1");
       return { ok: true, json: async () => sampleServerResult };
     }));
     const result = await reconcileSubmittedResults();
@@ -162,6 +162,17 @@ describe("submissionQueue", () => {
 
     const result = await runSyncCycle();
     expect(result).toEqual({ submitted: 1, reconciled: 1 });
+  });
+
+  it("sans serveur configuré, rien n'est tenté et tout reste en file", async () => {
+    appConfig.apiBaseUrl = "https://api.example.invalid";
+    await enqueueSample();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await submitPendingSubmissions()).toEqual({ attempted: 0, succeeded: 0 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await getQueuedSubmissions())[0]!.status).toBe("pending");
   });
 
   it("pruneReconciled retire les éléments réconciliés anciens sans toucher aux autres", async () => {

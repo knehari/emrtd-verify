@@ -12,6 +12,7 @@
  */
 import { base64ToBytes, bytesToBase64 } from "./base64";
 import { toArrayBuffer } from "./bytes";
+import { verifySignaturePure } from "./pureVerify";
 
 /** Sérialise `value` en JSON avec les clés d'objet triées récursivement (ordre des tableaux préservé). */
 export function canonicalJsonStringify(value: unknown): string {
@@ -60,4 +61,22 @@ export async function signJsonPayload(payload: unknown, privateKey: CryptoKey): 
 export async function verifyJsonPayloadSignature(payload: unknown, signatureBase64: string, publicKey: CryptoKey): Promise<boolean> {
   const data = new TextEncoder().encode(canonicalJsonStringify(payload));
   return globalThis.crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, publicKey, base64ToArrayBuffer(signatureBase64), data);
+}
+
+/**
+ * Même vérification que `verifyJsonPayloadSignature`, en JavaScript pur (@noble) à partir de la clé
+ * SPKI en base64 — pour React Native/Hermes, qui n'a pas Web Crypto (`crypto.subtle`). La signature
+ * Web Crypto ECDSA est au format r‖s (IEEE P1363), accepté tel quel par `verifySignaturePure`.
+ */
+export function verifyJsonPayloadSignatureWithSpki(payload: unknown, signatureBase64: string, spkiBase64: string): boolean {
+  try {
+    return verifySignaturePure({
+      spkiDer: base64ToBytes(spkiBase64),
+      scheme: { kind: "ECDSA", hash: "SHA-256" },
+      signature: base64ToBytes(signatureBase64),
+      signedData: new TextEncoder().encode(canonicalJsonStringify(payload)),
+    });
+  } catch {
+    return false;
+  }
 }

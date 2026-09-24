@@ -26,6 +26,7 @@ import { TrustScreen } from "./screens/TrustScreen";
 import { CountriesScreen } from "./screens/CountriesScreen";
 import { CountryScreen } from "./screens/CountryScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
+import { ServerScreen } from "./screens/ServerScreen";
 import { TabBar } from "./components/TabBar";
 import { ShareModal } from "./components/ShareModal";
 import { DemoControls } from "./components/DemoControls";
@@ -78,6 +79,9 @@ function AuthentikRoot() {
       break;
     case "settings":
       Screen = <SettingsScreen demo={demo} />;
+      break;
+    case "server":
+      Screen = <ServerScreen demo={demo} />;
       break;
   }
 

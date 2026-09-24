@@ -64,6 +64,17 @@ export function SettingsScreen({ demo }: { demo: AuthentikDemo }) {
         </Pressable>
       </View>
 
+      <Text style={styles.sectionTitle}>{t.aboutServerTitle}</Text>
+      <View style={styles.card}>
+        <Pressable onPress={demo.goServer} style={styles.row}>
+          <Text style={styles.rowLabel}>{t.aboutServer}</Text>
+          <Text style={styles.rowValue} numberOfLines={1}>
+            {demo.backendReady && demo.backend ? demo.backend.apiBaseUrl.replace(/^https?:\/\//, "") : t.aboutServerNone}
+          </Text>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+      </View>
+
       <Text style={styles.sectionTitle}>{t.aboutFbTitle}</Text>
       <View style={styles.card}>
         <View style={styles.toggleRow}>
