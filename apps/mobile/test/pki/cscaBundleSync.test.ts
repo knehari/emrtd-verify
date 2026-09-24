@@ -22,6 +22,7 @@ vi.mock("expo-file-system", () => ({
 // en pratique, mais explicite ici pour la lisibilité).
 const { syncCscaBundle, readCachedCscaBundle, getLocalCscaAnchors, CscaBundleSyncError } = await import("../../src/pki/cscaBundleSync");
 const { appConfig } = await import("../../src/config");
+const { default: defaultCscaAnchors } = await import("../../src/pki/defaultCscaBundle.json");
 
 async function generateKeyPairBase64() {
   const keyPair = (await webcrypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
@@ -119,9 +120,11 @@ describe("readCachedCscaBundle / getLocalCscaAnchors", () => {
     files.clear();
   });
 
-  it("renvoie undefined et un tableau vide quand rien n'a encore été synchronisé", async () => {
+  it("renvoie undefined mais les ancres embarquées quand rien n'a encore été synchronisé", async () => {
     await expect(readCachedCscaBundle()).resolves.toBeUndefined();
-    await expect(getLocalCscaAnchors()).resolves.toEqual([]);
+    const anchors = await getLocalCscaAnchors();
+    expect(anchors.length).toBeGreaterThan(0);
+    expect(anchors).toHaveLength(defaultCscaAnchors.length);
   });
 
   it("décode les ancres en base64 -> Uint8Array, filtrable par pays", async () => {
