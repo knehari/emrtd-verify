@@ -87,9 +87,19 @@ export async function readEmrtdChip(accessKey: MrzAccessKey, options: ReadEmrtdC
     throw new NfcUnavailableError("NFC désactivé — l'activer dans les réglages de l'appareil");
   }
 
-  await NfcManager.requestTechnology(NfcTech.IsoDep, {
-    alertMessage: "Posez le haut du téléphone sur le document et ne bougez plus.",
-  });
+  // Sans détection après quelques secondes, c'est presque toujours le placement (antenne en haut du
+  // dos de l'iPhone, coque épaisse) ou un document sans puce : on le dit dans la feuille système.
+  const noTagHint = setTimeout(
+    () => setIosMessage("Aucune puce détectée. Posez le haut du dos du téléphone à plat au centre du document, sans coque épaisse, et attendez 2 à 3 secondes."),
+    12_000,
+  );
+  try {
+    await NfcManager.requestTechnology(NfcTech.IsoDep, {
+      alertMessage: "Posez le haut du téléphone sur le document et ne bougez plus.",
+    });
+  } finally {
+    clearTimeout(noTagHint);
+  }
   let failed = false;
   try {
     setIosMessage("Document détecté — connexion sécurisée…");
