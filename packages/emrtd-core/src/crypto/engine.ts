@@ -16,10 +16,11 @@ export function ensurePkiEngine(): void {
     return;
   }
   if (typeof globalThis.crypto?.subtle === "undefined") {
-    throw new Error(
-      "Web Crypto API indisponible (globalThis.crypto.subtle) : requis pour le parsing CMS/X.509. " +
-        "Sur React Native, un polyfill WebCrypto est nécessaire pour cette partie du package.",
-    );
+    // React Native/Hermes : pas de Web Crypto. Le décodage ASN.1/X.509/CMS de pkijs n'en a pas
+    // besoin, et toutes les vérifications de signature passent par pureVerify.ts — seules les
+    // opérations pkijs cryptographiques (jamais appelées sur ce chemin) resteraient indisponibles.
+    initialized = true;
+    return;
   }
   setEngine("nodeEngine", new CryptoEngine({ name: "globalEngine", crypto: globalThis.crypto, subtle: globalThis.crypto.subtle }));
   initialized = true;

@@ -3,6 +3,7 @@ import { fromBER } from "asn1js";
 import { Certificate as PkijsCertificate } from "pkijs";
 import { ensurePkiEngine } from "./engine";
 import { toArrayBuffer, bufferToHex } from "./bytes";
+import { verifyRawSignature } from "./signatureVerify";
 
 const OID_NAMES: Record<string, string> = {
   "2.5.4.3": "CN",
@@ -51,9 +52,17 @@ export async function isCertificateSignedBy(childDer: Uint8Array, issuerDer: Uin
   const child = parseCertificate(childDer);
   const issuer = parseCertificate(issuerDer);
   try {
-    return await child.verify(issuer);
+    // Pas `child.verify(issuer)` de pkijs : il exige Web Crypto (absent sur React Native) et ne
+    // connaît ni Brainpool ni les courbes explicites — voir signatureVerify.ts/pureVerify.ts.
+    return await verifyRawSignature({
+      spkiDer: new Uint8Array(issuer.subjectPublicKeyInfo.toSchema().toBER(false)),
+      signatureAlgorithmOid: child.signatureAlgorithm.algorithmId,
+      signatureAlgorithmParams: child.signatureAlgorithm.algorithmParams,
+      signature: new Uint8Array(child.signatureValue.valueBlock.valueHexView),
+      signedData: child.tbsView,
+    });
   } catch {
-    // pkijs lève plutôt que de retourner false sur certains mésappariements d'algorithme — traité comme "non vérifié".
+    // Algorithme ou clé non pris en charge — traité comme "non vérifié", jamais comme valide.
     return false;
   }
 }

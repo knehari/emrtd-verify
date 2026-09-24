@@ -16,6 +16,7 @@
 import { fromBER, type OctetString } from "asn1js";
 import { Certificate, IssuerAndSerialNumber, type SignedData, type SignerInfo } from "pkijs";
 import { verifyRawSignature, DIGEST_ALGORITHM_OID_TO_WEBCRYPTO } from "./signatureVerify";
+import { hashBytes } from "./pureVerify";
 import { toArrayBuffer } from "./bytes";
 
 const CONTENT_TYPE_ATTR_OID = "1.2.840.113549.1.9.3";
@@ -113,7 +114,7 @@ export async function verifyCmsSignerInfo(params: {
     if (!hashName) {
       throw new Error(`Algorithme de hachage CMS non supporté : OID ${digestAlgorithmOid}`);
     }
-    const actualDigest = new Uint8Array(await globalThis.crypto.subtle.digest(hashName, params.content));
+    const actualDigest = hashBytes(hashName, new Uint8Array(params.content));
     const claimedDigest = new Uint8Array(messageDigestAttribute.values[0].valueBlock.valueHexView);
     if (!bytesEqual(actualDigest, claimedDigest)) {
       return false;

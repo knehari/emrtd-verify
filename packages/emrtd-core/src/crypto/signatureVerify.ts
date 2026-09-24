@@ -1,26 +1,13 @@
 /**
- * Vérification de signature bas niveau (RSA/ECDSA) indépendante de pkijs' `SignedData.verify()`
- * et capable de courbes ECDSA que Web Crypto ne supporte pas nativement (notamment les courbes
- * Brainpool, RFC 5639, largement utilisées par les CSCA européennes conformément à BSI TR-03110).
- *
- * Contexte : Web Crypto (utilisé partout ailleurs dans ce module pour la portabilité navigateur/
- * mobile — voir engine.ts) ne connaît que P-256/P-384/P-521 pour ECDSA. Constaté sur un export
- * LDIF ICAO PKD réel : 12 des 28 Master List Signers réels échouaient la vérification de signature
- * avec "Incorrect type for ECDSA public key parameters" — leurs certificats utilisent Brainpool.
- *
- * Stratégie : tenter Web Crypto quand la courbe est supportée (chemin rapide, portable, inchangé
- * pour le cas majoritaire RSA/P-256/P-384/P-521) ; sinon, déléguer à un vérificateur de repli
- * ENREGISTRÉ PAR L'APPELANT via `registerEcdsaFallbackVerifier` — ce module reste volontairement
- * dépourvu de toute référence à `node:crypto`/`Buffer`, car il est compilé (types TypeScript
- * compris) par apps/mobile en tant que dépendance source, qui n'a pas les types Node. Le repli
- * réel (node:crypto/OpenSSL, qui supporte Brainpool nativement) vit dans
- * packages/pki-trust/src/nodeCryptoFallback.ts (déjà Node-only en pratique, jamais consommé par
- * apps/mobile) et s'enregistre automatiquement à l'import de packages/pki-trust.
+ * Vérification de signature bas niveau (RSA PKCS#1 v1.5, RSA-PSS, ECDSA) pour CMS (SOD, Master
+ * Lists) et X.509, indépendante de pkijs' `SignedData.verify()`/`Certificate.verify()` et de Web
+ * Crypto. Ce module résout le schéma effectif à partir des OID (y compris rsaEncryption "nu" +
+ * digestAlgorithm, RSASSA-PSS-params, ecdsa-plain BSI) ; le calcul lui-même est fait en JavaScript
+ * pur par pureVerify.ts — seule implémentation qui tourne à l'identique sur Node et React Native
+ * (Hermes n'a pas `crypto.subtle`), avec Brainpool et les courbes explicites des CSCA européennes.
  */
-import { fromBER, type ObjectIdentifier, type Sequence } from "asn1js";
-import { PublicKeyInfo } from "pkijs";
-import { toArrayBuffer } from "./bytes";
-import { ensurePkiEngine } from "./engine";
+import type { ObjectIdentifier, Sequence } from "asn1js";
+import { verifySignaturePure } from "./pureVerify";
 
 interface RsaScheme {
   kind: "RSASSA-PKCS1-v1_5";
@@ -58,6 +45,12 @@ const SIGNATURE_ALGORITHM_OIDS: Record<string, SignatureScheme> = {
   "1.2.840.10045.4.3.2": { kind: "ECDSA", hash: "SHA-256" },
   "1.2.840.10045.4.3.3": { kind: "ECDSA", hash: "SHA-384" },
   "1.2.840.10045.4.3.4": { kind: "ECDSA", hash: "SHA-512" },
+  // ecdsa-plain-* (BSI TR-03111 §5.2.1) : signature r||s au lieu de DER, gérée par pureVerify.ts.
+  "0.4.0.127.0.7.1.1.4.1.1": { kind: "ECDSA", hash: "SHA-1" },
+  "0.4.0.127.0.7.1.1.4.1.2": { kind: "ECDSA", hash: "SHA-224" },
+  "0.4.0.127.0.7.1.1.4.1.3": { kind: "ECDSA", hash: "SHA-256" },
+  "0.4.0.127.0.7.1.1.4.1.4": { kind: "ECDSA", hash: "SHA-384" },
+  "0.4.0.127.0.7.1.1.4.1.5": { kind: "ECDSA", hash: "SHA-512" },
 };
 
 /**
@@ -137,31 +130,8 @@ export function resolveSignatureScheme(params: {
   throw new Error(`Algorithme de signature non supporté : OID ${params.signatureAlgorithmOid}`);
 }
 
-/** OID de courbe nommée -> nom Web Crypto (uniquement les courbes que Web Crypto supporte). */
-const WEB_CRYPTO_CURVE_NAMES: Record<string, string> = {
-  "1.2.840.10045.3.1.7": "P-256",
-  "1.3.132.0.34": "P-384",
-  "1.3.132.0.35": "P-521",
-};
-
-const EC_PUBLIC_KEY_OID = "1.2.840.10045.2.1";
-const RSA_PUBLIC_KEY_OID = "1.2.840.113549.1.1.1";
-
 export function signatureSchemeForOid(algorithmOid: string): SignatureScheme | undefined {
   return SIGNATURE_ALGORITHM_OIDS[algorithmOid];
-}
-
-/**
- * Extrait l'OID de courbe nommée d'une SubjectPublicKeyInfo EC quand elle en porte une (absent
- * pour RSA, ou pour une EC à paramètres explicites — SEQUENCE décrivant directement (p, a, b,
- * point de base, ordre) plutôt qu'un renvoi vers un OID standard, constaté sur une vraie Master
- * List ICAO PKD : forme rare mais valide, RFC 3279 §2.2.3).
- */
-function ecNamedCurveOid(spki: PublicKeyInfo): string | undefined {
-  if (spki.algorithm.algorithmId !== EC_PUBLIC_KEY_OID) return undefined;
-  const params = spki.algorithm.algorithmParams;
-  if (!params || params.constructor.name !== "ObjectIdentifier") return undefined;
-  return (params as ObjectIdentifier).valueBlock.toString();
 }
 
 export type EcdsaFallbackVerifier = (params: {
@@ -171,20 +141,14 @@ export type EcdsaFallbackVerifier = (params: {
   signedData: ArrayBuffer;
 }) => Promise<boolean>;
 
-let ecdsaFallbackVerifier: EcdsaFallbackVerifier | undefined;
-
 /**
- * Enregistre le vérificateur ECDSA de repli (node:crypto/OpenSSL) — appelé par
- * packages/pki-trust/src/nodeCryptoFallback.ts à l'import, jamais par emrtd-core lui-même.
+ * Conservé pour compatibilité avec packages/pki-trust/src/nodeCryptoFallback.ts : sans effet depuis
+ * que toutes les vérifications passent par pureVerify.ts (qui gère Brainpool et les courbes
+ * explicites sans OpenSSL).
  */
-export function registerEcdsaFallbackVerifier(verifier: EcdsaFallbackVerifier): void {
-  ecdsaFallbackVerifier = verifier;
-}
+export function registerEcdsaFallbackVerifier(_verifier: EcdsaFallbackVerifier): void {}
 
-/**
- * Vérifie une signature RSA(-PSS)/ECDSA brute contre une clé publique (SubjectPublicKeyInfo DER),
- * en repliant sur node:crypto si Web Crypto ne supporte pas la courbe ECDSA du certificat.
- */
+/** Vérifie une signature RSA(-PSS)/ECDSA contre une clé publique (SubjectPublicKeyInfo DER). */
 export async function verifyRawSignature(params: {
   spkiDer: Uint8Array;
   signatureAlgorithmOid: string;
@@ -193,49 +157,9 @@ export async function verifyRawSignature(params: {
   signature: Uint8Array;
   signedData: Uint8Array;
 }): Promise<boolean> {
-  ensurePkiEngine();
   const scheme = resolveSignatureScheme(params);
-
-  const spkiDer = toArrayBuffer(params.spkiDer);
-  const signature = toArrayBuffer(params.signature);
-  const signedData = toArrayBuffer(params.signedData);
-
-  if (scheme.kind === "RSASSA-PKCS1-v1_5") {
-    const key = await globalThis.crypto.subtle.importKey("spki", spkiDer, { name: "RSASSA-PKCS1-v1_5", hash: scheme.hash }, false, ["verify"]);
-    return globalThis.crypto.subtle.verify({ name: "RSASSA-PKCS1-v1_5" }, key, signature, signedData);
-  }
-
-  if (scheme.kind === "RSA-PSS") {
-    const key = await globalThis.crypto.subtle.importKey("spki", spkiDer, { name: "RSA-PSS", hash: scheme.hash }, false, ["verify"]);
-    return globalThis.crypto.subtle.verify({ name: "RSA-PSS", saltLength: scheme.saltLength }, key, signature, signedData);
-  }
-
-  // ECDSA : déterminer si Web Crypto connaît la courbe avant même d'essayer (évite de dépendre
-  // du texte d'erreur, potentiellement instable d'une version de moteur JS à l'autre).
-  const asn1 = fromBER(spkiDer);
-  if (asn1.offset === -1) {
-    throw new Error("SubjectPublicKeyInfo invalide : échec du décodage ASN.1");
-  }
-  const spki = new PublicKeyInfo({ schema: asn1.result });
-  if (spki.algorithm.algorithmId === RSA_PUBLIC_KEY_OID) {
-    throw new Error("Incohérence : clé RSA avec un algorithme de signature ECDSA");
-  }
-  const curveOid = ecNamedCurveOid(spki);
-  const webCryptoCurve = curveOid ? WEB_CRYPTO_CURVE_NAMES[curveOid] : undefined;
-
-  if (webCryptoCurve) {
-    try {
-      const key = await globalThis.crypto.subtle.importKey("spki", spkiDer, { name: "ECDSA", namedCurve: webCryptoCurve }, false, ["verify"]);
-      return await globalThis.crypto.subtle.verify({ name: "ECDSA", hash: scheme.hash }, key, signature, signedData);
-    } catch {
-      // Repli sur node:crypto ci-dessous si Web Crypto échoue malgré une courbe a priori connue.
-    }
-  }
-
-  if (!ecdsaFallbackVerifier) {
-    throw new Error(
-      `Courbe ECDSA non supportée par Web Crypto et aucun vérificateur de repli enregistré (OID ${curveOid ?? "paramètres explicites"}) — importer @emrtd-verify/pki-trust enregistre automatiquement le repli node:crypto`,
-    );
-  }
-  return ecdsaFallbackVerifier({ spkiDer, hash: scheme.hash, signature, signedData });
+  // JavaScript pur (pureVerify.ts) pour tous les cas : Web Crypto n'existe pas sur React Native, ne
+  // connaît pas Brainpool ni les courbes explicites, et attend des signatures ECDSA "brutes" alors
+  // que X.509/CMS les encodent en DER — même code, même résultat sur serveur et sur mobile.
+  return verifySignaturePure({ spkiDer: params.spkiDer, scheme, signature: params.signature, signedData: params.signedData });
 }
