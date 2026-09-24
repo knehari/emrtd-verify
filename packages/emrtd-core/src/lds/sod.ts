@@ -157,19 +157,29 @@ export function decodeSod(sodDer: Uint8Array): DecodedSod {
 }
 
 /**
- * Compare les hashs déclarés dans le SOD aux hashs réellement calculés sur les DG lus.
- * Ne fait aucune vérification de signature — voir packages/pki-trust/src/chainValidator.ts.
+ * Compare, pour chaque DG effectivement LU, son hash calculé à celui déclaré dans le SOD (Doc 9303
+ * Part 11 §5.1 : la Passive Authentication porte sur les DG lus). Un DG déclaré mais non lu (DG3
+ * protégé par EAC, DG11/12/13 facultatifs…) n'est pas une incohérence : il n'apparaît pas ici — voir
+ * `dataGroupsNotRead`. Un DG lu mais absent du SOD, en revanche, est une incohérence (matches=false) :
+ * rien ne l'authentifie. Ne fait aucune vérification de signature — voir pki-trust/chainValidator.ts.
  */
 export function verifyDataGroupHashes(
   sod: SecurityObjectDocument,
   computedHashes: DataGroupHash[],
 ): DataGroupHashVerification[] {
-  return sod.ldsSecurityObject.dataGroupHashes.map((declared) => {
-    const computed = computedHashes.find((h) => h.dataGroupNumber === declared.dataGroupNumber);
+  return computedHashes.map((computed) => {
+    const declared = sod.ldsSecurityObject.dataGroupHashes.find((h) => h.dataGroupNumber === computed.dataGroupNumber);
     const matches =
-      computed !== undefined &&
+      declared !== undefined &&
       computed.hash.length === declared.hash.length &&
       computed.hash.every((byte, i) => byte === declared.hash[i]);
-    return { dataGroupNumber: declared.dataGroupNumber, matches };
+    return { dataGroupNumber: computed.dataGroupNumber, matches };
   });
+}
+
+/** DG déclarés dans le SOD mais non lus sur la puce (information, pas une anomalie). */
+export function dataGroupsNotRead(sod: SecurityObjectDocument, computedHashes: DataGroupHash[]): number[] {
+  return sod.ldsSecurityObject.dataGroupHashes
+    .map((declared) => declared.dataGroupNumber)
+    .filter((number) => !computedHashes.some((computed) => computed.dataGroupNumber === number));
 }

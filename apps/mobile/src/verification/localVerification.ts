@@ -1,6 +1,7 @@
 import {
   buildChipDataEnvelope,
   decodeChipDataEnvelope,
+  bytesToBase64,
   verifyLivenessResponse,
   type LivenessChallenge,
   type LivenessSignalFrame,
@@ -44,9 +45,27 @@ export interface LocalVerificationResult {
     fields: Record<string, FieldCheck>;
   };
   trustChain: TrustChainResult;
+  /** Détail de la Passive Authentication (Doc 9303 Part 11 §5.1). */
+  passiveAuthentication: {
+    sodSignatureValid: boolean;
+    dscTrustedByCsca: boolean;
+    dscWithinValidityPeriod: boolean;
+    noTrustAnchorAvailable: boolean;
+    dataGroupsVerified: number[];
+    dataGroupHashMismatches: number[];
+    dataGroupsNotRead: number[];
+  };
+  /** Photo du porteur extraite de DG2 (JPEG ou JPEG 2000, affichable par <Image> sur iOS). */
+  faceImage?: { dataUri: string; format: "jpeg" | "jpeg2000" };
   activeLiveness?: ActiveLivenessResult;
   faceMatch?: FaceMatchResult;
   anomalies: AnomalyFinding[];
+}
+
+function faceImageDataUri(bytes: Uint8Array | undefined): LocalVerificationResult["faceImage"] {
+  if (!bytes || bytes.length < 4) return undefined;
+  const format = bytes[0] === 0xff && bytes[1] === 0xd8 ? "jpeg" : "jpeg2000";
+  return { format, dataUri: `data:image/${format === "jpeg" ? "jpeg" : "jp2"};base64,${bytesToBase64(bytes)}` };
 }
 
 export interface LocalVerificationInput {
@@ -194,6 +213,16 @@ export async function computeLocalVerification(input: LocalVerificationInput): P
       fields: buildFieldChecks(decoded.documentIdentity, decoded.mrzValidation, input.requestedFields ?? []),
     },
     trustChain,
+    passiveAuthentication: {
+      sodSignatureValid: trustChain.sodSignatureValid,
+      dscTrustedByCsca: trustChain.dscTrustedByCsca,
+      dscWithinValidityPeriod: trustChain.dscWithinValidityPeriod,
+      noTrustAnchorAvailable: trustChain.noTrustAnchorAvailable,
+      dataGroupsVerified: trustChain.dataGroupsVerified,
+      dataGroupHashMismatches: trustChain.dataGroupHashMismatches,
+      dataGroupsNotRead: trustChain.dataGroupsNotRead,
+    },
+    faceImage: faceImageDataUri(decoded.faceImage),
     activeLiveness,
     faceMatch,
     anomalies,

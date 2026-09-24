@@ -51,6 +51,71 @@ describe("validateTrustChain", () => {
     expect(result.sufficientForClientPolicy).toBe(true);
   });
 
+  it("CNI française : code MRZ FRA contre CSCA C=FR, plusieurs CSCA valides — retient celui qui a signé le DSC", async () => {
+    const { csca, sodDer, computedDataGroupHashes } = await buildScenario("FR");
+    const { csca: otherFrenchCsca } = await generateCscaAndDsc("FR");
+
+    const result = await validateTrustChain({
+      countryCode: "FRA",
+      sodDer,
+      computedDataGroupHashes,
+      icaoPkdAnchors: [cscaToTrustAnchor("FR", otherFrenchCsca), cscaToTrustAnchor("FR", csca)],
+      nationalPkdRegistry: new NationalPkdRegistry(),
+      extendedTrustStore: new ExtendedTrustStore([]),
+      clientAcceptedLevels: ["high", "medium"],
+    });
+
+    expect(result.noTrustAnchorAvailable).toBe(false);
+    expect(result.dscTrustedByCsca).toBe(true);
+    expect(result.sufficientForClientPolicy).toBe(true);
+    expect(result.csca?.serialNumber).toBe(certificateSerialNumberHex(csca.certificate));
+    expect(result.dsc?.issuer).toBe(result.csca?.subject);
+    expect(result.dataGroupsVerified).toEqual([1]);
+  });
+
+  it("un DG déclaré dans le SOD mais non lu (ex. DG3 protégé par EAC) n'est pas une incohérence de hash", async () => {
+    const { csca, dsc } = await generateCscaAndDsc("UTO");
+    const dg1Hash = new Uint8Array(createHash("sha256").update(DG1_CONTENT).digest());
+    const ldsSecurityObjectDer = encodeLdsSecurityObject({
+      version: 0,
+      digestAlgorithm: "SHA-256",
+      dataGroupHashes: [
+        { dataGroupNumber: 1, hash: dg1Hash },
+        { dataGroupNumber: 3, hash: new Uint8Array(32).fill(3) },
+        { dataGroupNumber: 11, hash: new Uint8Array(32).fill(11) },
+      ],
+    });
+    const sodDer = await buildSignedSod({ ldsSecurityObjectDer, signer: dsc });
+
+    const result = await validateTrustChain({
+      countryCode: "UTO",
+      sodDer,
+      computedDataGroupHashes: [{ dataGroupNumber: 1, hash: dg1Hash }],
+      icaoPkdAnchors: [cscaToTrustAnchor("UTO", csca)],
+      nationalPkdRegistry: new NationalPkdRegistry(),
+      extendedTrustStore: new ExtendedTrustStore([]),
+      clientAcceptedLevels: ["high", "medium"],
+    });
+
+    expect(result.dataGroupHashMismatches).toEqual([]);
+    expect(result.dataGroupsVerified).toEqual([1]);
+    expect(result.dataGroupsNotRead).toEqual([3, 11]);
+  });
+
+  it("un DG lu mais absent du SOD est une incohérence (rien ne l'authentifie)", async () => {
+    const { csca, sodDer, computedDataGroupHashes } = await buildScenario();
+    const result = await validateTrustChain({
+      countryCode: "UTO",
+      sodDer,
+      computedDataGroupHashes: [...computedDataGroupHashes, { dataGroupNumber: 2, hash: new Uint8Array(32) }],
+      icaoPkdAnchors: [cscaToTrustAnchor("UTO", csca)],
+      nationalPkdRegistry: new NationalPkdRegistry(),
+      extendedTrustStore: new ExtendedTrustStore([]),
+      clientAcceptedLevels: ["high", "medium"],
+    });
+    expect(result.dataGroupHashMismatches).toEqual([2]);
+  });
+
   it("détecte un DSC signé par un CSCA différent de celui déclaré de confiance (usurpation)", async () => {
     const { sodDer, computedDataGroupHashes, countryCode } = await buildScenario();
     // Un CSCA "de confiance" différent, sans lien de signature avec le DSC réel utilisé.

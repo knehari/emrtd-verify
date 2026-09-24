@@ -1,5 +1,5 @@
 import * as FileSystem from "expo-file-system";
-import { verifyJsonPayloadSignature, importEcdsaP256PublicKeyFromSpkiBase64, base64ToBytes } from "@emrtd-verify/emrtd-core";
+import { verifyJsonPayloadSignature, importEcdsaP256PublicKeyFromSpkiBase64, base64ToBytes, sameCountry } from "@emrtd-verify/emrtd-core";
 import type { CscaBundle, CscaBundleAnchor } from "@emrtd-verify/shared-types";
 import type { CscaTrustAnchor } from "@emrtd-verify/pki-trust";
 import { appConfig } from "../config";
@@ -112,7 +112,7 @@ export async function getLocalCscaAnchors(countryCode?: string): Promise<CscaTru
   for (const anchor of syncedAnchors) merged.set(`${anchor.countryCode}:${anchor.serialNumber}`, anchor);
 
   const anchors = countryCode
-    ? Array.from(merged.values()).filter((a) => a.countryCode === countryCode)
+    ? Array.from(merged.values()).filter((a) => sameCountry(a.countryCode, countryCode)) // MRZ "FRA" ↔ certificat C=FR
     : Array.from(merged.values());
   return anchors.map(toTrustAnchor);
 }

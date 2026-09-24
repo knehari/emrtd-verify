@@ -7,7 +7,7 @@
  * décalage 0,2 s + 70 ms par ligne) pendant le fondu d'entrée du verdict.
  */
 import React, { useEffect, useMemo, useRef } from "react";
-import { View, Text, StyleSheet, ScrollView, Animated, Easing } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Animated, Easing, Image } from "react-native";
 import { PressableFX as Pressable } from "../components/PressableFX";
 import { fontMono, radius, type PaletteColors } from "../theme";
 import { Icon, ShareIcon } from "../icons";
@@ -52,7 +52,12 @@ export function VerdictScreen({ demo }: { demo: AuthentikDemo }) {
       <View style={styles.identityCard}>
         <View style={styles.identityRow}>
           <View style={styles.thumbnail}>
-            <Text style={styles.thumbnailLabel}>DG2</Text>
+            {demo.faceImageUri ? (
+              // Photo DG2 lue sur la puce (JPEG ou JPEG 2000 — tous deux décodés nativement par iOS).
+              <Image source={{ uri: demo.faceImageUri }} style={styles.thumbnailImage} resizeMode="cover" />
+            ) : (
+              <Text style={styles.thumbnailLabel}>DG2</Text>
+            )}
           </View>
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.surname}>{demo.identitySurname}</Text>
@@ -116,6 +121,7 @@ const makeStyles = (colors: PaletteColors) => StyleSheet.create({
   identityCard: { backgroundColor: colors.surface, borderRadius: radius.verdictCard, padding: 18, marginBottom: 14 },
   identityRow: { flexDirection: "row", gap: 15, alignItems: "flex-start" },
   thumbnail: { width: 72, height: 92, borderRadius: radius.thumbnail, backgroundColor: colors.thumbnail, alignItems: "center", justifyContent: "flex-end", paddingBottom: 6 },
+  thumbnailImage: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: radius.thumbnail },
   thumbnailLabel: { fontFamily: fontMono, fontSize: 8, color: `rgba(${colors.inkBaseRgb},0.55)` },
   surname: { fontSize: 21, fontWeight: "700", letterSpacing: -0.4, color: colors.inkPrimary },
   givenNames: { fontSize: 17, color: colors.inkPrimary, marginTop: 1 },

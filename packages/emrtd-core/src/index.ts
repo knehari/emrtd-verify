@@ -19,6 +19,7 @@ export * from "./crypto/sha1";
 export * from "./crypto/sha256";
 export * from "./crypto/sha512";
 export * from "./crypto/base64";
+export * from "./mrz/countryCodes";
 export * from "./nfc/apdu";
 export * from "./nfc/secureMessaging";
 export * from "./nfc/bac";

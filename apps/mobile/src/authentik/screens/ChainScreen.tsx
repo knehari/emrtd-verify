@@ -29,7 +29,19 @@ export function ChainScreen({ demo }: { demo: AuthentikDemo }) {
               <Text style={[styles.nodeState, { color: n.color }]}>{n.state}</Text>
             </View>
             <Text style={styles.nodeSubject}>{n.subject}</Text>
-            <Text style={styles.nodeNote}>{n.note}</Text>
+            {"details" in n && Array.isArray(n.details) ? (
+              <View style={styles.details}>
+                {(n.details as { label: string; value: string }[]).map((d) => (
+                  <View key={d.label} style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>{d.label}</Text>
+                    <Text style={styles.detailValue} selectable>
+                      {d.value}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+            {n.note ? <Text style={styles.nodeNote}>{n.note}</Text> : null}
           </View>
         </View>
       ))}
@@ -52,5 +64,9 @@ const makeStyles = (colors: PaletteColors) => StyleSheet.create({
   nodeTitle: { flex: 1, fontSize: 15, fontWeight: "600", color: colors.inkPrimary },
   nodeState: { fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.3 },
   nodeSubject: { fontFamily: fontMono, fontSize: 12, lineHeight: 18, color: `rgba(${colors.inkBaseRgb},0.65)`, marginTop: 6 },
+  details: { marginTop: 10, gap: 6 },
+  detailRow: { gap: 1 },
+  detailLabel: { fontSize: 10.5, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.3, color: colors.inkSecondary },
+  detailValue: { fontFamily: fontMono, fontSize: 11.5, lineHeight: 16, color: `rgba(${colors.inkBaseRgb},0.8)` },
   nodeNote: { fontSize: 12.5, color: colors.inkSecondary, marginTop: 7, lineHeight: 17 },
 });

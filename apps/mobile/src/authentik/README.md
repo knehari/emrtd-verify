@@ -92,6 +92,15 @@ A0000002472001 et 00000000000000 n'apportaient rien). Les CNI françaises depuis
 qu'avec l'option d'interrogation `NFCPollingPACE` (ajoutée par `patches/react-native-nfc-manager@3.17.2.patch`)
 et le format `PACE` dans l'entitlement — sans lui, la session NFC ne voit jamais la carte.
 
+Vérification après lecture : Passive Authentication complète sur l'appareil — signature du SOD,
+DSC signé par le CSCA du pays (le magasin embarqué est indexé par le code X.509 à 2 lettres `FR`, la
+MRZ donne `FRA` : les deux formes sont rapprochées, et parmi les CSCA valides du pays on retient celui
+qui a réellement signé le DSC), empreintes des DG lus (un DG déclaré mais non lu, comme DG3 protégé
+par EAC, n'est pas une divergence). Tout en JavaScript pur (`emrtd-core/src/crypto/pureVerify.ts`) :
+Hermes n'a pas Web Crypto. L'écran « Chaîne » détaille le CSCA et le DSC (sujet, émetteur, n° de
+série, validité) ; la photo DG2 (JPEG ou JPEG 2000) s'affiche sur le verdict. Le commutateur de
+scénario de démonstration a été retiré.
+
 ## Design v2 — mode sombre, transitions, retours, Réglages
 
 Deuxième livraison de Claude Design (`Authentik Mobile v2 Dark.dc.html`, non versionné ici non

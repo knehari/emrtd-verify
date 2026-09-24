@@ -461,6 +461,7 @@ export function useAuthentikDemo() {
       authentic: !alert && !suspicious,
       langLabel: lang === "en" ? "EN" : "FR",
       scenarioLabel: alert ? "rejected" : suspicious ? "suspicious" : "authentic",
+      faceImageUri: undefined as string | undefined,
       darkScreen: s.step === "mrz" || s.step === "selfie" || s.scheme === "dark",
       screenBg: s.step === "mrz" || s.step === "selfie" ? paletteColors.screenDark : paletteColors.screenLight,
       pctLabel: `${s.pct} %`,
@@ -589,8 +590,30 @@ function deriveFromRealResult(
   }));
 
   const trust = result.trustChain;
-  const trustSourceLabel = trust.source === "icao-pkd" ? "ICAO PKD" : trust.source === "national-pkd" ? "PKD national" : "Magasin de confiance étendu";
-  const chainRows = [
+  const pa = result.passiveAuthentication;
+  const trustSourceLabel = pa.noTrustAnchorAvailable
+    ? "Aucun CSCA de ce pays dans le magasin"
+    : trust.source === "icao-pkd"
+      ? "ICAO PKD"
+      : trust.source === "national-pkd"
+        ? "PKD national"
+        : "Magasin de confiance étendu";
+  const day = (iso: string) => iso.slice(0, 10);
+  const certDetails = (c: NonNullable<typeof trust.csca>) => [
+    { label: "Sujet", value: c.subject },
+    { label: "Émetteur", value: c.issuer },
+    { label: "N° de série", value: c.serialNumber },
+    { label: "Validité", value: `${day(c.notBefore)} → ${day(c.notAfter)}` },
+  ];
+  const chainRows: Array<{
+    title: string;
+    state: string;
+    subject: string;
+    note: string;
+    color: string;
+    isLast: boolean;
+    details?: { label: string; value: string }[];
+  }> = [
     {
       title: "Ancre de confiance",
       state: trust.sufficientForClientPolicy ? "valide" : "insuffisante",
@@ -599,12 +622,44 @@ function deriveFromRealResult(
       color: trust.sufficientForClientPolicy ? OK : RED,
       isLast: false,
     },
-    ...(trust.cscaSubject
-      ? [{ title: "Certificat CSCA", state: "présent", subject: trust.cscaSubject, note: "Autorité racine du pays émetteur", color: OK, isLast: false }]
+    ...(trust.csca
+      ? [
+          {
+            title: "Certificat CSCA",
+            state: pa.dscTrustedByCsca ? "a signé le DSC" : "ne signe pas ce DSC",
+            subject: trust.csca.subject,
+            note: "Autorité racine du pays émetteur (trust store embarqué) — celle dont la clé a signé le DSC.",
+            color: pa.dscTrustedByCsca ? OK : RED,
+            isLast: false,
+            details: certDetails(trust.csca),
+          },
+        ]
       : []),
-    ...(trust.dscSubject
-      ? [{ title: "Certificat DSC", state: "présent", subject: trust.dscSubject, note: "Signataire du document", color: OK, isLast: false }]
+    ...(trust.dsc
+      ? [
+          {
+            title: "Certificat DSC",
+            state: pa.sodSignatureValid ? "a signé le SOD" : "signature SOD invalide",
+            subject: trust.dsc.subject,
+            note: pa.dscWithinValidityPeriod ? "Signataire du document (embarqué dans le SOD)." : "Hors de sa période de validité.",
+            color: pa.sodSignatureValid && pa.dscWithinValidityPeriod ? OK : RED,
+            isLast: false,
+            details: certDetails(trust.dsc),
+          },
+        ]
       : []),
+    {
+      title: "Empreintes des DG (SOD)",
+      state: pa.dataGroupHashMismatches.length === 0 ? "conformes" : "divergentes",
+      subject: `Vérifiés : ${pa.dataGroupsVerified.map((n) => `DG${n}`).join(", ") || "aucun"}`,
+      note:
+        (pa.dataGroupHashMismatches.length > 0 ? `Divergents : ${pa.dataGroupHashMismatches.map((n) => `DG${n}`).join(", ")}. ` : "") +
+        (pa.dataGroupsNotRead.length > 0
+          ? `Déclarés mais non lus (normal, ex. DG3 protégé par EAC) : ${pa.dataGroupsNotRead.map((n) => `DG${n}`).join(", ")}.`
+          : ""),
+      color: pa.dataGroupHashMismatches.length === 0 ? OK : RED,
+      isLast: false,
+    },
     {
       title: "Révocation",
       state: !trust.revocationChecked ? "non vérifiée" : trust.revoked ? "révoqué" : "non révoqué",
@@ -633,15 +688,26 @@ function deriveFromRealResult(
     };
   });
 
+  const passiveOk = pa.sodSignatureValid && pa.dataGroupHashMismatches.length === 0;
+  const protocol = s.chipResult?.accessProtocolUsed ?? "BAC";
   const checkRows = [
-    { label: "Authentification passive (SOD)", detail: "Empreintes des groupes de données vérifiées", color: OK, icon: "check" as const },
+    {
+      label: "Authentification passive (SOD)",
+      detail: passiveOk
+        ? `Signature du SOD valide · ${pa.dataGroupsVerified.map((n) => `DG${n}`).join(", ")} conformes`
+        : !pa.sodSignatureValid
+          ? "Signature du SOD invalide"
+          : `Empreintes divergentes : ${pa.dataGroupHashMismatches.map((n) => `DG${n}`).join(", ")}`,
+      color: passiveOk ? OK : RED,
+      icon: (passiveOk ? "check" : "warn") as "check" | "warn",
+    },
     {
       label: "Chaîne de confiance PKI",
       detail: trustSourceLabel,
       color: trust.sufficientForClientPolicy ? OK : WARN,
       icon: (trust.sufficientForClientPolicy ? "check" : "warn") as "check" | "warn",
     },
-    { label: "Authentification de la puce (BAC)", detail: "Canal sécurisé établi avec succès", color: OK, icon: "check" as const },
+    { label: `Accès à la puce (${protocol})`, detail: `Canal sécurisé ${protocol} établi avec succès`, color: OK, icon: "check" as const },
     {
       label: "Champs du document",
       detail: `${fieldRows.length} champ${fieldRows.length > 1 ? "s" : ""} contrôlé${fieldRows.length > 1 ? "s" : ""}`,
@@ -661,7 +727,7 @@ function deriveFromRealResult(
     },
   ];
 
-  const passedCount = 4 - (allFieldsValid ? 0 : 1) - (trust.sufficientForClientPolicy ? 0 : 1) - (result.anomalies.length > 0 ? 1 : 0);
+  const passedCount = [passiveOk, trust.sufficientForClientPolicy, true, allFieldsValid].filter(Boolean).length;
 
   return {
     t,
@@ -669,7 +735,7 @@ function deriveFromRealResult(
     suspicious,
     authentic: !alert && !suspicious,
     langLabel: lang === "en" ? "EN" : "FR",
-    scenarioLabel: verdict,
+    scenarioLabel: lang === "en" ? "provisional" : "provisoire",
     darkScreen: s.step === "mrz" || s.step === "selfie" || s.scheme === "dark",
     screenBg: s.step === "mrz" || s.step === "selfie" ? paletteColors.screenDark : paletteColors.screenLight,
     pctLabel: `${s.pct} %`,
@@ -702,7 +768,8 @@ function deriveFromRealResult(
     passedLabel: `${Math.max(0, passedCount)} vérifications passées sur 4`,
     verdictColor: color,
     verdictWash: wash,
-    verdictChipLabel: verdict,
+    verdictChipLabel: alert ? t.verdicts.alert : suspicious ? t.verdicts.suspicious : t.verdicts.authentic,
+    faceImageUri: result.faceImage?.dataUri,
     verdictChipInk: chipInk,
     anomalyCount: anomalyRows.length,
     checkRows,

@@ -13,7 +13,19 @@ export interface FieldCheck {
   checks: string[];
 }
 
+/** Résumé d'un certificat de la chaîne (affiché tel quel à l'utilisateur, jamais réinterprété). */
+export interface CertificateSummary {
+  subject: string;
+  issuer: string;
+  serialNumber: string;
+  notBefore: string; // ISO 8601
+  notAfter: string; // ISO 8601
+}
+
 export interface TrustChainResult {
+  /** Détail du CSCA retenu (celui qui a effectivement signé le DSC) et du DSC, si disponibles. */
+  csca?: CertificateSummary;
+  dsc?: CertificateSummary;
   source: TrustSourceKind;
   level: TrustLevel;
   /** true si ce niveau satisfait la politique de risque configurée pour le client KYC appelant. */

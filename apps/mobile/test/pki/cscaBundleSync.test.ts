@@ -134,10 +134,14 @@ describe("readCachedCscaBundle / getLocalCscaAnchors", () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => bundle })));
     await syncCscaBundle();
 
+    // Code MRZ "FRA" : l'ancre synchronisée ("FRA") ET les CSCA-FRANCE embarqués (C=FR) répondent.
     const anchors = await getLocalCscaAnchors("FRA");
-    expect(anchors).toHaveLength(1);
-    expect(anchors[0]!.countryCode).toBe("FRA");
-    expect(Array.from(anchors[0]!.certificateDer)).toEqual([0x30, 0x82, 0x01, 0x0a]);
+    const embeddedFrench = defaultCscaAnchors.filter((a) => a.countryCode === "FR").length;
+    expect(embeddedFrench).toBeGreaterThan(0);
+    expect(anchors).toHaveLength(embeddedFrench + 1);
+    const synced = anchors.find((a) => a.countryCode === "FRA");
+    expect(Array.from(synced!.certificateDer)).toEqual([0x30, 0x82, 0x01, 0x0a]);
+    expect(anchors.filter((a) => a.countryCode === "FR").every((a) => a.subject.includes("CSCA-FRANCE"))).toBe(true);
 
     await expect(getLocalCscaAnchors("XXX")).resolves.toEqual([]);
   });

@@ -1,6 +1,14 @@
 import type { DataGroupHash } from "@emrtd-verify/emrtd-core";
-import { decodeSod, verifyDataGroupHashes, isCertificateSignedBy } from "@emrtd-verify/emrtd-core";
-import type { TrustChainResult } from "@emrtd-verify/shared-types";
+import {
+  decodeSod,
+  verifyDataGroupHashes,
+  dataGroupsNotRead,
+  isCertificateSignedBy,
+  parseCertificate,
+  distinguishedNameToString,
+  sameCountry,
+} from "@emrtd-verify/emrtd-core";
+import type { CertificateSummary, TrustChainResult } from "@emrtd-verify/shared-types";
 import type { CscaTrustAnchor } from "./trustAnchor";
 import { isCscaValidAt } from "./trustAnchor";
 import type { NationalPkdRegistry } from "./nationalPkdAdapter";
@@ -24,6 +32,10 @@ export interface ChainValidationInput {
 
 export interface ChainValidationResult extends TrustChainResult {
   dataGroupHashMismatches: number[];
+  /** DG lus dont le hash correspond au SOD. */
+  dataGroupsVerified: number[];
+  /** DG déclarés dans le SOD mais non lus (ex. DG3 protégé par EAC) — information, pas une anomalie. */
+  dataGroupsNotRead: number[];
   /** true si aucune source de confiance n'a de CSCA pour ce pays. */
   noTrustAnchorAvailable: boolean;
   /** true si le SOD est authentiquement signé par la clé privée du certificat DSC embarqué. */
@@ -47,17 +59,40 @@ export async function validateTrustChain(input: ChainValidationInput): Promise<C
   const decoded = decodeSod(input.sodDer);
   const hashVerifications = verifyDataGroupHashes(decoded.document, input.computedDataGroupHashes);
   const dataGroupHashMismatches = hashVerifications.filter((h) => !h.matches).map((h) => h.dataGroupNumber);
+  const dataGroupsVerified = hashVerifications.filter((h) => h.matches).map((h) => h.dataGroupNumber);
+  const notRead = dataGroupsNotRead(decoded.document, input.computedDataGroupHashes);
   const sodSignatureValid = await decoded.verifySignature();
+  const signer = decoded.document.signerCertificate;
+  const dsc: CertificateSummary = {
+    subject: signer.subject,
+    issuer: signer.issuer,
+    serialNumber: signer.serialNumber,
+    notBefore: signer.notBefore,
+    notAfter: signer.notAfter,
+  };
 
+  // La MRZ porte un code alpha-3 (FRA, ou "D"), les CSCA l'attribut X.509 C= alpha-2 (FR) : on
+  // compare les deux formes (sameCountry), sinon aucune ancre n'est jamais trouvée.
   const icaoAnchors = input.icaoPkdAnchors.filter(
-    (a) => a.countryCode === input.countryCode && isCscaValidAt(a, atIso8601),
+    (a) => sameCountry(a.countryCode, input.countryCode) && isCscaValidAt(a, atIso8601),
   );
   const nationalAdapter = input.nationalPkdRegistry.get(input.countryCode);
-  const nationalAnchors = nationalAdapter ? await nationalAdapter.fetchCsca() : [];
+  const nationalAnchors = nationalAdapter ? (await nationalAdapter.fetchCsca()).filter((a) => isCscaValidAt(a, atIso8601)) : [];
   const extendedAnchors = input.extendedTrustStore.findByCountry(input.countryCode, atIso8601);
 
-  const candidate =
-    icaoAnchors[0] ?? nationalAnchors.find((a) => isCscaValidAt(a, atIso8601)) ?? extendedAnchors[0];
+  // Un pays a en général plusieurs CSCA valides en même temps (renouvellements, ici 8 pour la
+  // France) : on retient celui qui a RÉELLEMENT signé ce DSC, dans l'ordre de priorité des sources
+  // (ICAO PKD > PKD nationale > magasin étendu), et non le premier venu.
+  const orderedAnchors = [...icaoAnchors, ...nationalAnchors, ...extendedAnchors];
+  let candidate: CscaTrustAnchor | undefined;
+  for (const anchor of orderedAnchors) {
+    if (await isCertificateSignedBy(signer.certificateDer, anchor.certificateDer)) {
+      candidate = anchor;
+      break;
+    }
+  }
+  const signingAnchorFound = candidate !== undefined;
+  candidate ??= orderedAnchors[0];
 
   if (!candidate) {
     return {
@@ -66,7 +101,10 @@ export async function validateTrustChain(input: ChainValidationInput): Promise<C
       sufficientForClientPolicy: false,
       revocationChecked: false,
       revoked: false,
+      dsc,
       dataGroupHashMismatches,
+      dataGroupsVerified,
+      dataGroupsNotRead: notRead,
       noTrustAnchorAvailable: true,
       sodSignatureValid,
       dscTrustedByCsca: false,
@@ -76,10 +114,15 @@ export async function validateTrustChain(input: ChainValidationInput): Promise<C
     };
   }
 
-  const dscTrustedByCsca = await isCertificateSignedBy(
-    decoded.document.signerCertificate.certificateDer,
-    candidate.certificateDer,
-  );
+  const dscTrustedByCsca = signingAnchorFound;
+  const cscaCertificate = parseCertificate(candidate.certificateDer);
+  const csca: CertificateSummary = {
+    subject: candidate.subject,
+    issuer: distinguishedNameToString(cscaCertificate.issuer),
+    serialNumber: candidate.serialNumber,
+    notBefore: candidate.notBefore,
+    notAfter: candidate.notAfter,
+  };
 
   const dscWithinValidityPeriod =
     atIso8601 >= decoded.document.signerCertificate.notBefore &&
@@ -104,9 +147,13 @@ export async function validateTrustChain(input: ChainValidationInput): Promise<C
       dscWithinValidityPeriod,
     cscaSubject: candidate.subject,
     dscSubject: decoded.document.signerCertificate.subject,
+    csca,
+    dsc,
     revocationChecked,
     revoked,
     dataGroupHashMismatches,
+    dataGroupsVerified,
+    dataGroupsNotRead: notRead,
     noTrustAnchorAvailable: false,
     sodSignatureValid,
     dscTrustedByCsca,
