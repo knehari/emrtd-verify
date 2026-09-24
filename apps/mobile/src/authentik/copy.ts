@@ -47,7 +47,8 @@ export interface Copy {
   // Capture caméra réelle de la MRZ — absente du handoff (qui simule la caméra par un aplat,
   // voir son README §2/§3) : copie ajoutée, pas transcrite verbatim, comme le mode Dark plus bas.
   mrzCameraManual: string;
-  mrzCameraFail: string;
+  mrzCameraHold: string;
+  mrzCameraLegacy: string;
   mrzCameraSuccess: string;
   mrzCameraPermission: string;
   mrzCameraOpenSettings: string;
@@ -167,7 +168,9 @@ export const FR: Copy = {
   mrzHint: "Les deux lignes imprimées au bas du document. Elles servent de clé d'accès à la puce.",
   mrzReading: "Lecture de la MRZ…",
   mrzCameraManual: "Saisir manuellement",
-  mrzCameraFail: "Zone lisible non reconnue. Réessayez en alignant mieux le document.",
+  mrzCameraHold: "Zone lisible détectée — ne bougez plus…",
+  mrzCameraLegacy:
+    "Ancienne carte d'identité (avant 2021) : elle n'a pas de puce, la vérification est impossible. Utilisez un passeport ou une carte d'identité récente.",
   mrzCameraSuccess: "Lu automatiquement — vérifiez les informations avant de continuer.",
   mrzCameraPermission: "Autorisez l'accès à l'appareil photo pour scanner le document.",
   mrzCameraOpenSettings: "Ouvrir les réglages",
@@ -348,7 +351,9 @@ export const EN: Copy = {
   mrzHint: "The two printed lines at the bottom of the document. They are the chip access key.",
   mrzReading: "Reading the MRZ…",
   mrzCameraManual: "Enter manually",
-  mrzCameraFail: "Machine-readable zone not recognized. Try aligning the document better.",
+  mrzCameraHold: "Machine-readable zone detected — hold still…",
+  mrzCameraLegacy:
+    "Old French ID card (before 2021): it has no chip, so it cannot be verified. Use a passport or a recent ID card.",
   mrzCameraSuccess: "Read automatically — check the details before continuing.",
   mrzCameraPermission: "Allow camera access to scan the document.",
   mrzCameraOpenSettings: "Open Settings",

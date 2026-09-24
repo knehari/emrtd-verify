@@ -1,30 +1,30 @@
 /**
- * Capture caméra + OCR de la MRZ — voir authentik/README.md §"Capture caméra MRZ". Absente du
- * handoff de design (qui simule la caméra par un aplat, voir son README §2/§3) : la lecture réelle
- * est nouvelle. Le cadre-guide affiché ici définit aussi la zone recadrée avant OCR
- * (../../mrz/scanMrz.ts) — mêmes ratios, une seule source de vérité (`GUIDE`).
- *
- * Détection automatique par sondage (pas de flux image par image) : demandé "en direct, sans
- * appuyer sur un bouton", mais un vrai suivi image par image nécessiterait de remplacer
- * `expo-camera` par `react-native-vision-camera` + un plugin d'analyse par frame (nouveaux modules
- * natifs non vérifiables dans cet environnement de développement, voir la discussion de session).
- * Choix retenu à la place : une photo est prise et analysée toutes les `POLL_INTERVAL_MS`
- * automatiquement tant que l'écran est ouvert ; dès qu'une lecture valide (chiffres de contrôle
- * corrects) est trouvée, le cadre passe au vert et l'écran avance — sans bouton à appuyer, au prix
- * d'une latence perçue d'environ `POLL_INTERVAL_MS` plutôt qu'un suivi continu à 30 im/s.
+ * Lecture MRZ en direct — voir authentik/README.md §"Capture caméra MRZ". Le flux vidéo est analysé
+ * image par image par Apple Vision dans le module natif local `modules/mrz-scanner` (aucune photo
+ * n'est prise) ; chaque lot de lignes reconnues passe par src/mrz/mrzFromLines.ts (corrections guidées
+ * par le format, chiffres de contrôle, vote sur plusieurs images). Les lignes de forme MRZ sont
+ * surlignées en vert en direct ; dès que la même lecture valide revient deux fois, l'écran avance seul.
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, ActivityIndicator, Linking } from "react-native";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { useCameraPermissions } from "expo-camera";
+import * as Haptics from "expo-haptics";
 import Svg, { Path } from "react-native-svg";
 import { PressableFX as Pressable } from "./PressableFX";
 import { colors } from "../theme";
-import { scanMrzFromPhoto, type MrzScanSuccess, type MrzGuideRect } from "../../mrz/scanMrz";
+import { MrzScannerView, type DetectedTextLine, type TextDetectedEvent } from "../../../modules/mrz-scanner";
+import { analyzeMrzLines, isMrzLikeText, MrzConsensus, type MrzRead } from "../../mrz/mrzFromLines";
 import type { AuthentikDemo } from "../state";
 
-const GUIDE: MrzGuideRect = { originXRatio: 0.06, originYRatio: 0.56, widthRatio: 0.88, heightRatio: 0.16 };
+const GUIDE = { x: 0.06, y: 0.56, width: 0.88, height: 0.16 };
+// Zone réellement analysée : le cadre élargi, pour tolérer un document un peu décalé sans lire tout
+// l'écran (plus lent, et plus de texte parasite).
+const SCAN_REGION = { x: 0.02, y: GUIDE.y - 0.12, width: 0.96, height: GUIDE.height + 0.24 };
+const LEGACY_NOTICE_MS = 2500;
+const SUCCESS_DELAY_MS = 450;
 const pct = (r: number) => `${r * 100}%` as const;
-const POLL_INTERVAL_MS = 700;
+
+type Phase = "searching" | "locking" | "success";
 
 export function MrzCameraScanner({
   demo,
@@ -32,72 +32,53 @@ export function MrzCameraScanner({
   onManual,
 }: {
   demo: AuthentikDemo;
-  onCaptured: (result: MrzScanSuccess) => void;
+  onCaptured: (read: MrzRead) => void;
   onManual: () => void;
 }) {
   const fr = demo.lang === "fr";
   const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef<CameraView>(null);
-  const [cameraReady, setCameraReady] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [manualError, setManualError] = useState<string | null>(null);
   const [torch, setTorch] = useState(false);
-
-  const stoppedRef = useRef(false);
-  const inFlightRef = useRef(false);
-  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const attemptScan = useCallback(
-    async (manual: boolean) => {
-      if (!cameraRef.current || stoppedRef.current || inFlightRef.current) return;
-      inFlightRef.current = true;
-      setScanning(true);
-      if (manual) setManualError(null);
-      try {
-        // `skipProcessing` accélère la capture mais, per la doc expo-camera, rend l'orientation de
-        // la photo imprévisible (rotation 90°/180°/270° non corrigée selon l'appareil) — le
-        // recadrage ci-dessous (scanMrzFromPhoto) suppose une photo orientée comme l'aperçu affiché
-        // à l'écran, donc jamais `skipProcessing: true` ici.
-        const photo = await cameraRef.current.takePictureAsync({ quality: 0.75 });
-        if (photo && !stoppedRef.current) {
-          const result = await scanMrzFromPhoto(photo.uri, photo.width, photo.height, GUIDE);
-          if (result.ok && !stoppedRef.current) {
-            stoppedRef.current = true;
-            setSuccess(true);
-            setScanning(false);
-            setTimeout(() => onCaptured(result), 420);
-            return;
-          }
-          if (manual) setManualError(demo.t.mrzCameraFail);
-        }
-      } catch {
-        if (manual) setManualError(demo.t.mrzCameraFail);
-      } finally {
-        inFlightRef.current = false;
-        setScanning(false);
-        if (!stoppedRef.current) {
-          pollTimerRef.current = setTimeout(() => void attemptScan(false), POLL_INTERVAL_MS);
-        }
-      }
-    },
-    [demo.t.mrzCameraFail, onCaptured],
-  );
+  const [phase, setPhase] = useState<Phase>("searching");
+  const [highlights, setHighlights] = useState<DetectedTextLine[]>([]);
+  const [legacy, setLegacy] = useState(false);
+  const consensus = useMemo(() => new MrzConsensus(), []);
+  const doneRef = useRef(false);
+  const timersRef = useRef<{ legacy?: ReturnType<typeof setTimeout>; success?: ReturnType<typeof setTimeout> }>({});
 
   useEffect(() => {
-    if (!permission?.granted || !cameraReady) return;
-    stoppedRef.current = false;
-    pollTimerRef.current = setTimeout(() => void attemptScan(false), POLL_INTERVAL_MS);
+    const timers = timersRef.current;
     return () => {
-      stoppedRef.current = true;
-      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      clearTimeout(timers.legacy);
+      clearTimeout(timers.success);
     };
-  }, [permission?.granted, cameraReady, attemptScan]);
+  }, []);
 
-  const forceAttempt = useCallback(() => {
-    if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-    void attemptScan(true);
-  }, [attemptScan]);
+  const handleTextDetected = useCallback(
+    (event: TextDetectedEvent) => {
+      if (doneRef.current) return;
+      const { lines } = event.nativeEvent;
+      setHighlights(lines.filter((line) => isMrzLikeText(line.text)));
+
+      const analysis = analyzeMrzLines(lines);
+      if (analysis.kind === "legacy-fr-id") {
+        setLegacy(true);
+        clearTimeout(timersRef.current.legacy);
+        timersRef.current.legacy = setTimeout(() => setLegacy(false), LEGACY_NOTICE_MS);
+      }
+
+      const read = analysis.kind === "mrz" ? analysis.read : null;
+      const confirmed = consensus.push(read);
+      if (confirmed) {
+        doneRef.current = true;
+        setPhase("success");
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        timersRef.current.success = setTimeout(() => onCaptured(confirmed), SUCCESS_DELAY_MS);
+        return;
+      }
+      setPhase(read ? "locking" : "searching");
+    },
+    [consensus, onCaptured],
+  );
 
   if (!permission) {
     return <View style={styles.center} />;
@@ -124,66 +105,65 @@ export function MrzCameraScanner({
 
   return (
     <View style={styles.fill}>
-      <CameraView
-        ref={cameraRef}
-        style={styles.fill}
-        facing="back"
-        enableTorch={torch}
-        onCameraReady={() => setCameraReady(true)}
+      <MrzScannerView
+        style={StyleSheet.absoluteFill}
+        active={phase !== "success"}
+        torch={torch}
+        regionOfInterest={SCAN_REGION}
+        onTextDetected={handleTextDetected}
       />
 
-      <View pointerEvents="none" style={[styles.maskEdge, { top: 0, left: 0, right: 0, height: pct(GUIDE.originYRatio) }]} />
+      <View pointerEvents="none" style={[styles.maskEdge, { top: 0, left: 0, right: 0, height: pct(GUIDE.y) }]} />
+      <View pointerEvents="none" style={[styles.maskEdge, { top: pct(GUIDE.y), height: pct(GUIDE.height), left: 0, width: pct(GUIDE.x) }]} />
       <View
         pointerEvents="none"
-        style={[styles.maskEdge, { top: pct(GUIDE.originYRatio), height: pct(GUIDE.heightRatio), left: 0, width: pct(GUIDE.originXRatio) }]}
+        style={[styles.maskEdge, { top: pct(GUIDE.y), height: pct(GUIDE.height), right: 0, width: pct(1 - GUIDE.x - GUIDE.width) }]}
       />
-      <View
-        pointerEvents="none"
-        style={[
-          styles.maskEdge,
-          { top: pct(GUIDE.originYRatio), height: pct(GUIDE.heightRatio), right: 0, width: pct(1 - GUIDE.originXRatio - GUIDE.widthRatio) },
-        ]}
-      />
-      <View
-        pointerEvents="none"
-        style={[styles.maskEdge, { top: pct(GUIDE.originYRatio + GUIDE.heightRatio), left: 0, right: 0, bottom: 0 }]}
-      />
+      <View pointerEvents="none" style={[styles.maskEdge, { top: pct(GUIDE.y + GUIDE.height), left: 0, right: 0, bottom: 0 }]} />
       <View
         pointerEvents="none"
         style={[
           styles.guideBox,
-          success && styles.guideBoxSuccess,
-          { left: pct(GUIDE.originXRatio), top: pct(GUIDE.originYRatio), width: pct(GUIDE.widthRatio), height: pct(GUIDE.heightRatio) },
+          phase === "locking" && styles.guideBoxLocking,
+          phase === "success" && styles.guideBoxSuccess,
+          { left: pct(GUIDE.x), top: pct(GUIDE.y), width: pct(GUIDE.width), height: pct(GUIDE.height) },
         ]}
       />
 
-      <View pointerEvents="none" style={[styles.hintWrap, { top: pct(Math.max(0, GUIDE.originYRatio - 0.09)) }]}>
+      {highlights.map((line, i) => (
+        <View
+          key={i}
+          pointerEvents="none"
+          style={[styles.highlight, { left: pct(line.x), top: pct(line.y), width: pct(line.width), height: pct(line.height) }]}
+        />
+      ))}
+
+      <View pointerEvents="none" style={[styles.hintWrap, { top: pct(Math.max(0, GUIDE.y - 0.09)) }]}>
         <Text style={styles.hintText}>{demo.t.mrzHint}</Text>
       </View>
 
       <View pointerEvents="none" style={styles.statusWrap}>
-        {success ? (
+        {phase === "success" ? (
           <Text style={styles.statusTextSuccess}>{demo.t.mrzCameraSuccess}</Text>
+        ) : phase === "locking" ? (
+          <Text style={styles.statusTextLocking}>{demo.t.mrzCameraHold}</Text>
         ) : (
           <>
-            <ActivityIndicator size="small" color="#fff" style={{ opacity: scanning ? 1 : 0.35 }} />
+            <ActivityIndicator size="small" color="#fff" />
             <Text style={styles.statusText}>{demo.t.mrzReading}</Text>
           </>
         )}
       </View>
 
-      {manualError ? (
-        <View style={styles.errorBanner} pointerEvents="none">
-          <Text style={styles.errorText}>{manualError}</Text>
+      {legacy && phase !== "success" ? (
+        <View style={styles.legacyBanner} pointerEvents="none">
+          <Text style={styles.legacyText}>{demo.t.mrzCameraLegacy}</Text>
         </View>
       ) : null}
 
       <View style={styles.controls}>
         <Pressable onPress={onManual} style={styles.manualLinkDark}>
           <Text style={styles.manualLinkDarkText}>{demo.t.mrzCameraManual}</Text>
-        </Pressable>
-        <Pressable onPress={forceAttempt} disabled={success} style={[styles.shutter, success && styles.shutterSuccess]}>
-          <View style={[styles.shutterInner, success && styles.shutterInnerSuccess]} />
         </Pressable>
         <View style={styles.torchWrap}>
           <Pressable onPress={() => setTorch((v) => !v)} style={[styles.torchButton, torch && styles.torchButtonActive]}>
@@ -204,7 +184,7 @@ export function MrzCameraScanner({
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1 },
+  fill: { flex: 1, backgroundColor: "#000" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 14 },
   permissionText: { color: "rgba(255,255,255,0.75)", fontSize: 14, textAlign: "center", lineHeight: 20 },
   permissionButton: { backgroundColor: colors.accent, borderRadius: 12, paddingVertical: 13, paddingHorizontal: 22 },
@@ -213,31 +193,40 @@ const styles = StyleSheet.create({
   manualLinkText: { color: colors.accent, fontSize: 14 },
   maskEdge: { position: "absolute", backgroundColor: "rgba(0,0,0,0.55)" },
   guideBox: { position: "absolute", borderRadius: 12, borderWidth: 2, borderColor: "rgba(255,255,255,0.85)" },
+  guideBoxLocking: { borderColor: "rgba(48,209,88,0.7)" },
   guideBoxSuccess: { borderColor: "#30D158", borderWidth: 3 },
+  highlight: {
+    position: "absolute",
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: "#30D158",
+    backgroundColor: "rgba(48,209,88,0.18)",
+  },
   hintWrap: { position: "absolute", left: 24, right: 24, alignItems: "center" },
   hintText: { color: "#fff", fontSize: 13.5, textAlign: "center", lineHeight: 19, textShadowColor: "rgba(0,0,0,0.6)", textShadowRadius: 4 },
   statusWrap: {
     position: "absolute",
     left: 24,
     right: 24,
-    bottom: 150,
+    bottom: 130,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
   },
   statusText: { color: "rgba(255,255,255,0.8)", fontSize: 13 },
+  statusTextLocking: { color: "#7EE2A0", fontSize: 14, fontWeight: "600" },
   statusTextSuccess: { color: "#30D158", fontSize: 14, fontWeight: "600" },
-  errorBanner: {
+  legacyBanner: {
     position: "absolute",
     left: 24,
     right: 24,
-    bottom: 180,
-    backgroundColor: "rgba(255,69,58,0.85)",
+    bottom: 170,
+    backgroundColor: "rgba(255,159,10,0.92)",
     borderRadius: 12,
     padding: 12,
   },
-  errorText: { color: "#fff", fontSize: 13, lineHeight: 18, textAlign: "center" },
+  legacyText: { color: "#1C1C1E", fontSize: 13, lineHeight: 18, textAlign: "center", fontWeight: "500" },
   controls: {
     position: "absolute",
     left: 0,
@@ -248,28 +237,16 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 24,
   },
-  manualLinkDark: { width: 90 },
-  manualLinkDarkText: { color: "#fff", fontSize: 13, opacity: 0.85 },
-  torchWrap: { width: 90, alignItems: "flex-end" },
+  manualLinkDark: { paddingVertical: 8 },
+  manualLinkDarkText: { color: "#fff", fontSize: 14, opacity: 0.9 },
+  torchWrap: { alignItems: "flex-end" },
   torchButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: "rgba(255,255,255,0.16)",
     alignItems: "center",
     justifyContent: "center",
   },
   torchButtonActive: { backgroundColor: "#fff" },
-  shutter: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 3,
-    borderColor: "rgba(255,255,255,0.6)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  shutterSuccess: { borderColor: "#30D158" },
-  shutterInner: { width: 46, height: 46, borderRadius: 23, backgroundColor: "rgba(255,255,255,0.6)" },
-  shutterInnerSuccess: { backgroundColor: "#30D158" },
 });
