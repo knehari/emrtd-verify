@@ -85,9 +85,12 @@ les mêmes étapes. Une clé refusée par la puce (MRZ mal lue) renvoie vers l'�
 interrompue renvoie vers l'écran « Placez le document ».
 
 Prérequis iOS : compte Apple Developer payant, capacité *NFC Tag Reading* (ajoutée par `expo
-prebuild` via le plugin de `react-native-nfc-manager` dans `app.json` : entitlement `TAG`, AID
+prebuild` via le plugin de `react-native-nfc-manager` dans `app.json` et `plugins/withNfcPaceFormat.js` :
+formats `TAG` + `PACE`, AID
 eMRTD A0000002471001 seul dans `select-identifiers`, comme ReadID — les AID supplémentaires
-A0000002472001 et 00000000000000 empêchaient la détection d'une CNI française sur iOS).
+A0000002472001 et 00000000000000 n'apportaient rien). Les CNI françaises depuis 2021 n'acceptent que PACE : iOS 16+ ne les signale
+qu'avec l'option d'interrogation `NFCPollingPACE` (ajoutée par `patches/react-native-nfc-manager@3.17.2.patch`)
+et le format `PACE` dans l'entitlement — sans lui, la session NFC ne voit jamais la carte.
 
 ## Design v2 — mode sombre, transitions, retours, Réglages
 

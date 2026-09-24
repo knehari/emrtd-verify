@@ -58,6 +58,7 @@
           "includeNdefEntitlement": false
         }
       ],
+      "./plugins/withNfcPaceFormat",
       "./plugins/withPodDeploymentTargetFix",
       "./plugins/withAppDelegateSceneSupport",
       "./plugins/withMetroLanHost",

@@ -10,7 +10,7 @@ overrides:
 
 patchedDependencies:
   react-native-nfc-manager@3.17.2:
-    hash: huz6yrkbbnrbrcds744dl6jom4
+    hash: kbacdirxhwc3htfnpmemmy3lk4
     path: patches/react-native-nfc-manager@3.17.2.patch
 
 importers:
@@ -282,7 +282,7 @@ importers:
         version: 1.11.0(react-native@0.74.5(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.2.79)(react@18.2.0))
       react-native-nfc-manager:
         specifier: ^3.16.1
-        version: 3.17.2(patch_hash=huz6yrkbbnrbrcds744dl6jom4)(@expo/config-plugins@8.0.11)
+        version: 3.17.2(patch_hash=kbacdirxhwc3htfnpmemmy3lk4)(@expo/config-plugins@8.0.11)
       react-native-safe-area-context:
         specifier: 4.10.5
         version: 4.10.5(react-native@0.74.5(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.2.79)(react@18.2.0))(react@18.2.0)
@@ -13277,7 +13277,7 @@ snapshots:
       fast-base64-decode: 1.0.0
       react-native: 0.74.5(@babel/core@7.29.7)(@babel/preset-env@7.29.7(@babel/core@7.29.7))(@types/react@18.2.79)(react@18.2.0)
 
-  react-native-nfc-manager@3.17.2(patch_hash=huz6yrkbbnrbrcds744dl6jom4)(@expo/config-plugins@8.0.11):
+  react-native-nfc-manager@3.17.2(patch_hash=kbacdirxhwc3htfnpmemmy3lk4)(@expo/config-plugins@8.0.11):
     optionalDependencies:
       '@expo/config-plugins': 8.0.11
 

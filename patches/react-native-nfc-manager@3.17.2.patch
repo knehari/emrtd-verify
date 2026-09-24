@@ -1,5 +1,5 @@
 diff --git a/ios/NfcManager.m b/ios/NfcManager.m
-index 5869623c14a2329d5648751cb8e42e47d61e4661..cdccf93d93044834ba42051879bbebf3ed4c5dc5 100755
+index 5869623c14a2329d5648751cb8e42e47d61e4661..8b5d68b19d662cb39e8f2cd6dfdf70d833459293 100755
 --- a/ios/NfcManager.m
 +++ b/ios/NfcManager.m
 @@ -189,6 +189,10 @@ continueUserActivity:(NSUserActivity *)userActivity
@@ -22,7 +22,7 @@ index 5869623c14a2329d5648751cb8e42e47d61e4661..cdccf93d93044834ba42051879bbebf3
      if (techRequestCallback) {
          techRequestCallback(@[getErrorMessage(error)]);
          techRequestCallback = nil;
-@@ -288,7 +292,12 @@ RCT_EXPORT_METHOD(requestTechnology: (NSArray *)techs options: (NSDictionary *)o
+@@ -288,7 +292,20 @@ RCT_EXPORT_METHOD(requestTechnology: (NSArray *)techs options: (NSDictionary *)o
  {
      if (@available(iOS 13.0, *)) {
          if (tagSession == nil && session == nil) {
@@ -32,6 +32,14 @@ index 5869623c14a2329d5648751cb8e42e47d61e4661..cdccf93d93044834ba42051879bbebf3
 +            NFCPollingOption pollFlags = NFCPollingISO14443;
 +            if ([techs containsObject:@"iso15693"] || [techs containsObject:@"Ndef"]) {
 +                pollFlags |= NFCPollingISO15693;
++            }
++            // emrtd-verify : les documents PACE uniquement (CNI françaises depuis 2021…) ne sont
++            // signalés par Core NFC qu'avec NFCPollingPACE (iOS 16+), qui exige "PACE" dans
++            // com.apple.developer.nfc.readersession.formats (plugins/withNfcPaceFormat.js).
++            if ([techs containsObject:@"IsoDep"]) {
++                if (@available(iOS 16.0, *)) {
++                    pollFlags |= NFCPollingPACE;
++                }
 +            }
              if ([techs containsObject:@"felica"]) {
                  pollFlags |= NFCPollingISO18092;
