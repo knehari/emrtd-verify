@@ -43,9 +43,18 @@ function createIsoDepTransceiver(): ApduTransceiver {
   return {
     async transceive(commandApdu: Uint8Array): Promise<Uint8Array> {
       const responseBytes = await NfcManager.isoDepHandler.transceive(Array.from(commandApdu));
-      return Uint8Array.from(responseBytes);
+      const response = Uint8Array.from(responseBytes);
+      debugLog(`APDU INS=${hexByte(commandApdu[1])} → SW=${hexByte(response[response.length - 2])}${hexByte(response[response.length - 1])} (${response.length - 2} o)`);
+      return response;
     },
   };
+}
+
+const hexByte = (b: number | undefined) => (b ?? 0).toString(16).padStart(2, "0").toUpperCase();
+
+/** Diagnostic NFC dans la console Metro (développement uniquement) : étapes et SW, jamais les données lues. */
+function debugLog(message: string): void {
+  if (__DEV__) console.log(`[NFC] ${message}`);
 }
 
 function setIosMessage(message: string): void {
@@ -89,6 +98,7 @@ export async function readEmrtdChip(accessKey: MrzAccessKey, options: ReadEmrtdC
 
   // Sans détection après quelques secondes, c'est presque toujours le placement (antenne en haut du
   // dos de l'iPhone, coque épaisse) ou un document sans puce : on le dit dans la feuille système.
+  debugLog("Session NFC ouverte, en attente d'une puce…");
   const noTagHint = setTimeout(
     () => setIosMessage("Aucune puce détectée. Posez le haut du dos du téléphone à plat au centre du document, sans coque épaisse, et attendez 2 à 3 secondes."),
     12_000,
@@ -102,10 +112,15 @@ export async function readEmrtdChip(accessKey: MrzAccessKey, options: ReadEmrtdC
   }
   let failed = false;
   try {
+    const tag = await NfcManager.getTag().catch(() => null);
+    debugLog(`Puce détectée : ${JSON.stringify({ tech: tag?.techTypes ?? (tag as { tech?: string } | null)?.tech, aid: (tag as { initialSelectedAID?: string } | null)?.initialSelectedAID })}`);
     setIosMessage("Document détecté — connexion sécurisée…");
     const transceiver = createIsoDepTransceiver();
     const channel = await establishSecureChannel(transceiver, accessKey, {
-      onProtocol: (protocol) => setIosMessage(`Connexion sécurisée (${protocol})…`),
+      onProtocol: (protocol) => {
+        debugLog(`Protocole choisi : ${protocol}`);
+        setIosMessage(`Connexion sécurisée (${protocol})…`);
+      },
     });
     options.onProgress?.(0.1);
     setIosMessage("Lecture de la puce… 10 %");
@@ -121,6 +136,7 @@ export async function readEmrtdChip(accessKey: MrzAccessKey, options: ReadEmrtdC
     return { dataGroups, sod, accessProtocolUsed: channel.protocol };
   } catch (error) {
     failed = true;
+    debugLog(`Échec : ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);
     if (Platform.OS === "ios") {
       await NfcManager.invalidateSessionWithErrorIOS(iosFailureMessage(error)).catch(() => undefined);
     }

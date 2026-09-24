@@ -1,0 +1,38 @@
+diff --git a/ios/NfcManager.m b/ios/NfcManager.m
+index 5869623c14a2329d5648751cb8e42e47d61e4661..cdccf93d93044834ba42051879bbebf3ed4c5dc5 100755
+--- a/ios/NfcManager.m
++++ b/ios/NfcManager.m
+@@ -189,6 +189,10 @@ continueUserActivity:(NSUserActivity *)userActivity
+     if (techRequestCallback != nil) {
+         for (id<NFCTag> tag in tags) {
+             NSString * tagType = [self getRNTechName:tag];
++            // emrtd-verify : diagnostic — type rapporté par iOS et AID sélectionné (nil = aucun AID
++            // de select-identifiers n'a répondu).
++            NSLog(@"NFCTag detected type=%@ initialSelectedAID=%@", tagType,
++                  tag.type == NFCTagTypeISO7816Compatible ? [[tag asNFCISO7816Tag] initialSelectedAID] : @"-");
+             
+             for (NSString* requestType in techRequestTypes) {
+                 // here we treat Ndef is a special case, because all specific tech types
+@@ -217,7 +221,7 @@ continueUserActivity:(NSUserActivity *)userActivity
+ 
+ - (void)tagReaderSession:(NFCTagReaderSession *)session didInvalidateWithError:(NSError *)error
+     API_AVAILABLE(ios(13.0)) {
+-    NSLog(@"NFCTag didInvalidateWithError");
++    NSLog(@"NFCTag didInvalidateWithError: %@ (code %ld)", [error localizedDescription], (long)error.code);
+     if (techRequestCallback) {
+         techRequestCallback(@[getErrorMessage(error)]);
+         techRequestCallback = nil;
+@@ -288,7 +292,12 @@ RCT_EXPORT_METHOD(requestTechnology: (NSArray *)techs options: (NSDictionary *)o
+ {
+     if (@available(iOS 13.0, *)) {
+         if (tagSession == nil && session == nil) {
+-            NFCPollingOption pollFlags = NFCPollingISO14443 | NFCPollingISO15693;
++            // emrtd-verify : n'interroger que l'ISO 14443 quand seul IsoDep est demandé (passeports,
++            // cartes d'identité). Alterner avec l'ISO 15693 dégrade la détection des puces eMRTD.
++            NFCPollingOption pollFlags = NFCPollingISO14443;
++            if ([techs containsObject:@"iso15693"] || [techs containsObject:@"Ndef"]) {
++                pollFlags |= NFCPollingISO15693;
++            }
+             if ([techs containsObject:@"felica"]) {
+                 pollFlags |= NFCPollingISO18092;
+             }
