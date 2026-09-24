@@ -27,7 +27,7 @@
  *     [--national-ml DE_ML_<date>.ml] --out ../mobile/src/pki/defaultCscaBundle.json
  */
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 // Repli ECDSA Brainpool (node:crypto) pour les CSCA à courbe explicite qu'un vrai export ICAO PKD
 // contient régulièrement — voir apps/api/src/main.ts et packages/pki-trust/src/nodeCryptoFallback.ts.
@@ -38,6 +38,8 @@ import {
   verifyCountryMasterListTrust,
   masterListCertificatesToTrustAnchors,
   parsePkdLdifMasterLists,
+  verifyRevocationList,
+  crlDistributionPointUrls,
   type CscaTrustAnchor,
 } from "@emrtd-verify/pki-trust";
 import { parseCertificate, certificateCountryCode, certificateSerialNumberHex, certificateValidityIso, distinguishedNameToString, bytesToBase64 } from "@emrtd-verify/emrtd-core";
@@ -82,10 +84,14 @@ interface CliArgs {
   pkdLdif: string[];
   nationalMasterLists: string[];
   output?: string;
+  /** Fichiers .crl, dossiers de .crl ou exports LDIF ICAO PKD contenant des CRL. */
+  crlSources: string[];
+  crlOutput?: string;
+  crlHostsOutput?: string;
 }
 
 function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { pkdLdif: [], nationalMasterLists: [] };
+  const args: CliArgs = { pkdLdif: [], nationalMasterLists: [], crlSources: [] };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const value = argv[i + 1];
@@ -94,6 +100,9 @@ function parseArgs(argv: string[]): CliArgs {
     else if (flag === "--pkd-ldif") args.pkdLdif.push(value);
     else if (flag === "--national-ml") args.nationalMasterLists.push(value);
     else if (flag === "--out") args.output = value;
+    else if (flag === "--crl") args.crlSources.push(value);
+    else if (flag === "--crl-out") args.crlOutput = value;
+    else if (flag === "--crl-hosts-out") args.crlHostsOutput = value;
     else throw new Error(`Option inconnue : ${flag}`);
     i++;
   }
@@ -102,7 +111,24 @@ function parseArgs(argv: string[]): CliArgs {
 
 const USAGE =
   "Usage : build-mobile-default-csca-bundle.ts --icao-ml <master-list-globale.ml> [--pkd-ldif <export.ldif>]... " +
-  "[--national-ml <master-list-nationale.ml>]... --out <sortie.json>\n";
+  "[--national-ml <master-list-nationale.ml>]... --out <sortie.json> " +
+  "[--crl <fichier.crl|dossier|export.ldif>]... [--crl-out <defaultCrls.json>] [--crl-hosts-out <crlHttpHosts.json>]\n";
+
+/** CRL DER d'un fichier .crl, de tous les .crl d'un dossier, ou des attributs certificateRevocationList d'un LDIF. */
+function readCrlSources(source: string): Uint8Array[] {
+  if (statSync(source).isDirectory()) {
+    return readdirSync(source)
+      .filter((name) => name.toLowerCase().endsWith(".crl"))
+      .flatMap((name) => readCrlSources(`${source}/${name}`));
+  }
+  const bytes = readFileSync(source);
+  if (!source.toLowerCase().endsWith(".ldif")) return [new Uint8Array(bytes)];
+  // LDIF : lignes repliées (continuation = espace initial), valeur binaire en base64 après « :: ».
+  const unfolded = bytes.toString("latin1").replace(/\r?\n /g, "");
+  return [...unfolded.matchAll(/^certificateRevocationList;binary::\s*([A-Za-z0-9+/=]+)$/gm)].map(
+    (m) => new Uint8Array(Buffer.from(m[1], "base64")),
+  );
+}
 
 function fingerprint(der: Uint8Array): string {
   return createHash("sha256").update(der).digest("hex");
@@ -251,6 +277,52 @@ async function main(): Promise<void> {
   writeFileSync(args.output, `${JSON.stringify(output, null, 2)}\n`);
   const countries = new Set(output.map((a) => a.countryCode));
   process.stdout.write(`Écrit ${output.length} ancre(s) CSCA (${countries.size} pays) dans ${args.output}.\n`);
+
+  // CRL embarquées : chacune n'est retenue que si sa signature vérifie sous un CSCA retenu ci-dessus
+  // (même règle que sur l'appareil, apps/mobile/src/pki/crlCache.ts), la plus récente par émetteur.
+  if (args.crlOutput) {
+    const anchors = Array.from(merged.values());
+    const bySubject = new Map<string, CscaTrustAnchor[]>();
+    for (const anchor of anchors) bySubject.set(anchor.subject, [...(bySubject.get(anchor.subject) ?? []), anchor]);
+    const newest = new Map<string, { countryCode: string; derBase64: string; thisUpdate: string }>();
+    let rejected = 0;
+    for (const der of args.crlSources.flatMap(readCrlSources)) {
+      const verified = await verifyRevocationList(der, anchors.map((a) => a.certificateDer));
+      const signer = verified && bySubject.get(verified.signerSubject)?.[0];
+      if (!verified || !signer) {
+        rejected++;
+        continue;
+      }
+      const current = newest.get(verified.signerSubject);
+      if (!current || verified.thisUpdate > current.thisUpdate) {
+        newest.set(verified.signerSubject, { countryCode: signer.countryCode, derBase64: bytesToBase64(der), thisUpdate: verified.thisUpdate });
+      }
+    }
+    const crls = [...newest.values()]
+      .sort((a, b) => a.countryCode.localeCompare(b.countryCode))
+      .map(({ countryCode, derBase64 }) => ({ countryCode, derBase64 }));
+    writeFileSync(args.crlOutput, `${JSON.stringify(crls, null, 2)}\n`);
+    process.stdout.write(`CRL : ${crls.length} retenue(s) (${new Set(crls.map((c) => c.countryCode)).size} pays), ${rejected} rejetée(s) → ${args.crlOutput}.\n`);
+  }
+
+  // Hôtes HTTP des points de distribution de CRL : exceptions App Transport Security iOS (plugin
+  // apps/mobile/plugins/withCrlTransportSecurity.js). Les CRL sont signées : HTTP n'en affaiblit
+  // pas l'intégrité, et ces hôtes ne servent qu'à leur téléchargement.
+  if (args.crlHostsOutput) {
+    const hosts = new Set<string>();
+    for (const anchor of merged.values()) {
+      for (const url of crlDistributionPointUrls(anchor.certificateDer)) {
+        if (!url.toLowerCase().startsWith("http:")) continue;
+        try {
+          hosts.add(new URL(url).hostname.toLowerCase());
+        } catch {
+          process.stdout.write(`  adresse de CRL illisible ignorée : ${url}\n`);
+        }
+      }
+    }
+    writeFileSync(args.crlHostsOutput, `${JSON.stringify([...hosts].sort(), null, 2)}\n`);
+    process.stdout.write(`${hosts.size} hôte(s) HTTP de CRL → ${args.crlHostsOutput}.\n`);
+  }
 }
 
 main().catch((error) => {

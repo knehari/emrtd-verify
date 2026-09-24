@@ -7,7 +7,7 @@ Vue d'ensemble de tout ce que `VerificationModule` évalue pour produire un `Ver
 - [ ] Hash de chaque DG lu == hash déclaré dans le SOD (algorithme annoncé dans le `LDSSecurityObject`)
 - [ ] Signature du SOD valide avec la clé publique du DSC
 - [ ] DSC signé par un CSCA de la chaîne de confiance (voir [pki-trust-model.md](pki-trust-model.md))
-- [ ] CSCA non révoqué (CRL/Master List de déviation, quand disponible)
+- [x] DSC non révoqué selon la CRL du CSCA, vérifiée (émetteur + signature) avant usage — sur l'appareil : téléchargée (miroir ICAO puis points de distribution du pays), mise en cache, ou embarquée (voir [pki-trust-model.md](pki-trust-model.md#révocation))
 - [ ] Périodes de validité (CSCA, DSC, document) toutes valides à la date de vérification
 
 ## 2. Authenticité de la puce (anti-clonage)
@@ -40,7 +40,7 @@ Chaque anomalie détectée est ajoutée à `VerificationResult.anomalies[]` avec
 - DSC non signé par le CSCA de confiance sélectionné (`DSC_NOT_TRUSTED_BY_CSCA`) → `critical`
 - DSC hors de sa période de validité (`DSC_EXPIRED`) → `critical`
 - CSCA/DSC révoqué → `critical`
-- Statut de révocation non vérifiable, faute de CRL récupérée (`REVOCATION_NOT_CHECKED`) → `warning` — voir [pki-trust-model.md](pki-trust-model.md#révocation) pour la limite actuelle (récupération de CRL non câblée en production)
+- Statut de révocation non vérifiable, faute de CRL récupérée (`REVOCATION_NOT_CHECKED`) → `warning` — voir [pki-trust-model.md](pki-trust-model.md#révocation) (CRL introuvable ou périmée)
 - Absence d'AA/CA sur un document qui devrait le supporter (selon la version LDS annoncée) → `warning` (indice possible de clonage — le SOD peut être copié même sans clé privée de puce)
 - Incohérence structurelle LDS (DG manquant annoncé présent dans le SOD, DG surnuméraire non signé) → `critical`
 - Incohérence MRZ ↔ DG1 ↔ VIZ → `warning` ou `critical` selon le champ

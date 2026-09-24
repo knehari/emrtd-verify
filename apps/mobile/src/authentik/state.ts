@@ -42,6 +42,7 @@ import { bytesToBase64, extractDg2FaceImage } from "@emrtd-verify/emrtd-core";
 import { FaceKit } from "../../modules/face-kit";
 import { faceSampleFromCrop, type NativeFaceCrop } from "../faceMatch/faceCrop";
 import { getSfaceSession } from "../faceMatch/sfaceModel";
+import { refreshRevocationLists, revocationListsFor } from "../pki/crlCache";
 import { SfaceTensor } from "../faceMatch/sfaceSession";
 
 /** Carte d'identité affichée sur le verdict (format "pièce d'identité"). */
@@ -352,6 +353,15 @@ export function useAuthentikDemo() {
           chipAuthentication: chipResult.chipAuthentication,
         },
         faceMatch,
+        // CRL du pays : mise à jour depuis le réseau si celle en cache est absente ou périmée
+        // (5 s max, sans bloquer hors ligne), puis vérification contre les CSCA — pki/crlCache.ts.
+        loadRevocationLists: async (country, anchors) => {
+          const refresh = await refreshRevocationLists(country, anchors, { timeoutMs: 5000 });
+          if (__DEV__ && !refresh.skipped) {
+            console.log(`[CRL] ${country} : ${refresh.added} CRL ajoutée(s)${refresh.failures.length ? ` ; échecs : ${refresh.failures.join(" | ")}` : ""}`);
+          }
+          return revocationListsFor(country, anchors);
+        },
         requestedFields: ["documentNumber", "dateOfBirth", "dateOfExpiry", "nationality", "sex", "primaryIdentifier", "secondaryIdentifier"],
         skippedChecks: {
           revocation: !sRef.current.requireRevocationCheck,
@@ -843,9 +853,11 @@ function deriveFromRealResult(
     },
     {
       title: "Révocation",
-      state: !trust.revocationChecked ? "non vérifiée" : trust.revoked ? "révoqué" : "non révoqué",
-      subject: trustSourceLabel,
-      note: trust.revocationChecked ? "Vérifiée localement" : "Nécessite une synchronisation backend",
+      state: trust.revoked ? "révoqué" : !trust.revocationChecked ? "non vérifiée" : "non révoqué",
+      subject: pa.revocationList ? `CRL du ${day(pa.revocationList.thisUpdate)}` : "Aucune CRL disponible",
+      note: pa.revocationList
+        ? `${pa.revocationList.stale ? "CRL périmée" : "CRL à jour"}${pa.revocationList.nextUpdate ? ` · prochaine le ${day(pa.revocationList.nextUpdate)}` : ""} · signature vérifiée contre le CSCA`
+        : "CRL introuvable (hors ligne, ou non publiée) : téléchargée automatiquement dès que le réseau le permet",
       color: trust.revoked ? RED : trust.revocationChecked ? OK : WARN,
       isLast: true,
     },
@@ -907,13 +919,13 @@ function deriveFromRealResult(
     },
     {
       label: "Révocation des certificats (CRL)",
-      detail: trust.revocationChecked
-        ? trust.revoked
-          ? "DSC révoqué"
-          : "DSC non révoqué"
-        : s.requireRevocationCheck
-          ? "Exigée mais indisponible hors ligne"
-          : "Non exigée (Réglages)",
+      detail: trust.revoked
+        ? "DSC révoqué par le pays émetteur"
+        : trust.revocationChecked
+          ? `DSC non révoqué (CRL du ${pa.revocationList ? day(pa.revocationList.thisUpdate) : "?"})`
+          : s.requireRevocationCheck
+            ? "Exigée mais aucune CRL à jour disponible"
+            : "Aucune CRL à jour disponible (non exigée)",
       color: trust.revocationChecked ? (trust.revoked ? RED : OK) : s.requireRevocationCheck ? WARN : INFO,
       icon: (trust.revocationChecked && !trust.revoked ? "check" : s.requireRevocationCheck || trust.revoked ? "warn" : "dash") as
         | "check"

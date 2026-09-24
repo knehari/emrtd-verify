@@ -8,7 +8,13 @@ import {
   type LivenessSignalFrame,
   type LightSignalSample,
 } from "@emrtd-verify/emrtd-core";
-import { validateTrustChain, NationalPkdRegistry, loadExtendedTrustStoreFromJson } from "@emrtd-verify/pki-trust";
+import {
+  validateTrustChain,
+  NationalPkdRegistry,
+  loadExtendedTrustStoreFromJson,
+  type CscaTrustAnchor,
+  type VerifiedRevocationList,
+} from "@emrtd-verify/pki-trust";
 import { detectAnomalies, computeVerdict } from "@emrtd-verify/verification-policy";
 import type {
   ActiveLivenessResult,
@@ -55,6 +61,8 @@ export interface LocalVerificationResult {
     dataGroupsVerified: number[];
     dataGroupHashMismatches: number[];
     dataGroupsNotRead: number[];
+    /** CRL appliquée au DSC (date d'émission, prochaine mise à jour, périmée ou non). */
+    revocationList?: { thisUpdate: string; nextUpdate?: string; stale: boolean };
   };
   /** Active Authentication : `undefined` si la puce n'a pas de DG15 (non proposée par le document). */
   activeAuthentication?: { performed: boolean; valid: boolean; reason?: string };
@@ -100,6 +108,11 @@ export interface LocalVerificationInput {
   };
   /** Champs d'identité à restituer dans `document.fields` — voir buildFieldChecks. */
   requestedFields?: string[];
+  /**
+   * Fournit les CRL vérifiées du pays (cache/embarquées, après une éventuelle mise à jour réseau —
+   * voir pki/crlCache.ts). Absent : aucune vérification de révocation.
+   */
+  loadRevocationLists?: (countryCode: string, anchors: CscaTrustAnchor[]) => Promise<VerifiedRevocationList[]>;
   /** Contrôles non exigés (Réglages) : leur absence devient une information, plus un avertissement. */
   skippedChecks?: { revocation?: boolean; lostStolen?: boolean };
 }
@@ -146,6 +159,14 @@ export async function computeLocalVerification(input: LocalVerificationInput): P
   }
 
   const icaoPkdAnchors = await getLocalCscaAnchors(decoded.documentIdentity.issuingState);
+  let revocationLists: VerifiedRevocationList[] = [];
+  if (input.loadRevocationLists) {
+    try {
+      revocationLists = await input.loadRevocationLists(decoded.documentIdentity.issuingState, icaoPkdAnchors);
+    } catch {
+      revocationLists = []; // Sans CRL exploitable : révocation « non vérifiée », signalée comme telle.
+    }
+  }
   const trustChain = await validateTrustChain({
     countryCode: decoded.documentIdentity.issuingState,
     sodDer: decoded.sodDer,
@@ -155,6 +176,7 @@ export async function computeLocalVerification(input: LocalVerificationInput): P
     // périmètre hors ligne v1 — vides ici, jamais une source de confiance implicite.
     nationalPkdRegistry: new NationalPkdRegistry(),
     extendedTrustStore: loadExtendedTrustStoreFromJson([]),
+    revocationLists,
     clientAcceptedLevels: appConfig.acceptedTrustLevels,
   });
 
@@ -230,6 +252,7 @@ export async function computeLocalVerification(input: LocalVerificationInput): P
       dataGroupsVerified: trustChain.dataGroupsVerified,
       dataGroupHashMismatches: trustChain.dataGroupHashMismatches,
       dataGroupsNotRead: trustChain.dataGroupsNotRead,
+      revocationList: trustChain.revocationListUsed,
     },
     faceImage: faceImageDataUri(decoded.faceImage),
     activeAuthentication:

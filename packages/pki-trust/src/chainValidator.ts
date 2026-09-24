@@ -13,7 +13,7 @@ import type { CscaTrustAnchor } from "./trustAnchor";
 import { isCscaValidAt } from "./trustAnchor";
 import type { NationalPkdRegistry } from "./nationalPkdAdapter";
 import type { ExtendedTrustStore } from "./trustStore";
-import { isSerialNumberRevoked, type DecodedRevocationList } from "./crl";
+import { isSerialNumberRevoked, type DecodedRevocationList, type VerifiedRevocationList } from "./crl";
 
 export interface ChainValidationInput {
   countryCode: string;
@@ -25,6 +25,12 @@ export interface ChainValidationInput {
   extendedTrustStore: ExtendedTrustStore;
   /** CRL déjà récupérée pour le CSCA candidat, si disponible — voir docs/pki-trust-model.md "Révocation". */
   revocationList?: DecodedRevocationList;
+  /**
+   * CRL déjà vérifiées (`verifyRevocationList`) pour le pays : seules celles émises par le CSCA
+   * retenu (même sujet) ou par l'émetteur du DSC s'appliquent. Une CRL périmée (nextUpdate
+   * dépassée) compte pour les révocations qu'elle porte, pas pour « non révoqué ».
+   */
+  revocationLists?: VerifiedRevocationList[];
   /** Politique du client KYC : niveaux de confiance acceptés comme "suffisants". */
   clientAcceptedLevels: Array<"high" | "medium" | "low">;
   atIso8601?: string;
@@ -44,6 +50,8 @@ export interface ChainValidationResult extends TrustChainResult {
   dscTrustedByCsca: boolean;
   /** true si la période de validité du DSC est respectée à la date de vérification. */
   dscWithinValidityPeriod: boolean;
+  /** CRL la plus récente appliquée au DSC, le cas échéant. */
+  revocationListUsed?: { signerSubject: string; thisUpdate: string; nextUpdate?: string; stale: boolean };
 }
 
 /**
@@ -128,9 +136,18 @@ export async function validateTrustChain(input: ChainValidationInput): Promise<C
     atIso8601 >= decoded.document.signerCertificate.notBefore &&
     atIso8601 <= decoded.document.signerCertificate.notAfter;
 
-  const revocationChecked = input.revocationList !== undefined;
+  const dscSerial = decoded.document.signerCertificate.serialNumber;
+  const applicableLists = (input.revocationLists ?? [])
+    .filter((list) => list.signerSubject === candidate!.subject || list.issuer === decoded.document.signerCertificate.issuer)
+    .sort((a, b) => b.thisUpdate.localeCompare(a.thisUpdate));
+  const revocationChecked = input.revocationList !== undefined || applicableLists.some((list) => !list.stale);
   const revoked =
-    revocationChecked && isSerialNumberRevoked(input.revocationList!, decoded.document.signerCertificate.serialNumber);
+    (input.revocationList !== undefined && isSerialNumberRevoked(input.revocationList, dscSerial)) ||
+    applicableLists.some((list) => isSerialNumberRevoked(list, dscSerial));
+  const latestList = applicableLists[0];
+  const revocationListUsed = latestList
+    ? { signerSubject: latestList.signerSubject, thisUpdate: latestList.thisUpdate, nextUpdate: latestList.nextUpdate, stale: latestList.stale }
+    : undefined;
 
   return {
     source: candidate.source,
@@ -158,5 +175,6 @@ export async function validateTrustChain(input: ChainValidationInput): Promise<C
     sodSignatureValid,
     dscTrustedByCsca,
     dscWithinValidityPeriod,
+    revocationListUsed,
   };
 }

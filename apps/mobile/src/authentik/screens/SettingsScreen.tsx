@@ -5,19 +5,32 @@
  * Ajout hors design : la section Apparence (bascule clair/sombre, sombre par défaut), déplacée ici
  * depuis l'en-tête de l'accueil. Les lignes légales ne mènent nulle part, comme dans le prototype.
  */
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { PressableFX as Pressable } from "../components/PressableFX";
 import { fontMono, radius, type PaletteColors } from "../theme";
 import { AppIcon } from "../icons";
 import { ModeSwitch } from "./HomeScreen";
 import { embeddedStoreRows } from "../trustStoreSummary";
+import { revocationCacheSummary } from "../../pki/crlCache";
 import type { AuthentikDemo } from "../state";
 
 export function SettingsScreen({ demo }: { demo: AuthentikDemo }) {
   const c = demo.colors;
   const styles = useMemo(() => makeStyles(c), [c]);
   const t = demo.t;
+  const [crlSummary, setCrlSummary] = useState<string>("…");
+  useEffect(() => {
+    revocationCacheSummary()
+      .then(({ countries, lastFetchedAt }) =>
+        setCrlSummary(
+          countries === 0
+            ? t.aboutCrlCacheNone
+            : `${countries} ${demo.lang === "fr" ? "pays" : countries > 1 ? "countries" : "country"}${lastFetchedAt ? ` · ${lastFetchedAt.slice(0, 10)}` : ""}`,
+        ),
+      )
+      .catch(() => setCrlSummary(t.aboutCrlCacheNone));
+  }, [demo.lang, t.aboutCrlCacheNone]);
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: 110 }}>
       <View style={styles.hero}>
@@ -39,7 +52,7 @@ export function SettingsScreen({ demo }: { demo: AuthentikDemo }) {
 
       <Text style={styles.sectionTitle}>{t.aboutStoreTitle}</Text>
       <View style={styles.card}>
-        {embeddedStoreRows(demo.lang).map(([label, value], i) => (
+        {[...embeddedStoreRows(demo.lang), [t.aboutCrlCache, crlSummary] as [string, string]].map(([label, value], i) => (
           <View key={label} style={[styles.row, i > 0 && styles.rule]}>
             <Text style={styles.rowLabel}>{label}</Text>
             <Text style={styles.rowValue}>{value}</Text>

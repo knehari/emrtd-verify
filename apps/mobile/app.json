@@ -62,7 +62,8 @@
       "./plugins/withPodDeploymentTargetFix",
       "./plugins/withAppDelegateSceneSupport",
       "./plugins/withMetroLanHost",
-      "./plugins/withYogaHeaderSearchPaths"
+      "./plugins/withYogaHeaderSearchPaths",
+      "./plugins/withCrlTransportSecurity"
     ]
   }
 }

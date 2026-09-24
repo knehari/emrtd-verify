@@ -155,6 +155,8 @@ export interface Copy {
   aboutChecksTitle: string;
   aboutCrl: string;
   aboutCrlDesc: string;
+  aboutCrlCache: string;
+  aboutCrlCacheNone: string;
   aboutLostStolen: string;
   aboutLostStolenDesc: string;
   idCardLabels: { surname: string; givenNames: string; birth: string; sex: string; nationality: string; number: string; expiry: string };
@@ -390,7 +392,10 @@ export const FR: Copy = {
   aboutFbDesc: "Paliers de lecture NFC, vivacité et verdict.",
   aboutChecksTitle: "Contrôles exigés",
   aboutCrl: "Révocation des certificats (CRL)",
-  aboutCrlDesc: "Exiger la vérification de la CRL du pays émetteur. Indisponible hors ligne : activé, le résultat sera « À vérifier ».",
+  aboutCrlDesc:
+    "La CRL du pays est téléchargée à chaque vérification si besoin (miroir ICAO, puis adresse du pays), vérifiée contre le CSCA et gardée pour le hors ligne. Activé, l'absence de CRL à jour donne « À vérifier ».",
+  aboutCrlCache: "CRL en cache",
+  aboutCrlCacheNone: "aucune pour l'instant",
   aboutLostStolen: "Registre des documents perdus/volés",
   aboutLostStolenDesc: "Exiger l'interrogation du registre (en ligne uniquement). Activé sans accès au registre, le résultat sera « À vérifier ».",
   idCardLabels: { surname: "Nom", givenNames: "Prénoms", birth: "Né(e) le", sex: "Sexe", nationality: "Nationalité", number: "N° du document", expiry: "Expire le" },
@@ -623,7 +628,10 @@ export const EN: Copy = {
   aboutFbDesc: "NFC read steps, liveness and verdict.",
   aboutChecksTitle: "Required checks",
   aboutCrl: "Certificate revocation (CRL)",
-  aboutCrlDesc: "Require the issuing country's CRL. Unavailable offline: when on, the result will be “Needs review”.",
+  aboutCrlDesc:
+    "The country's CRL is downloaded during a verification when needed (ICAO mirror, then the country's address), checked against the CSCA and kept for offline use. When on, no up-to-date CRL means “Needs review”.",
+  aboutCrlCache: "Cached CRLs",
+  aboutCrlCacheNone: "none yet",
   aboutLostStolen: "Lost/stolen documents registry",
   aboutLostStolenDesc: "Require a registry lookup (online only). When on without registry access, the result will be “Needs review”.",
   idCardLabels: { surname: "Surname", givenNames: "Given names", birth: "Date of birth", sex: "Sex", nationality: "Nationality", number: "Document no.", expiry: "Expires" },

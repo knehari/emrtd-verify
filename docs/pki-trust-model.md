@@ -127,7 +127,9 @@ Principes :
 ## Révocation
 
 - `validateTrustChain` (`packages/pki-trust/src/chainValidator.ts`) sait vérifier un DSC contre une CRL fournie (`decodeCrl`/`isSerialNumberRevoked`, `packages/pki-trust/src/crl.ts`, testés) — si elle est présente, un serial révoqué produit `revoked: true`, anomalie `CSCA_REVOKED` (critique) et un verdict `rejected`.
-- **Limite honnête actuelle** : la **récupération et la persistance** des CRL ICAO PKD ne sont **pas encore câblées en production** — `PkiTrustService.validate()` n'appelle jamais `validateTrustChain` avec une `revocationList`, donc `revocationChecked` reste toujours `false` aujourd'hui. Construire ce pipeline (fetch réseau régulier par pays, décodage, persistance, cache) à l'aveugle, sans un vrai point d'accès PKD pour le valider, comporterait le même risque qu'une implémentation BAC/PACE non vérifiable — voir [roadmap.md](roadmap.md). En attendant, `AnomalyDetectionService` remonte explicitement `REVOCATION_NOT_CHECKED` (avertissement) chaque fois que le statut de révocation n'a pas pu être vérifié, ce qui dégrade le verdict (jamais `authentic` silencieusement) plutôt que de traiter l'absence de CRL comme une non-révocation implicite.
+- **Vérification d'une CRL** (`verifyRevocationList`) : une CRL n'est utilisée que si son émetteur est le sujet d'un CSCA de confiance ET que sa signature vérifie sous la clé de ce CSCA (même code de signature que la chaîne, `verifyRawSignature`) — une CRL forgée pourrait sinon « dé-révoquer » un DSC. `validateTrustChain` n'applique que les CRL du CSCA retenu (ou de l'émetteur du DSC) ; une CRL périmée (`nextUpdate` dépassée) compte pour les révocations qu'elle porte, jamais comme preuve de non-révocation.
+- **Application mobile** (`apps/mobile/src/pki/crlCache.ts`) : à chaque vérification, si aucune CRL à jour n'est disponible pour le pays, téléchargement (5 s max) depuis le miroir HTTPS de l'ICAO PKD (`https://pkddownload1.icao.int/CRLs/<ISO3>.crl`, puis `pkddownload2`), puis les adresses publiées par les CSCA du pays (extension CRLDistributionPoints, HTTPS avant HTTP), vérification, puis mise en cache sur l'appareil pour les vérifications hors ligne suivantes. Des CRL peuvent aussi être embarquées à la compilation (`defaultCrls.json`, option `--crl` du script `build-mobile-default-csca-bundle.ts` : fichiers `.crl`, dossiers ou export LDIF ICAO PKD contenant des CRL). Beaucoup de pays ne publient qu'en HTTP (France, Allemagne…) : `plugins/withCrlTransportSecurity.js` ouvre App Transport Security pour ces seuls hôtes (liste `crlHttpHosts.json` générée depuis les CSCA embarqués). Sans CRL disponible, `REVOCATION_NOT_CHECKED` (avertissement, ou information si le contrôle n'est pas exigé dans les Réglages).
+- **Serveur** : `PkiTrustService.validate()` ne passe pas encore de CRL à `validateTrustChain` (`revocationChecked` reste `false` côté API) — le même mécanisme de récupération/vérification est à brancher sur `CscaSyncService`.
 - **Magasin étendu** : pas de CRL fiable disponible dans la plupart des cas → le niveau de confiance en tient déjà compte (`medium`/`low`), et la fraîcheur de l'entrée (`reviewBeforeDate`) fait office de contrôle compensatoire.
 
 ## Vérification hors ligne
@@ -205,8 +207,8 @@ définitive.
   par pays + numéro de série (des CSCA distincts partagent parfois un numéro, ex. `csca-germany` 01
   de 2011 et de 2013). État au 2026-09-24 (ICAO ML du 2026-09-16, export LDIF PKD n° 531, DE ML du
   2026-05-28) : 789 CSCA, 128 pays, dont 189 apportés par la liste allemande.
-- **Révocation (CRL)** : déjà non câblée en ligne (voir section précédente) — donc non plus hors
-  ligne, sans régression par rapport au chemin serveur.
+- **Révocation (CRL)** : vérifiée sur l'appareil dès qu'une CRL signée par le CSCA est disponible
+  (embarquée, en cache ou téléchargée), voir la section « Révocation ».
 - **Reconnaissance faciale on-device** : selfie guidé et comparaison à la photo DG2 sur iOS
   (module natif `apps/mobile/modules/face-kit`, Apple Vision + SFace/ONNX) — voir
   [facial-recognition.md](facial-recognition.md) "Reconnaissance faciale hors ligne" pour le

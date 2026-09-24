@@ -4,7 +4,13 @@ import {
   AttributeTypeAndValue,
   BasicConstraints,
   Certificate,
+  CertificateRevocationList,
   ContentInfo,
+  CRLDistributionPoints,
+  DistributionPoint,
+  GeneralName,
+  RevokedCertificate,
+  Time,
   EncapsulatedContentInfo,
   Extension,
   IssuerAndSerialNumber,
@@ -50,6 +56,8 @@ export async function generateCertificate(options: {
    * reproduire un SubjectKeyIdentifier qui ne suit PAS la méthode RFC 5280 §4.2.1.2 méthode 1
    * (SHA-1 de la clé publique), comme constaté sur une vraie Master List ICAO PKD (Pays-Bas). */
   subjectKeyIdentifier?: Uint8Array;
+  /** Extension CRLDistributionPoints (2.5.29.31) avec ces adresses. */
+  crlDistributionPoints?: string[];
 }): Promise<GeneratedCertificate> {
   ensurePkiEngine();
   const keyPair = await generateRsaKeyPair();
@@ -83,6 +91,15 @@ export async function generateCertificate(options: {
         extnValue: new OctetString({ valueHex: toArrayBuffer(options.subjectKeyIdentifier) }).toBER(false),
       }),
     );
+  }
+
+  if (options.crlDistributionPoints) {
+    const points = new CRLDistributionPoints({
+      distributionPoints: options.crlDistributionPoints.map(
+        (url) => new DistributionPoint({ distributionPoint: [new GeneralName({ type: 6, value: url })] }),
+      ),
+    });
+    cert.extensions.push(new Extension({ extnID: "2.5.29.31", critical: false, extnValue: points.toSchema().toBER(false) }));
   }
 
   await cert.subjectPublicKeyInfo.importKey(keyPair.publicKey);
@@ -207,3 +224,26 @@ export async function buildSignedMasterList(options: {
 }
 
 export { encodeLdsSecurityObject };
+
+/** CRL X.509 v2 signée par `issuer` (CSCA de test), révoquant les certificats donnés. */
+export async function buildSignedCrl(options: {
+  issuer: GeneratedCertificate;
+  revoked: Certificate[];
+  thisUpdate?: Date;
+  nextUpdate?: Date;
+}): Promise<Uint8Array> {
+  ensurePkiEngine();
+  const crl = new CertificateRevocationList();
+  crl.version = 1;
+  crl.issuer.typesAndValues = options.issuer.certificate.subject.typesAndValues;
+  crl.thisUpdate = new Time({ type: 0, value: options.thisUpdate ?? new Date(Date.now() - 60_000) });
+  crl.nextUpdate = new Time({ type: 0, value: options.nextUpdate ?? new Date(Date.now() + 30 * 24 * 3600 * 1000) });
+  if (options.revoked.length > 0) {
+    crl.revokedCertificates = options.revoked.map(
+      (certificate) =>
+        new RevokedCertificate({ userCertificate: certificate.serialNumber, revocationDate: new Time({ type: 0, value: new Date() }) }),
+    );
+  }
+  await crl.sign(options.issuer.privateKey, "SHA-256");
+  return new Uint8Array(crl.toSchema(true).toBER(false));
+}
