@@ -40,6 +40,34 @@ import {
   type MrzAccessKey,
 } from "../nfc/emrtdReader";
 import { computeLocalVerification, LocalVerificationError, type LocalVerificationResult } from "../verification/localVerification";
+import { toAlpha2CountryCode } from "@emrtd-verify/emrtd-core";
+
+/** Carte d'identité affichée sur le verdict (format "pièce d'identité"). */
+export interface IdCardView {
+  flag: string;
+  countryCode: string;
+  docTypeLabel: string;
+  surname: string;
+  givenNames: string;
+  birthDate: string;
+  sex: string;
+  nationality: string;
+  documentNumber: string;
+  expiryDate: string;
+}
+
+/** Drapeau emoji depuis un code pays MRZ (FRA, D…) — indicateurs régionaux Unicode ; vide si inconnu. */
+export function flagEmoji(mrzCountryCode: string): string {
+  const alpha2 = toAlpha2CountryCode(mrzCountryCode);
+  if (!alpha2 || !/^[A-Z]{2}$/.test(alpha2) || alpha2 === "EU") return alpha2 === "EU" ? "🇪🇺" : "";
+  return String.fromCodePoint(...[...alpha2].map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65));
+}
+
+/** "1985-03-14" → "14/03/1985" (dates ISO produites par le parseur MRZ). */
+function isoToDisplayDate(iso: string | undefined): string {
+  const m = iso ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso) : null;
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : iso || "—";
+}
 
 export type Scenario = "authentic" | "suspicious" | "alert";
 export type Step =
@@ -128,6 +156,9 @@ interface RawState {
   step: Step;
   anim: ScreenAnim;
   feedbackOn: boolean;
+  /** Contrôles exigés (Réglages) — désactivés par défaut : ni CRL ni registre perdu/volé ne sont joignables hors ligne. */
+  requireRevocationCheck: boolean;
+  requireLostStolenCheck: boolean;
   langSel: Lang | null;
   scenarioSel: Scenario | null;
   pct: number;
@@ -147,6 +178,8 @@ export function useAuthentikDemo() {
     step: "home",
     anim: "none",
     feedbackOn: true,
+    requireRevocationCheck: false,
+    requireLostStolenCheck: false,
     langSel: null,
     scenarioSel: null,
     pct: 0,
@@ -314,6 +347,10 @@ export function useAuthentikDemo() {
         documentType: mrzForm.documentType,
         chipData: { sod: chipResult.sod, dataGroups: chipResult.dataGroups },
         requestedFields: ["documentNumber", "dateOfBirth", "dateOfExpiry", "nationality", "sex", "primaryIdentifier", "secondaryIdentifier"],
+        skippedChecks: {
+          revocation: !sRef.current.requireRevocationCheck,
+          lostStolen: !sRef.current.requireLostStolenCheck,
+        },
       });
       setS((prev) => ({ ...prev, verificationResult: result, verificationStatus: "idle", step: "verdict", anim: "verdict" }));
       fb(result.verdict === "rejected" ? "error" : result.verdict === "authentic" ? "success" : "warning");
@@ -372,6 +409,8 @@ export function useAuthentikDemo() {
     [],
   );
   const toggleFeedback = useCallback(() => setS((prev) => ({ ...prev, feedbackOn: !prev.feedbackOn })), []);
+  const toggleRevocationCheck = useCallback(() => setS((prev) => ({ ...prev, requireRevocationCheck: !prev.requireRevocationCheck })), []);
+  const toggleLostStolenCheck = useCallback(() => setS((prev) => ({ ...prev, requireLostStolenCheck: !prev.requireLostStolenCheck })), []);
   const openShare = useCallback(() => setS((prev) => ({ ...prev, showShare: true })), []);
   const closeShare = useCallback(() => setS((prev) => ({ ...prev, showShare: false })), []);
 
@@ -503,6 +542,18 @@ export function useAuthentikDemo() {
       countryRows,
       verifiedLine: s.online ? t.verifiedLineOnline : t.verifiedLine,
       supported: t.types3.map((d) => ({ name: d[0], format: d[1] })),
+      idCard: {
+        flag: flagEmoji("FRA"),
+        countryCode: "FRA",
+        docTypeLabel: t.idDocTypes.ePassport,
+        surname: "MARTIN",
+        givenNames: "Camille Élise",
+        birthDate: "12/04/1991",
+        sex: "F",
+        nationality: "FRA",
+        documentNumber: "21FR34567",
+        expiryDate: "30/08/2031",
+      } as IdCardView,
       identitySurname: "MARTIN",
       identityGivenNames: "Camille Élise",
       identityTechLine: `FRA · TD3 · 21FR34567\n${t.expLabel} 30/08/2031`,
@@ -515,6 +566,8 @@ export function useAuthentikDemo() {
     step: s.step,
     anim: s.anim,
     feedbackOn: s.feedbackOn,
+    requireRevocationCheck: s.requireRevocationCheck,
+    requireLostStolenCheck: s.requireLostStolenCheck,
     lang,
     scenario: currentScenario,
     showShare: s.showShare,
@@ -541,6 +594,8 @@ export function useAuthentikDemo() {
     goCountries: () => go("countries"),
     backFromCountries: () => go("trust", "back"),
     toggleFeedback,
+    toggleRevocationCheck,
+    toggleLostStolenCheck,
     openShare,
     closeShare,
     toggleOnline,
@@ -714,6 +769,27 @@ function deriveFromRealResult(
       color: allFieldsValid ? OK : WARN,
       icon: (allFieldsValid ? "check" : "warn") as "check" | "warn",
     },
+    {
+      label: "Révocation des certificats (CRL)",
+      detail: trust.revocationChecked
+        ? trust.revoked
+          ? "DSC révoqué"
+          : "DSC non révoqué"
+        : s.requireRevocationCheck
+          ? "Exigée mais indisponible hors ligne"
+          : "Non exigée (Réglages)",
+      color: trust.revocationChecked ? (trust.revoked ? RED : OK) : s.requireRevocationCheck ? WARN : INFO,
+      icon: (trust.revocationChecked && !trust.revoked ? "check" : s.requireRevocationCheck || trust.revoked ? "warn" : "dash") as
+        | "check"
+        | "warn"
+        | "dash",
+    },
+    {
+      label: "Registre perdus/volés",
+      detail: s.requireLostStolenCheck ? "Exigé mais registre injoignable hors ligne" : "Non exigé (Réglages)",
+      color: s.requireLostStolenCheck ? WARN : INFO,
+      icon: (s.requireLostStolenCheck ? "warn" : "dash") as "warn" | "dash",
+    },
     { label: "Reconnaissance faciale", detail: "Non réalisée dans ce PoC", color: INFO, icon: "dash" as const },
   ];
 
@@ -727,7 +803,11 @@ function deriveFromRealResult(
     },
   ];
 
-  const passedCount = [passiveOk, trust.sufficientForClientPolicy, true, allFieldsValid].filter(Boolean).length;
+  // Score sur les seuls contrôles exigés : les lignes grises (non exigés / non réalisés) ne comptent pas.
+  const requiredChecks = checkRows.filter((c) => c.color !== INFO);
+  const passedCount = requiredChecks.filter((c) => c.color === OK).length;
+  const blockingAnomalies = result.anomalies.filter((a) => a.severity !== "info").length;
+  const skippedCount = result.anomalies.length - blockingAnomalies;
 
   return {
     t,
@@ -762,10 +842,14 @@ function deriveFromRealResult(
         : suspicious
           ? "Document suspect"
           : "Document authentique",
-    decisionSub: `Verdict local provisoire — ${result.anomalies.length} anomalie${result.anomalies.length > 1 ? "s" : ""} détectée${result.anomalies.length > 1 ? "s" : ""}.`,
+    decisionSub:
+      (blockingAnomalies === 0
+        ? "Verdict local provisoire — aucune anomalie."
+        : `Verdict local provisoire — ${blockingAnomalies} anomalie${blockingAnomalies > 1 ? "s" : ""} détectée${blockingAnomalies > 1 ? "s" : ""}.`) +
+      (skippedCount > 0 ? ` ${skippedCount} contrôle${skippedCount > 1 ? "s" : ""} non exigé${skippedCount > 1 ? "s" : ""}.` : ""),
     decisionBg: alert ? paletteColors.washRedBg : suspicious ? paletteColors.washOrangeBg : paletteColors.washGreenBg,
     decisionBorder: alert ? paletteColors.washRedBorder : suspicious ? paletteColors.washOrangeBorder : paletteColors.washGreenBorder,
-    passedLabel: `${Math.max(0, passedCount)} vérifications passées sur 4`,
+    passedLabel: `${passedCount} vérification${passedCount > 1 ? "s" : ""} passée${passedCount > 1 ? "s" : ""} sur ${requiredChecks.length}`,
     verdictColor: color,
     verdictWash: wash,
     verdictChipLabel: alert ? t.verdicts.alert : suspicious ? t.verdicts.suspicious : t.verdicts.authentic,
@@ -782,6 +866,18 @@ function deriveFromRealResult(
     countryRows: t.countries.map((c) => ({ code: c[0], flag: c[1], name: c[2], anchors: `${c[3]} ${t.anchorsWord}` })),
     verifiedLine: "Vérification locale — résultat provisoire tant qu'aucune réconciliation backend n'a eu lieu.",
     supported: t.types3.map((d) => ({ name: d[0], format: d[1] })),
+    idCard: {
+      flag: flagEmoji(result.document.issuingCountry),
+      countryCode: result.document.issuingCountry,
+      docTypeLabel: t.idDocTypes[result.document.type as keyof typeof t.idDocTypes] ?? result.document.type,
+      surname: result.document.fields.primaryIdentifier?.value || "—",
+      givenNames: (result.document.fields.secondaryIdentifier?.value || "—").replace(/\s+/g, " "),
+      birthDate: isoToDisplayDate(result.document.fields.dateOfBirth?.value),
+      sex: ({ M: "M", F: "F", unspecified: "—", X: "X" } as Record<string, string>)[result.document.fields.sex?.value ?? ""] ?? "—",
+      nationality: result.document.fields.nationality?.value || "—",
+      documentNumber: result.document.fields.documentNumber?.value || "—",
+      expiryDate: isoToDisplayDate(result.document.fields.dateOfExpiry?.value),
+    } as IdCardView,
     identitySurname: result.document.fields.primaryIdentifier?.value ?? "—",
     identityGivenNames: result.document.fields.secondaryIdentifier?.value ?? "—",
     identityTechLine: `${result.document.issuingCountry} · ${result.document.type}\n${result.document.fields.documentNumber?.value ?? "—"}`,

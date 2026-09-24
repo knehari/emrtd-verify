@@ -97,6 +97,8 @@ export interface LocalVerificationInput {
   };
   /** Champs d'identité à restituer dans `document.fields` — voir buildFieldChecks. */
   requestedFields?: string[];
+  /** Contrôles non exigés (Réglages) : leur absence devient une information, plus un avertissement. */
+  skippedChecks?: { revocation?: boolean; lostStolen?: boolean };
 }
 
 function buildFieldChecks(identity: DocumentIdentity, mrzValidation: MrzFieldValidation, requestedFields: string[]): Record<string, FieldCheck> {
@@ -165,6 +167,7 @@ export async function computeLocalVerification(input: LocalVerificationInput): P
     // "authentic". C'est voulu, pas un défaut : ça rappelle en permanence que ce résultat reste
     // provisoire tant que la réconciliation backend (obligatoire, voir sync/) n'a pas eu lieu.
     lostStolenCheck: { checked: false, reported: false },
+    skippedChecks: input.skippedChecks,
   });
 
   let activeLiveness: ActiveLivenessResult | undefined;

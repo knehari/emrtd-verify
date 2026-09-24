@@ -133,6 +133,13 @@ export interface Copy {
   aboutFbTitle: string;
   aboutFb: string;
   aboutFbDesc: string;
+  aboutChecksTitle: string;
+  aboutCrl: string;
+  aboutCrlDesc: string;
+  aboutLostStolen: string;
+  aboutLostStolenDesc: string;
+  idCardLabels: { surname: string; givenNames: string; birth: string; sex: string; nationality: string; number: string; expiry: string };
+  idDocTypes: { ePassport: string; eID: string; eResidenceCard: string };
   // Bascule clair/sombre : absente du design v2 (sombre uniquement), conservée à la demande de
   // l'utilisateur et déplacée ici depuis l'en-tête de l'accueil — copie ajoutée, pas transcrite.
   aboutAppearanceTitle: string;
@@ -344,6 +351,13 @@ export const FR: Copy = {
   aboutFbTitle: "Retours",
   aboutFb: "Sons et retours haptiques",
   aboutFbDesc: "Paliers de lecture NFC, vivacité et verdict.",
+  aboutChecksTitle: "Contrôles exigés",
+  aboutCrl: "Révocation des certificats (CRL)",
+  aboutCrlDesc: "Exiger la vérification de la CRL du pays émetteur. Indisponible hors ligne : activé, le résultat sera « À vérifier ».",
+  aboutLostStolen: "Registre des documents perdus/volés",
+  aboutLostStolenDesc: "Exiger l'interrogation du registre (en ligne uniquement). Activé sans accès au registre, le résultat sera « À vérifier ».",
+  idCardLabels: { surname: "Nom", givenNames: "Prénoms", birth: "Né(e) le", sex: "Sexe", nationality: "Nationalité", number: "N° du document", expiry: "Expire le" },
+  idDocTypes: { ePassport: "Passeport", eID: "Carte nationale d'identité", eResidenceCard: "Titre de séjour" },
   aboutAppearanceTitle: "Apparence",
   aboutDarkMode: "Mode sombre",
   aboutDarkModeDesc: "Activé par défaut. Les écrans caméra restent sombres.",
@@ -552,6 +566,13 @@ export const EN: Copy = {
   aboutFbTitle: "Feedback",
   aboutFb: "Sounds and haptics",
   aboutFbDesc: "NFC read steps, liveness and verdict.",
+  aboutChecksTitle: "Required checks",
+  aboutCrl: "Certificate revocation (CRL)",
+  aboutCrlDesc: "Require the issuing country's CRL. Unavailable offline: when on, the result will be “Needs review”.",
+  aboutLostStolen: "Lost/stolen documents registry",
+  aboutLostStolenDesc: "Require a registry lookup (online only). When on without registry access, the result will be “Needs review”.",
+  idCardLabels: { surname: "Surname", givenNames: "Given names", birth: "Date of birth", sex: "Sex", nationality: "Nationality", number: "Document no.", expiry: "Expires" },
+  idDocTypes: { ePassport: "Passport", eID: "National identity card", eResidenceCard: "Residence permit" },
   aboutAppearanceTitle: "Appearance",
   aboutDarkMode: "Dark mode",
   aboutDarkModeDesc: "On by default. Camera screens stay dark.",

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { computeVerdict } from "../src/verdictPolicy";
 import { detectAnomalies, type DocumentStatusCheckResult } from "../src/anomalyDetection";
 import type { ChainValidationResult } from "@emrtd-verify/pki-trust";
 import type { MrzFieldValidation } from "@emrtd-verify/emrtd-core";
@@ -266,6 +267,52 @@ describe("detectAnomalies", () => {
       });
       expect(findings.some((f) => f.code === "LOST_STOLEN_STATUS_NOT_CHECKED")).toBe(false);
       expect(findings.some((f) => f.code === "DOCUMENT_REPORTED_LOST_OR_STOLEN")).toBe(false);
+    });
+  });
+
+  describe("contrôles désactivés dans les réglages (skippedChecks)", () => {
+    const uncheckedChain = { ...baseTrustChain, revocationChecked: false, revoked: false, noTrustAnchorAvailable: false };
+
+    it("CRL et registre perdus/volés désactivés : simples informations, le verdict n'est plus plafonné à suspicious", () => {
+      const findings = detectAnomalies({
+        trustChain: uncheckedChain,
+        mrzValidation: validMrz,
+        documentExpectedToSupportAaOrCa: false,
+        lostStolenCheck: { checked: false, reported: false },
+        skippedChecks: { revocation: true, lostStolen: true },
+      });
+      expect(findings.map((f) => [f.code, f.severity])).toEqual(
+        expect.arrayContaining([
+          ["REVOCATION_CHECK_DISABLED", "info"],
+          ["LOST_STOLEN_CHECK_DISABLED", "info"],
+        ]),
+      );
+      expect(findings.some((f) => f.severity !== "info")).toBe(false);
+      expect(computeVerdict({ trustChain: uncheckedChain, anomalies: findings, allFieldChecksValid: true })).toBe("authentic");
+    });
+
+    it("sans désactivation, les deux restent des avertissements (comportement par défaut inchangé)", () => {
+      const findings = detectAnomalies({
+        trustChain: uncheckedChain,
+        mrzValidation: validMrz,
+        documentExpectedToSupportAaOrCa: false,
+        lostStolenCheck: { checked: false, reported: false },
+      });
+      expect(findings.filter((f) => f.severity === "warning").map((f) => f.code).sort()).toEqual([
+        "LOST_STOLEN_STATUS_NOT_CHECKED",
+        "REVOCATION_NOT_CHECKED",
+      ]);
+    });
+
+    it("un document signalé perdu/volé reste critique même contrôle désactivé", () => {
+      const findings = detectAnomalies({
+        trustChain: uncheckedChain,
+        mrzValidation: validMrz,
+        documentExpectedToSupportAaOrCa: false,
+        lostStolenCheck: { checked: true, reported: true },
+        skippedChecks: { lostStolen: true },
+      });
+      expect(findings).toContainEqual(expect.objectContaining({ code: "DOCUMENT_REPORTED_LOST_OR_STOLEN", severity: "critical" }));
     });
   });
 

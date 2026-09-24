@@ -32,6 +32,13 @@ export interface AnomalyDetectionInput {
    * lui-même produire un signal explicite, jamais être silencieusement omis.
    */
   lostStolenCheck: DocumentStatusCheckResult;
+  /**
+   * Contrôles que l'opérateur a choisi de ne pas exiger (Réglages de l'app mobile) : faute de CRL
+   * ou de registre perdu/volé joignable, leur absence n'est alors plus un avertissement (qui
+   * plafonne le verdict à "suspicious") mais une simple information, toujours visible. Un résultat
+   * POSITIF (DSC révoqué, document signalé) reste critique quel que soit ce réglage.
+   */
+  skippedChecks?: { revocation?: boolean; lostStolen?: boolean };
 }
 
 /**
@@ -106,11 +113,19 @@ export function detectAnomalies(input: AnomalyDetectionInput): AnomalyFinding[] 
   // au lieu de laisser une révocation potentielle invisible. Omis quand aucune ancre de
   // confiance n'existe (déjà critique via NO_TRUST_ANCHOR, la révocation y est sans objet).
   if (!input.trustChain.noTrustAnchorAvailable && !input.trustChain.revocationChecked) {
-    findings.push({
-      code: "REVOCATION_NOT_CHECKED",
-      severity: "warning",
-      message: "Statut de révocation du DSC non vérifiable (aucune CRL disponible) — ne pas traiter comme non révoqué",
-    });
+    findings.push(
+      input.skippedChecks?.revocation
+        ? {
+            code: "REVOCATION_CHECK_DISABLED",
+            severity: "info",
+            message: "Contrôle de révocation du DSC (CRL) désactivé dans les réglages — statut non vérifié",
+          }
+        : {
+            code: "REVOCATION_NOT_CHECKED",
+            severity: "warning",
+            message: "Statut de révocation du DSC non vérifiable (aucune CRL disponible) — ne pas traiter comme non révoqué",
+          },
+    );
   }
 
   if (!input.activeAuthentication) {
@@ -164,11 +179,19 @@ export function detectAnomalies(input: AnomalyDetectionInput): AnomalyFinding[] 
       message: "Ce document est signalé perdu ou volé dans le registre interrogé",
     });
   } else if (!input.lostStolenCheck.checked) {
-    findings.push({
-      code: "LOST_STOLEN_STATUS_NOT_CHECKED",
-      severity: "warning",
-      message: "Statut perdu/volé non vérifiable (registre non configuré ou indisponible) — ne pas traiter comme non signalé",
-    });
+    findings.push(
+      input.skippedChecks?.lostStolen
+        ? {
+            code: "LOST_STOLEN_CHECK_DISABLED",
+            severity: "info",
+            message: "Contrôle du registre des documents perdus/volés désactivé dans les réglages — statut non vérifié",
+          }
+        : {
+            code: "LOST_STOLEN_STATUS_NOT_CHECKED",
+            severity: "warning",
+            message: "Statut perdu/volé non vérifiable (registre non configuré ou indisponible) — ne pas traiter comme non signalé",
+          },
+    );
   }
 
   return findings;

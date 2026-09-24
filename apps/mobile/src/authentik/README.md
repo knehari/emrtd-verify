@@ -101,6 +101,12 @@ Hermes n'a pas Web Crypto. L'écran « Chaîne » détaille le CSCA et le DSC (s
 série, validité) ; la photo DG2 (JPEG ou JPEG 2000) s'affiche sur le verdict. Le commutateur de
 scénario de démonstration a été retiré.
 
+Réglages › Contrôles exigés : révocation (CRL) et registre perdus/volés, **désactivés par défaut**
+car ni l'un ni l'autre n'est joignable hors ligne. Désactivé, un contrôle non réalisé devient une
+anomalie « info » (visible, sans effet sur le verdict) au lieu d'un avertissement qui plafonne le
+verdict à « À vérifier » ; un résultat positif (DSC révoqué, document signalé) reste critique. Le
+verdict présente l'identité au format carte d'identité (drapeau, photo DG2, date de naissance…).
+
 ## Design v2 — mode sombre, transitions, retours, Réglages
 
 Deuxième livraison de Claude Design (`Authentik Mobile v2 Dark.dc.html`, non versionné ici non

@@ -15,6 +15,31 @@ import type { AuthentikDemo } from "../state";
 
 const ROW_IN = Easing.bezier(0.2, 0.8, 0.2, 1);
 
+function IdField({
+  label,
+  value,
+  styles,
+  strong,
+  mono,
+  narrow,
+}: {
+  label: string;
+  value: string;
+  styles: ReturnType<typeof makeStyles>;
+  strong?: boolean;
+  mono?: boolean;
+  narrow?: boolean;
+}) {
+  return (
+    <View style={narrow ? styles.idFieldNarrow : styles.idField}>
+      <Text style={styles.idFieldLabel}>{label}</Text>
+      <Text style={[styles.idFieldValue, strong && styles.idFieldStrong, mono && styles.idFieldMono]} numberOfLines={2}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
 function RowIn({ index, style, children }: { index: number; style: object; children: React.ReactNode }) {
   const progress = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -49,21 +74,46 @@ export function VerdictScreen({ demo }: { demo: AuthentikDemo }) {
         <Text style={styles.decisionScore}>{demo.passedLabel}</Text>
       </View>
 
-      <View style={styles.identityCard}>
-        <View style={styles.identityRow}>
-          <View style={styles.thumbnail}>
+      {/* Carte au format pièce d'identité (ID-1) : bandeau pays, photo DG2, champs lus sur la puce. */}
+      <View style={styles.idCard}>
+        <View style={styles.idHeader}>
+          {demo.idCard.flag ? <Text style={styles.idFlag}>{demo.idCard.flag}</Text> : null}
+          <Text style={styles.idCountry}>{demo.idCard.countryCode}</Text>
+          <Text style={styles.idDocType} numberOfLines={1}>
+            {demo.idCard.docTypeLabel}
+          </Text>
+          <View style={styles.idChip}>
+            <View style={styles.idChipLine} />
+            <View style={[styles.idChipLine, { top: 9 }]} />
+          </View>
+        </View>
+        <View style={styles.idBody}>
+          <View style={styles.idPhoto}>
             {demo.faceImageUri ? (
               // Photo DG2 lue sur la puce (JPEG ou JPEG 2000 — tous deux décodés nativement par iOS).
-              <Image source={{ uri: demo.faceImageUri }} style={styles.thumbnailImage} resizeMode="cover" />
+              <Image source={{ uri: demo.faceImageUri }} style={styles.idPhotoImage} resizeMode="cover" />
             ) : (
               <Text style={styles.thumbnailLabel}>DG2</Text>
             )}
           </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={styles.surname}>{demo.identitySurname}</Text>
-            <Text style={styles.givenNames}>{demo.identityGivenNames}</Text>
-            <Text style={styles.techLine}>{demo.identityTechLine}</Text>
+          <View style={styles.idFields}>
+            <IdField label={demo.t.idCardLabels.surname} value={demo.idCard.surname} styles={styles} strong />
+            <IdField label={demo.t.idCardLabels.givenNames} value={demo.idCard.givenNames} styles={styles} />
+            <View style={styles.idPair}>
+              <IdField label={demo.t.idCardLabels.birth} value={demo.idCard.birthDate} styles={styles} mono />
+              <IdField label={demo.t.idCardLabels.sex} value={demo.idCard.sex} styles={styles} mono narrow />
+            </View>
+            <View style={styles.idPair}>
+              <IdField label={demo.t.idCardLabels.nationality} value={demo.idCard.nationality} styles={styles} mono />
+              <IdField label={demo.t.idCardLabels.expiry} value={demo.idCard.expiryDate} styles={styles} mono />
+            </View>
           </View>
+        </View>
+        <View style={styles.idFooter}>
+          <Text style={styles.idFieldLabel}>{demo.t.idCardLabels.number}</Text>
+          <Text style={styles.idNumber} selectable>
+            {demo.idCard.documentNumber}
+          </Text>
         </View>
       </View>
 
@@ -118,14 +168,60 @@ const makeStyles = (colors: PaletteColors) => StyleSheet.create({
   decisionTitle: { fontSize: 24, fontWeight: "700", letterSpacing: -0.6, color: colors.inkVerdict, lineHeight: 29 },
   decisionSub: { fontSize: 14, color: `rgba(${colors.inkBaseRgb},0.78)`, marginTop: 8, lineHeight: 20 },
   decisionScore: { fontSize: 12.5, fontWeight: "500", color: colors.inkSecondary, marginTop: 12 },
-  identityCard: { backgroundColor: colors.surface, borderRadius: radius.verdictCard, padding: 18, marginBottom: 14 },
-  identityRow: { flexDirection: "row", gap: 15, alignItems: "flex-start" },
-  thumbnail: { width: 72, height: 92, borderRadius: radius.thumbnail, backgroundColor: colors.thumbnail, alignItems: "center", justifyContent: "flex-end", paddingBottom: 6 },
-  thumbnailImage: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: radius.thumbnail },
+  idCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    marginBottom: 14,
+    overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.separator,
+  },
+  idHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: `rgba(${colors.inkBaseRgb},0.05)`,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.separator,
+  },
+  idFlag: { fontSize: 20, lineHeight: 24 },
+  idCountry: { fontFamily: fontMono, fontSize: 14, fontWeight: "700", letterSpacing: 1, color: colors.inkPrimary },
+  idDocType: { flex: 1, fontSize: 11, fontWeight: "600", letterSpacing: 0.6, textTransform: "uppercase", color: colors.inkSecondary },
+  idChip: { width: 26, height: 19, borderRadius: 4, backgroundColor: "#C9A649", opacity: 0.9 },
+  idChipLine: { position: "absolute", left: 3, right: 3, top: 5, height: 1, backgroundColor: "rgba(0,0,0,0.25)" },
+  idBody: { flexDirection: "row", gap: 14, padding: 16, paddingBottom: 10 },
+  idPhoto: {
+    width: 88,
+    height: 114,
+    borderRadius: 8,
+    backgroundColor: colors.thumbnail,
+    alignItems: "center",
+    justifyContent: "flex-end",
+    paddingBottom: 6,
+    overflow: "hidden",
+  },
+  idPhotoImage: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
+  idFields: { flex: 1, minWidth: 0, gap: 7 },
+  idPair: { flexDirection: "row", gap: 10 },
+  idField: { flex: 1, minWidth: 0 },
+  idFieldNarrow: { width: 44 },
+  idFieldLabel: { fontSize: 9.5, fontWeight: "600", letterSpacing: 0.5, textTransform: "uppercase", color: colors.inkSecondary },
+  idFieldValue: { fontSize: 14, color: colors.inkPrimary, marginTop: 1 },
+  idFieldStrong: { fontSize: 18, fontWeight: "700", letterSpacing: -0.3 },
+  idFieldMono: { fontFamily: fontMono, fontSize: 13.5 },
+  idFooter: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.separator,
+  },
+  idNumber: { fontFamily: fontMono, fontSize: 16, fontWeight: "600", letterSpacing: 1.5, color: colors.inkPrimary },
   thumbnailLabel: { fontFamily: fontMono, fontSize: 8, color: `rgba(${colors.inkBaseRgb},0.55)` },
-  surname: { fontSize: 21, fontWeight: "700", letterSpacing: -0.4, color: colors.inkPrimary },
-  givenNames: { fontSize: 17, color: colors.inkPrimary, marginTop: 1 },
-  techLine: { fontFamily: fontMono, fontSize: 13, lineHeight: 19, color: colors.inkSecondary, marginTop: 9 },
   checksCard: { backgroundColor: colors.surface, borderRadius: radius.verdictCard, overflow: "hidden", marginBottom: 14 },
   checkRow: { flexDirection: "row", alignItems: "flex-start", gap: 11, padding: 13, paddingHorizontal: 16 },
   checkRowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.separator },

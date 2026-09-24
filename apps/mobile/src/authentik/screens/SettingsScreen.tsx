@@ -61,6 +61,24 @@ export function SettingsScreen({ demo }: { demo: AuthentikDemo }) {
         </View>
       </View>
 
+      <Text style={styles.sectionTitle}>{t.aboutChecksTitle}</Text>
+      <View style={styles.card}>
+        <View style={styles.toggleRow}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.toggleLabel}>{t.aboutCrl}</Text>
+            <Text style={styles.toggleDesc}>{t.aboutCrlDesc}</Text>
+          </View>
+          <ModeSwitch on={demo.requireRevocationCheck} onToggle={demo.toggleRevocationCheck} colors={c} label={t.aboutCrl} />
+        </View>
+        <View style={[styles.toggleRow, styles.rule]}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.toggleLabel}>{t.aboutLostStolen}</Text>
+            <Text style={styles.toggleDesc}>{t.aboutLostStolenDesc}</Text>
+          </View>
+          <ModeSwitch on={demo.requireLostStolenCheck} onToggle={demo.toggleLostStolenCheck} colors={c} label={t.aboutLostStolen} />
+        </View>
+      </View>
+
       <Text style={styles.sectionTitle}>{t.aboutAppearanceTitle}</Text>
       <View style={styles.card}>
         <View style={styles.toggleRow}>
