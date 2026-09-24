@@ -86,7 +86,8 @@ interrompue renvoie vers l'écran « Placez le document ».
 
 Prérequis iOS : compte Apple Developer payant, capacité *NFC Tag Reading* (ajoutée par `expo
 prebuild` via le plugin de `react-native-nfc-manager` dans `app.json` : entitlement `TAG`, AID
-eMRTD A0000002471001 en premier dans `select-identifiers`).
+eMRTD A0000002471001 seul dans `select-identifiers`, comme ReadID — les AID supplémentaires
+A0000002472001 et 00000000000000 empêchaient la détection d'une CNI française sur iOS).
 
 ## Design v2 — mode sombre, transitions, retours, Réglages
 

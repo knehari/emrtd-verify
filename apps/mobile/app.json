@@ -53,9 +53,7 @@
         {
           "nfcPermission": "Lecture de la puce du document d'identité (BAC/PACE) pour vérifier son authenticité.",
           "selectIdentifiers": [
-            "A0000002471001",
-            "A0000002472001",
-            "00000000000000"
+            "A0000002471001"
           ],
           "includeNdefEntitlement": false
         }
