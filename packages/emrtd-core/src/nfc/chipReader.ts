@@ -46,6 +46,11 @@ export interface ChipReaderConfig {
   maxChunkSize?: number;
   /** Appelé après chaque fichier lu (EF.SOD puis chaque DG) — progression affichée pendant la lecture NFC. */
   onProgress?: (filesRead: number, filesTotal: number) => void;
+  /**
+   * Défi aléatoire (8 octets, Doc 9303 Part 11 §6.1) pour l'Active Authentication : si fourni et que
+   * la puce porte DG15, INTERNAL AUTHENTICATE est envoyé après la lecture des DG.
+   */
+  activeAuthenticationChallenge?: Uint8Array;
 }
 
 const DEFAULT_MAX_CHUNK_SIZE = 200;
@@ -178,6 +183,8 @@ export interface ChipReadResult {
    * française n'a pas de DG15 (pas d'authentification active, elle utilise la Chip Authentication).
    */
   missingDataGroups: number[];
+  /** Réponse brute à INTERNAL AUTHENTICATE (à vérifier contre DG15), ou l'erreur renvoyée par la puce. */
+  activeAuthentication?: { challenge: Uint8Array; response?: Uint8Array; error?: string };
 }
 
 /**
@@ -213,7 +220,18 @@ export async function readEmrtdChipData(
     config?.onProgress?.(index + 2, filesTotal);
   }
 
-  return { sod, dataGroups, missingDataGroups };
+  let activeAuthentication: ChipReadResult["activeAuthentication"];
+  const challenge = config?.activeAuthenticationChallenge;
+  if (challenge && dataGroups[15]) {
+    // INTERNAL AUTHENTICATE (ISO 7816-4, INS 88) sous messagerie sécurisée : la puce signe le défi
+    // avec la clé privée d'AA, jamais exportable — preuve que ce n'est pas un clone.
+    const response = await smExchange(transceiver, keys, sscRef, { cla: 0x00, ins: 0x88, p1: 0x00, p2: 0x00, data: challenge, le: 0 });
+    activeAuthentication = isSuccess(response)
+      ? { challenge, response: response.data }
+      : { challenge, error: `INTERNAL AUTHENTICATE refusé : SW=${formatStatusWord(response)}` };
+  }
+
+  return { sod, dataGroups, missingDataGroups, activeAuthentication };
 }
 
 export { EF_SOD_FID, EF_COM_FID, EMRTD_APPLICATION_AID, dataGroupFileId };

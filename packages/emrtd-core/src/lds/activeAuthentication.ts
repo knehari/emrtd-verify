@@ -1,39 +1,18 @@
-import { fromBER, Integer, type ObjectIdentifier, Sequence } from "asn1js";
-import { PublicKeyInfo } from "pkijs";
-import { ensurePkiEngine } from "../crypto/engine";
+import { fromBER, Integer, Sequence } from "asn1js";
 import { toArrayBuffer } from "../crypto/bytes";
+import { hashBytes, parseSubjectPublicKeyInfo, rsaPublicOperation, verifySignaturePure, type HashName } from "../crypto/pureVerify";
+import { bigIntToBytes, bytesToBigInt } from "../crypto/ecCurves";
 
 /**
  * Active Authentication (Doc 9303 Part 11 §6) : le terminal envoie un défi aléatoire à la
  * puce (commande INTERNAL AUTHENTICATE), qui le signe avec sa clé privée — jamais exportée
  * de la puce — et renvoie la signature. Le terminal vérifie avec la clé publique portée par
- * DG15. Cette fonction ne couvre QUE la vérification cryptographique de la réponse (pure,
- * testable avec des clés synthétiques, sans matériel) ; l'envoi du défi et la réception de la
- * réponse via l'APDU NFC restent dans le périmètre non couvert de docs/roadmap.md Phase 4.
+ * DG15.
  *
- * Périmètre : ECDSA uniquement. Doc 9303 permet aussi RSA avec ISO/IEC 9796-2 scheme 1 (un
- * schéma à récupération de message, avec un formatage de redondance spécifique) — délibérément
- * non implémenté ici : c'est un schéma peu courant, sans bibliothèque de référence disponible
- * dans cet environnement pour valider une implémentation écrite depuis la spec, et une erreur
- * de padding y serait une faille de sécurité silencieuse (même principe que pour le protocole
- * APDU BAC/PACE — voir docs/roadmap.md). La plupart des eMRTD récents utilisent des clés EC
- * pour AA/CA (recommandation BSI TR-03110), ce qui couvre déjà le cas le plus courant.
+ * Périmètre : ECDSA et RSA ISO/IEC 9796-2 schéma 1 (validé contre des signatures produites par
+ * OpenSSL, voir activeAuthentication.test.ts). L'envoi du défi est fait par
+ * nfc/chipReader.ts (`readEmrtdChipData`, option `activeAuthenticationChallenge`).
  */
-
-const ID_EC_PUBLIC_KEY_OID = "1.2.840.10045.2.1";
-
-interface EcCurveInfo {
-  webCryptoName: string;
-  /** Longueur en octets de chaque composante (r, s) de la signature au format "raw" (IEEE P1363). */
-  componentLength: number;
-  hashAlgorithm: string;
-}
-
-const CURVE_OID_TO_INFO: Record<string, EcCurveInfo> = {
-  "1.2.840.10045.3.1.7": { webCryptoName: "P-256", componentLength: 32, hashAlgorithm: "SHA-256" },
-  "1.3.132.0.34": { webCryptoName: "P-384", componentLength: 48, hashAlgorithm: "SHA-384" },
-  "1.3.132.0.35": { webCryptoName: "P-521", componentLength: 66, hashAlgorithm: "SHA-512" },
-};
 
 export interface ActiveAuthenticationVerification {
   /** false si la clé DG15 utilise un algorithme non couvert (ex. RSA-9796-2) — voir docstring du module. */
@@ -77,64 +56,94 @@ export function derEcdsaSignatureToRaw(der: Uint8Array, componentLength: number)
   return raw;
 }
 
+/** Octet d'identification de hachage ISO/IEC 10118-3 dans le trailer 2 octets ("xx CC") d'ISO/IEC 9796-2. */
+const ISO9796_HASH_IDS: Record<number, HashName> = { 0x33: "SHA-1", 0x34: "SHA-256", 0x35: "SHA-512", 0x36: "SHA-384", 0x38: "SHA-224" };
+const HASH_LENGTHS: Record<HashName, number> = { "SHA-1": 20, "SHA-224": 28, "SHA-256": 32, "SHA-384": 48, "SHA-512": 64 };
+
+/**
+ * RSA — ISO/IEC 9796-2 schéma 1, récupération partielle du message (Doc 9303 Part 11 §6.1) :
+ * F = s^e mod n = 6A || M1 || H(M1 || M2) || BC (SHA-1) ou … || hashId CC. M2 est le défi envoyé ;
+ * M1, choisi par la puce, est récupéré de la signature. Même logique que JMRTD
+ * (`AAProtocol`/`recoverMessage`) : en-tête 01xx, bit de récupération partielle, trailer 1 ou 2 octets.
+ */
+function verifyRsaIso9796(key: { n: bigint; e: bigint }, challenge: Uint8Array, signature: Uint8Array): { valid: boolean; reason?: string } {
+  const decoded = rsaPublicOperation(key, signature);
+  if (!decoded) return { valid: false, reason: "Signature RSA de taille incohérente avec la clé DG15" };
+  const candidates = [decoded];
+  // Variante ISO 9796-2 : si J ≢ 12 (mod 16), la valeur signée est n − J.
+  const k = decoded.length;
+  const j = bytesToBigInt(decoded);
+  candidates.push(bigIntToBytes(key.n - j, k));
+  for (const f of candidates) {
+    const last = f[f.length - 1];
+    let hash: HashName | undefined;
+    let trailerLength = 0;
+    if (last === 0xbc) {
+      hash = "SHA-1";
+      trailerLength = 1;
+    } else if (last === 0xcc) {
+      hash = ISO9796_HASH_IDS[f[f.length - 2]];
+      trailerLength = 2;
+    }
+    // En-tête : bits de poids fort "01" ; le bit suivant (0x20) signale la récupération partielle.
+    if (!hash || (f[0] & 0xc0) !== 0x40) continue;
+    // Récupération TOTALE refusée : le défi (M2) ne serait alors pas couvert par la signature,
+    // qui pourrait être rejouée — Doc 9303 impose la récupération partielle pour AA.
+    if ((f[0] & 0x20) === 0) return { valid: false, reason: "ISO 9796-2 sans récupération partielle : le défi n'est pas signé" };
+    const digestLength = HASH_LENGTHS[hash];
+    const digestStart = f.length - trailerLength - digestLength;
+    if (digestStart <= 1) continue;
+    const m1 = f.subarray(1, digestStart);
+    const expected = hashBytes(hash, new Uint8Array([...m1, ...challenge]));
+    const actual = f.subarray(digestStart, digestStart + digestLength);
+    return { valid: constantTimeEqual(expected, actual), reason: constantTimeEqual(expected, actual) ? undefined : "Empreinte ISO 9796-2 incorrecte" };
+  }
+  return { valid: false, reason: "Format ISO/IEC 9796-2 non reconnu (en-tête ou trailer invalide)" };
+}
+
+function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+
+/**
+ * Vérifie la réponse à INTERNAL AUTHENTICATE contre la clé publique de DG15, en JavaScript pur
+ * (fonctionne sur React Native, sans Web Crypto) : ECDSA (signature plain r||s ou DER ; hachage
+ * donné par ActiveAuthenticationInfo de DG14 s'il est connu, sinon chacun des hachages admis par
+ * Doc 9303 est essayé — un faussaire doit de toute façon produire une signature valide sur un défi
+ * aléatoire frais) et RSA ISO/IEC 9796-2 schéma 1.
+ */
 export async function verifyActiveAuthenticationResponse(options: {
   /** SubjectPublicKeyInfo DER tel que porté par DG15 (Doc 9303 Part 10). */
   dg15PublicKeyDer: Uint8Array;
   /** Défi aléatoire envoyé à la puce (commande INTERNAL AUTHENTICATE). */
   challenge: Uint8Array;
-  /** Réponse de la puce : signature ECDSA au format DER. */
+  /** Réponse de la puce (données de la réponse à INTERNAL AUTHENTICATE). */
   responseDer: Uint8Array;
+  /** Hachage annoncé par ActiveAuthenticationInfo (DG14), pour les clés EC. */
+  hashAlgorithm?: HashName;
 }): Promise<ActiveAuthenticationVerification> {
-  ensurePkiEngine();
-
-  const spkiAsn1 = fromBER(toArrayBuffer(options.dg15PublicKeyDer));
-  if (spkiAsn1.offset === -1) {
-    return { supported: false, valid: false, reason: "Clé publique DG15 invalide (échec du décodage ASN.1)" };
-  }
-  const publicKeyInfo = new PublicKeyInfo({ schema: spkiAsn1.result });
-
-  const algorithmOid = publicKeyInfo.algorithm.algorithmId;
-  if (algorithmOid !== ID_EC_PUBLIC_KEY_OID) {
-    return {
-      supported: false,
-      valid: false,
-      reason: `Algorithme de clé DG15 non supporté (OID ${algorithmOid}) : seul ECDSA est implémenté ` +
-        "(RSA/ISO-9796-2 scheme 1 non couvert, voir docstring de ce module et docs/roadmap.md).",
-    };
-  }
-
-  const curveOid = (publicKeyInfo.algorithm.algorithmParams as ObjectIdentifier | undefined)?.valueBlock?.toString();
-  const curve = curveOid ? CURVE_OID_TO_INFO[curveOid] : undefined;
-  if (!curve) {
-    return { supported: false, valid: false, reason: `Courbe EC non supportée pour AA (OID ${curveOid ?? "absent"})` };
-  }
-
-  let publicKey: CryptoKey;
+  let key: ReturnType<typeof parseSubjectPublicKeyInfo>;
   try {
-    publicKey = await globalThis.crypto.subtle.importKey(
-      "spki",
-      toArrayBuffer(options.dg15PublicKeyDer),
-      { name: "ECDSA", namedCurve: curve.webCryptoName },
-      false,
-      ["verify"],
-    );
+    key = parseSubjectPublicKeyInfo(options.dg15PublicKeyDer);
   } catch (error) {
-    return { supported: false, valid: false, reason: `Import de la clé publique DG15 échoué : ${String(error)}` };
+    return { supported: false, valid: false, reason: `Clé publique DG15 non prise en charge : ${String(error)}` };
   }
-
-  let rawSignature: Uint8Array;
-  try {
-    rawSignature = derEcdsaSignatureToRaw(options.responseDer, curve.componentLength);
-  } catch (error) {
-    return { supported: true, valid: false, reason: `Signature illisible : ${String(error)}` };
+  if (key.kind === "RSA") {
+    const result = verifyRsaIso9796(key, options.challenge, options.responseDer);
+    return { supported: true, ...result };
   }
-
-  const valid = await globalThis.crypto.subtle.verify(
-    { name: "ECDSA", hash: curve.hashAlgorithm },
-    publicKey,
-    toArrayBuffer(rawSignature),
-    toArrayBuffer(options.challenge),
-  );
-
-  return { supported: true, valid };
+  const hashes: HashName[] = options.hashAlgorithm ? [options.hashAlgorithm] : ["SHA-256", "SHA-1", "SHA-384", "SHA-512", "SHA-224"];
+  for (const hash of hashes) {
+    const valid = verifySignaturePure({
+      spkiDer: options.dg15PublicKeyDer,
+      scheme: { kind: "ECDSA", hash },
+      signature: options.responseDer,
+      signedData: options.challenge,
+    });
+    if (valid) return { supported: true, valid: true };
+  }
+  return { supported: true, valid: false, reason: "Signature ECDSA du défi invalide pour la clé DG15" };
 }

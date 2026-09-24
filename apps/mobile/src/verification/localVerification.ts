@@ -55,6 +55,8 @@ export interface LocalVerificationResult {
     dataGroupHashMismatches: number[];
     dataGroupsNotRead: number[];
   };
+  /** Active Authentication : `undefined` si la puce n'a pas de DG15 (non proposée par le document). */
+  activeAuthentication?: { performed: boolean; valid: boolean; reason?: string };
   /** Photo du porteur extraite de DG2 (JPEG ou JPEG 2000, affichable par <Image> sur iOS). */
   faceImage?: { dataUri: string; format: "jpeg" | "jpeg2000" };
   activeLiveness?: ActiveLivenessResult;
@@ -159,7 +161,10 @@ export async function computeLocalVerification(input: LocalVerificationInput): P
     trustChain,
     mrzValidation: decoded.mrzValidation,
     activeAuthentication: decoded.activeAuthentication,
-    documentExpectedToSupportAaOrCa: input.documentType === "ePassport",
+    // Attendue dès que la puce porte DG15 (clé d'AA) : l'app envoie alors toujours le défi. Une
+    // puce qui n'a que DG14 (Chip Authentication, ex. CNI française) n'est pas pénalisée tant que
+    // CA n'est pas implémentée ici.
+    documentExpectedToSupportAaOrCa: input.chipData.dataGroups[15] !== undefined,
     // Registre perdu/volé : serveur uniquement, jamais interrogeable hors ligne — `checked: false`
     // dégrade honnêtement le verdict (voir detectAnomalies) plutôt que de prétendre l'avoir vérifié.
     // Conséquence assumée : ceci déclenche systématiquement LOST_STOLEN_STATUS_NOT_CHECKED
@@ -226,6 +231,12 @@ export async function computeLocalVerification(input: LocalVerificationInput): P
       dataGroupsNotRead: trustChain.dataGroupsNotRead,
     },
     faceImage: faceImageDataUri(decoded.faceImage),
+    activeAuthentication:
+      input.chipData.dataGroups[15] === undefined
+        ? undefined
+        : decoded.activeAuthentication
+          ? { performed: true, valid: decoded.activeAuthentication.valid, reason: decoded.activeAuthentication.reason }
+          : { performed: false, valid: false, reason: "Défi non signé par la puce" },
     activeLiveness,
     faceMatch,
     anomalies,

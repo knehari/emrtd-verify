@@ -11,6 +11,7 @@ import { PressableFX as Pressable } from "../components/PressableFX";
 import { fontMono, radius, type PaletteColors } from "../theme";
 import { AppIcon } from "../icons";
 import { ModeSwitch } from "./HomeScreen";
+import { embeddedStoreRows } from "../trustStoreSummary";
 import type { AuthentikDemo } from "../state";
 
 export function SettingsScreen({ demo }: { demo: AuthentikDemo }) {
@@ -38,7 +39,7 @@ export function SettingsScreen({ demo }: { demo: AuthentikDemo }) {
 
       <Text style={styles.sectionTitle}>{t.aboutStoreTitle}</Text>
       <View style={styles.card}>
-        {t.aboutStore.map(([label, value], i) => (
+        {embeddedStoreRows(demo.lang).map(([label, value], i) => (
           <View key={label} style={[styles.row, i > 0 && styles.rule]}>
             <Text style={styles.rowLabel}>{label}</Text>
             <Text style={styles.rowValue}>{value}</Text>

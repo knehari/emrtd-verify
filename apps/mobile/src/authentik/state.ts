@@ -40,7 +40,8 @@ import {
   type MrzAccessKey,
 } from "../nfc/emrtdReader";
 import { computeLocalVerification, LocalVerificationError, type LocalVerificationResult } from "../verification/localVerification";
-import { toAlpha2CountryCode } from "@emrtd-verify/emrtd-core";
+import { embeddedCountryRows } from "./trustStoreSummary";
+import { flagEmoji } from "./countryNames";
 
 /** Carte d'identité affichée sur le verdict (format "pièce d'identité"). */
 export interface IdCardView {
@@ -54,13 +55,6 @@ export interface IdCardView {
   nationality: string;
   documentNumber: string;
   expiryDate: string;
-}
-
-/** Drapeau emoji depuis un code pays MRZ (FRA, D…) — indicateurs régionaux Unicode ; vide si inconnu. */
-export function flagEmoji(mrzCountryCode: string): string {
-  const alpha2 = toAlpha2CountryCode(mrzCountryCode);
-  if (!alpha2 || !/^[A-Z]{2}$/.test(alpha2) || alpha2 === "EU") return alpha2 === "EU" ? "🇪🇺" : "";
-  return String.fromCodePoint(...[...alpha2].map((ch) => 0x1f1e6 + ch.charCodeAt(0) - 65));
 }
 
 /** "1985-03-14" → "14/03/1985" (dates ISO produites par le parseur MRZ). */
@@ -345,7 +339,13 @@ export function useAuthentikDemo() {
     try {
       const result = await computeLocalVerification({
         documentType: mrzForm.documentType,
-        chipData: { sod: chipResult.sod, dataGroups: chipResult.dataGroups },
+        chipData: {
+          sod: chipResult.sod,
+          dataGroups: chipResult.dataGroups,
+          activeAuthentication: chipResult.activeAuthentication?.response
+            ? { challenge: chipResult.activeAuthentication.challenge, responseDer: chipResult.activeAuthentication.response }
+            : undefined,
+        },
         requestedFields: ["documentNumber", "dateOfBirth", "dateOfExpiry", "nationality", "sex", "primaryIdentifier", "secondaryIdentifier"],
         skippedChecks: {
           revocation: !sRef.current.requireRevocationCheck,
@@ -491,7 +491,7 @@ export function useAuthentikDemo() {
       isLast: i === 2,
     }));
     const trustRows = t.trust.map((r, i) => ({ label: r[0], value: r[1], first: i === 0 }));
-    const countryRows = t.countries.map((c) => ({ code: c[0], flag: c[1], name: c[2], anchors: `${c[3]} ${t.anchorsWord}` }));
+    const countryRows = embeddedCountryRows(lang, t.anchorsWord);
 
     return {
       t,
@@ -764,6 +764,18 @@ function deriveFromRealResult(
     },
     { label: `Accès à la puce (${protocol})`, detail: `Canal sécurisé ${protocol} établi avec succès`, color: OK, icon: "check" as const },
     {
+      label: "Authentification active (anti-clonage)",
+      detail: !result.activeAuthentication
+        ? "Non proposée par ce document (pas de DG15)"
+        : result.activeAuthentication.valid
+          ? "La puce a signé le défi avec sa clé privée (DG15)"
+          : result.activeAuthentication.performed
+            ? `Signature du défi invalide${result.activeAuthentication.reason ? ` — ${result.activeAuthentication.reason}` : ""}`
+            : "La puce n'a pas répondu au défi",
+      color: !result.activeAuthentication ? INFO : result.activeAuthentication.valid ? OK : result.activeAuthentication.performed ? RED : WARN,
+      icon: (!result.activeAuthentication ? "dash" : result.activeAuthentication.valid ? "check" : "warn") as "check" | "warn" | "dash",
+    },
+    {
       label: "Champs du document",
       detail: `${fieldRows.length} champ${fieldRows.length > 1 ? "s" : ""} contrôlé${fieldRows.length > 1 ? "s" : ""}`,
       color: allFieldsValid ? OK : WARN,
@@ -863,7 +875,7 @@ function deriveFromRealResult(
     fieldRows,
     chainRows,
     trustRows,
-    countryRows: t.countries.map((c) => ({ code: c[0], flag: c[1], name: c[2], anchors: `${c[3]} ${t.anchorsWord}` })),
+    countryRows: embeddedCountryRows(lang, t.anchorsWord),
     verifiedLine: "Vérification locale — résultat provisoire tant qu'aucune réconciliation backend n'a eu lieu.",
     supported: t.types3.map((d) => ({ name: d[0], format: d[1] })),
     idCard: {

@@ -135,6 +135,9 @@ class FakeSmChip implements ApduTransceiver {
       } else {
         responsePlaintext = this.currentFile.subarray(readOffset, readOffset + requestedLe);
       }
+    } else if (ins === 0x88 && plaintextData) {
+      // INTERNAL AUTHENTICATE simulé : "signature" = défi renversé (seul l'aller-retour SM est testé ici).
+      responsePlaintext = Uint8Array.from(plaintextData).reverse();
     } else {
       sw1 = 0x6d;
       sw2 = 0x00;
@@ -219,6 +222,22 @@ describe("readEmrtdChipData", () => {
     expect(result.missingDataGroups).toEqual([15]);
     expect(Object.keys(result.dataGroups).map(Number).sort((a, b) => a - b)).toEqual([1, 14]);
     expect(Array.from(result.dataGroups[14])).toEqual(Array.from(dg14File));
+  });
+
+  it("envoie INTERNAL AUTHENTICATE sous messagerie sécurisée quand DG15 est présent et un défi fourni", async () => {
+    const chip = new FakeSmChip(
+      keys,
+      initialSsc,
+      { [EF_SOD_FID]: buildDerFile(20), [dataGroupFileId(1)]: buildDerFile(15), [dataGroupFileId(15)]: buildDerFile(40) },
+      AID,
+    );
+    const challenge = Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8);
+    const result = await readEmrtdChipData(chip, keys, initialSsc, [1, 15], { maxChunkSize: 16, activeAuthenticationChallenge: challenge });
+    expect(Array.from(result.activeAuthentication!.response!)).toEqual([8, 7, 6, 5, 4, 3, 2, 1]);
+
+    const withoutDg15 = new FakeSmChip(keys, initialSsc, { [EF_SOD_FID]: buildDerFile(20), [dataGroupFileId(1)]: buildDerFile(15) }, AID);
+    const noAa = await readEmrtdChipData(withoutDg15, keys, initialSsc, [1, 15], { maxChunkSize: 16, activeAuthenticationChallenge: challenge });
+    expect(noAa.activeAuthentication).toBeUndefined();
   });
 
   it("échoue si un DG obligatoire (DG1/DG2) est absent", async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { webcrypto } from "node:crypto";
+import { webcrypto, createHash, randomBytes, generateKeyPairSync, privateEncrypt, constants, sign as nodeSign, type KeyObject } from "node:crypto";
 import { Integer, Sequence } from "asn1js";
 import { derEcdsaSignatureToRaw, verifyActiveAuthenticationResponse } from "../src/lds/activeAuthentication";
 import { toArrayBuffer } from "../src/crypto/bytes";
@@ -86,22 +86,49 @@ describe("verifyActiveAuthenticationResponse", () => {
     expect(result.valid).toBe(false);
   });
 
-  it("signale RSA comme non supporté plutôt que de tenter une vérification incorrecte", async () => {
-    const rsaKeyPair = await subtle.generateKey(
-      { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
-      true,
-      ["sign", "verify"],
-    );
-    const rsaPublicKeyDer = new Uint8Array(await subtle.exportKey("spki", rsaKeyPair.publicKey));
+  describe("RSA — ISO/IEC 9796-2 schéma 1, récupération partielle (signatures produites par OpenSSL)", () => {
+    // F = 6A || M1 || H(M1 || défi) || trailer, puis s = F^d mod n (opération RSA privée brute d'OpenSSL).
+    function signIso9796(privateKey: KeyObject, k: number, challenge: Uint8Array, hash: "sha1" | "sha256", header = 0x6a) {
+      const hLen = hash === "sha1" ? 20 : 32;
+      const trailer = hash === "sha1" ? [0xbc] : [0x34, 0xcc];
+      const m1 = randomBytes(k - 1 - hLen - trailer.length);
+      const digest = createHash(hash).update(Buffer.concat([m1, Buffer.from(challenge)])).digest();
+      const f = Buffer.concat([Buffer.from([header]), m1, digest, Buffer.from(trailer)]);
+      f[1] &= 0x7f; // F < n
+      const fixedDigest = createHash(hash).update(Buffer.concat([f.subarray(1, 1 + m1.length), Buffer.from(challenge)])).digest();
+      fixedDigest.copy(f, 1 + m1.length);
+      return new Uint8Array(privateEncrypt({ key: privateKey, padding: constants.RSA_NO_PADDING }, f));
+    }
 
-    const result = await verifyActiveAuthenticationResponse({
-      dg15PublicKeyDer: rsaPublicKeyDer,
-      challenge: new Uint8Array(8),
-      responseDer: new Uint8Array(8),
+    it.each(["sha1", "sha256"] as const)("valide une réponse authentique (%s) et rejette un défi ou une signature altérés", async (hash) => {
+      const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 1024 });
+      const dg15PublicKeyDer = new Uint8Array(publicKey.export({ type: "spki", format: "der" }));
+      const challenge = Uint8Array.from(randomBytes(8));
+      const responseDer = signIso9796(privateKey, 128, challenge, hash);
+      await expect(verifyActiveAuthenticationResponse({ dg15PublicKeyDer, challenge, responseDer })).resolves.toMatchObject({ supported: true, valid: true });
+      const otherChallenge = Uint8Array.from(challenge);
+      otherChallenge[0] ^= 1;
+      await expect(verifyActiveAuthenticationResponse({ dg15PublicKeyDer, challenge: otherChallenge, responseDer })).resolves.toMatchObject({ valid: false });
+      const tampered = Uint8Array.from(responseDer);
+      tampered[40] ^= 1;
+      await expect(verifyActiveAuthenticationResponse({ dg15PublicKeyDer, challenge, responseDer: tampered })).resolves.toMatchObject({ valid: false });
     });
 
-    expect(result.supported).toBe(false);
-    expect(result.reason).toMatch(/RSA/);
+    it("refuse la récupération totale (le défi ne serait pas signé)", async () => {
+      const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 1024 });
+      const dg15PublicKeyDer = new Uint8Array(publicKey.export({ type: "spki", format: "der" }));
+      const challenge = Uint8Array.from(randomBytes(8));
+      const responseDer = signIso9796(privateKey, 128, challenge, "sha1", 0x4a);
+      await expect(verifyActiveAuthenticationResponse({ dg15PublicKeyDer, challenge, responseDer })).resolves.toMatchObject({ valid: false });
+    });
+  });
+
+  it("valide une signature ECDSA plain r||s (format BSI TR-03111 des puces) sur brainpoolP256r1", async () => {
+    const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "brainpoolP256r1" });
+    const dg15PublicKeyDer = new Uint8Array(publicKey.export({ type: "spki", format: "der" }));
+    const challenge = Uint8Array.from(randomBytes(8));
+    const responseDer = new Uint8Array(nodeSign("sha256", challenge, { key: privateKey, dsaEncoding: "ieee-p1363" }));
+    await expect(verifyActiveAuthenticationResponse({ dg15PublicKeyDer, challenge, responseDer })).resolves.toMatchObject({ valid: true });
   });
 });
 

@@ -18,6 +18,8 @@ export interface EmrtdReadResult {
   dataGroups: Record<number, Uint8Array>;
   sod: Uint8Array;
   accessProtocolUsed: "BAC" | "PACE";
+  /** Active Authentication (si DG15) : défi envoyé et signature renvoyée par la puce, à vérifier. */
+  activeAuthentication?: { challenge: Uint8Array; response?: Uint8Array; error?: string };
 }
 
 /** NFC absent de l'appareil ou désactivé dans les réglages — à distinguer d'un échec en cours de session. */
@@ -125,7 +127,12 @@ export async function readEmrtdChip(accessKey: MrzAccessKey, options: ReadEmrtdC
     options.onProgress?.(0.1);
     setIosMessage("Lecture de la puce… 10 %");
 
-    const { sod, dataGroups, missingDataGroups } = await readEmrtdChipData(transceiver, channel.smKeys, channel.ssc, dataGroupNumbers, {
+    // Défi frais par lecture (Doc 9303 Part 11 §6.1 : 8 octets aléatoires) — un défi rejoué ou
+    // prévisible permettrait de rejouer une signature capturée sur la vraie puce.
+    const activeAuthenticationChallenge = new Uint8Array(8);
+    globalThis.crypto.getRandomValues(activeAuthenticationChallenge);
+    const { sod, dataGroups, missingDataGroups, activeAuthentication } = await readEmrtdChipData(transceiver, channel.smKeys, channel.ssc, dataGroupNumbers, {
+      activeAuthenticationChallenge,
       onProgress: (filesRead, filesTotal) => {
         const fraction = 0.1 + 0.9 * (filesRead / filesTotal);
         options.onProgress?.(fraction);
@@ -134,7 +141,8 @@ export async function readEmrtdChip(accessKey: MrzAccessKey, options: ReadEmrtdC
     });
     if (missingDataGroups.length > 0) debugLog(`DG absents de ce document (normal s'ils sont facultatifs) : ${missingDataGroups.join(", ")}`);
     setIosMessage("Lecture terminée ✓");
-    return { dataGroups, sod, accessProtocolUsed: channel.protocol };
+    if (activeAuthentication) debugLog(`Active Authentication : ${activeAuthentication.response ? `réponse de ${activeAuthentication.response.length} o` : activeAuthentication.error}`);
+    return { dataGroups, sod, accessProtocolUsed: channel.protocol, activeAuthentication };
   } catch (error) {
     failed = true;
     debugLog(`Échec : ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`);

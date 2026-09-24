@@ -1,3 +1,5 @@
+import { fromBER, ObjectIdentifier, Sequence, type Set as Asn1Set } from "asn1js";
+import type { HashName } from "../crypto/pureVerify";
 import type { DataGroupNumber, DocumentIdentity, DocumentType } from "@emrtd-verify/shared-types";
 import { bytesToBase64, base64ToBytes } from "../crypto/base64";
 import { sha256 } from "../crypto/sha256";
@@ -9,6 +11,37 @@ import type { MrzFieldValidation } from "../mrz/types";
 import { verifyActiveAuthenticationResponse, type ActiveAuthenticationVerification } from "./activeAuthentication";
 
 export class ChipDataEnvelopeError extends Error {}
+
+const AA_INFO_OID = "2.23.136.1.1.5";
+/** ecdsa-plain-SHA* (BSI TR-03111) → hachage, tel qu'annoncé par ActiveAuthenticationInfo. */
+const ECDSA_PLAIN_HASHES: Record<string, HashName> = {
+  "0.4.0.127.0.7.1.1.4.1.1": "SHA-1",
+  "0.4.0.127.0.7.1.1.4.1.2": "SHA-224",
+  "0.4.0.127.0.7.1.1.4.1.3": "SHA-256",
+  "0.4.0.127.0.7.1.1.4.1.4": "SHA-384",
+  "0.4.0.127.0.7.1.1.4.1.5": "SHA-512",
+};
+
+/**
+ * Hachage d'AA ECDSA annoncé dans DG14 (0x6E { SecurityInfos }, ActiveAuthenticationInfo ::=
+ * SEQUENCE { protocol 2.23.136.1.1.5, version, signatureAlgorithm }) — `undefined` si absent.
+ */
+export function activeAuthenticationHashFromDg14(dg14: Uint8Array): HashName | undefined {
+  try {
+    const outer = fromBER(dg14.slice().buffer);
+    const set = (outer.result as unknown as { valueBlock: { value: unknown[] } }).valueBlock.value[0] as Asn1Set;
+    for (const info of set.valueBlock.value) {
+      if (!(info instanceof Sequence)) continue;
+      const [protocol, , algorithm] = info.valueBlock.value;
+      if (protocol instanceof ObjectIdentifier && protocol.valueBlock.toString() === AA_INFO_OID && algorithm instanceof ObjectIdentifier) {
+        return ECDSA_PLAIN_HASHES[algorithm.valueBlock.toString()];
+      }
+    }
+  } catch {
+    // DG14 illisible : on laissera la vérification essayer les hachages admis.
+  }
+  return undefined;
+}
 
 /**
  * Format d'échange (JSON, encodé en base64) portant les octets bruts lus sur la puce
@@ -164,10 +197,12 @@ export async function decodeChipDataEnvelope(envelope: ChipDataEnvelope, documen
   if (dg15Bytes && envelope.activeAuthentication) {
     try {
       const dg15PublicKeyDer = extractDg15PublicKey(dg15Bytes);
+      const dg14Bytes = getOptionalDataGroup(envelope, 14);
       activeAuthentication = await verifyActiveAuthenticationResponse({
         dg15PublicKeyDer,
         challenge: base64ToBytes(envelope.activeAuthentication.challengeBase64),
         responseDer: base64ToBytes(envelope.activeAuthentication.responseDerBase64),
+        hashAlgorithm: dg14Bytes ? activeAuthenticationHashFromDg14(dg14Bytes) : undefined,
       });
     } catch (error) {
       activeAuthentication = { supported: false, valid: false, reason: `DG15/réponse AA illisible : ${String(error)}` };

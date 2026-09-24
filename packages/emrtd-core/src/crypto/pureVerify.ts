@@ -182,7 +182,12 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 
-function rsaEncodedMessage(key: RsaPublicKey, signature: Uint8Array): Uint8Array | undefined {
+/** Opération RSA publique brute s^e mod n (k octets), `undefined` si la signature est mal dimensionnée. */
+export function rsaPublicOperation(key: { n: bigint; e: bigint }, signature: Uint8Array): Uint8Array | undefined {
+  return rsaEncodedMessage(key, signature);
+}
+
+function rsaEncodedMessage(key: RsaPublicKey | { n: bigint; e: bigint }, signature: Uint8Array): Uint8Array | undefined {
   const k = Math.ceil(bitLength(key.n) / 8);
   if (signature.length !== k) return undefined;
   const s = bytesToBigInt(signature);
