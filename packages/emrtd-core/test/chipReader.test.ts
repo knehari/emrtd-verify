@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { randomBytes } from "node:crypto";
-import { ChipReaderError, readEmrtdChipData, dataGroupFileId, EF_SOD_FID } from "../src/nfc/chipReader";
+import { ChipFileNotFoundError, ChipReaderError, readEmrtdChipData, dataGroupFileId, EF_SOD_FID } from "../src/nfc/chipReader";
 import { incrementSsc, type SecureMessagingKeys } from "../src/nfc/secureMessaging";
 import { computeRetailMac, constantTimeEquals, padIso9797Method2, unpadIso9797Method2 } from "../src/crypto/retailMac";
 import { tripleDesCbcDecrypt, tripleDesCbcEncrypt } from "../src/crypto/tripleDes";
@@ -201,6 +201,29 @@ describe("readEmrtdChipData", () => {
     expect(Array.from(result.sod)).toEqual(Array.from(sodFile));
     expect(Array.from(result.dataGroups[1])).toEqual(Array.from(dg1File));
     expect(Array.from(result.dataGroups[2])).toEqual(Array.from(dg2File));
+  });
+
+  it("ignore un DG facultatif absent de la puce (SW 6A82) et poursuit la lecture — ex. pas de DG15 sur une CNI française", async () => {
+    const sodFile = buildDerFile(20);
+    const dg1File = buildDerFile(15);
+    const dg14File = buildDerFile(30);
+    const chip = new FakeSmChip(
+      keys,
+      initialSsc,
+      { [EF_SOD_FID]: sodFile, [dataGroupFileId(1)]: dg1File, [dataGroupFileId(14)]: dg14File },
+      AID,
+    );
+
+    const result = await readEmrtdChipData(chip, keys, initialSsc, [1, 15, 14], { maxChunkSize: 16 });
+
+    expect(result.missingDataGroups).toEqual([15]);
+    expect(Object.keys(result.dataGroups).map(Number).sort((a, b) => a - b)).toEqual([1, 14]);
+    expect(Array.from(result.dataGroups[14])).toEqual(Array.from(dg14File));
+  });
+
+  it("échoue si un DG obligatoire (DG1/DG2) est absent", async () => {
+    const chip = new FakeSmChip(keys, initialSsc, { [EF_SOD_FID]: buildDerFile(20), [dataGroupFileId(1)]: buildDerFile(15) }, AID);
+    await expect(readEmrtdChipData(chip, keys, initialSsc, [1, 2], { maxChunkSize: 16 })).rejects.toBeInstanceOf(ChipFileNotFoundError);
   });
 
   it("lève ChipReaderError si l'application eMRTD n'est pas trouvée (mauvais AID côté puce)", async () => {

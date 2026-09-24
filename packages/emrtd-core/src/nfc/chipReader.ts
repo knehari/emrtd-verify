@@ -31,6 +31,12 @@ function dataGroupFileId(dataGroupNumber: number): number {
 
 export class ChipReaderError extends Error {}
 
+/** SELECT refusé par la puce avec SW 6A82 : le fichier n'existe pas sur ce document. */
+export class ChipFileNotFoundError extends ChipReaderError {}
+
+/** DG obligatoires sur tout eMRTD (Doc 9303 Part 10 §4.6) ; les autres peuvent manquer selon le document. */
+const MANDATORY_DATA_GROUPS = new Set([1, 2]);
+
 export interface ChipReaderConfig {
   /**
    * Nombre max d'octets demandés par READ BINARY. Plus grand = moins d'allers-retours NFC (donc
@@ -75,7 +81,8 @@ async function selectByFileId(transceiver: ApduTransceiver, keys: SecureMessagin
   const data = Uint8Array.of((fid >> 8) & 0xff, fid & 0xff);
   const response = await smExchange(transceiver, keys, sscRef, { cla: 0x00, ins: 0xa4, p1: 0x02, p2: 0x0c, data });
   if (!isSuccess(response)) {
-    throw new ChipReaderError(`SELECT EF 0x${fid.toString(16).padStart(4, "0")} a échoué : SW=${formatStatusWord(response)}`);
+    const ErrorClass = response.sw1 === 0x6a && response.sw2 === 0x82 ? ChipFileNotFoundError : ChipReaderError;
+    throw new ErrorClass(`SELECT EF 0x${fid.toString(16).padStart(4, "0")} a échoué : SW=${formatStatusWord(response)}`);
   }
 }
 
@@ -164,7 +171,13 @@ export async function readFile(
 
 export interface ChipReadResult {
   sod: Uint8Array;
+  /** Uniquement les DG présents sur la puce (voir `missingDataGroups`). */
   dataGroups: Record<number, Uint8Array>;
+  /**
+   * DG demandés mais absents de la puce (SW 6A82) — normal pour les DG facultatifs : une CNI
+   * française n'a pas de DG15 (pas d'authentification active, elle utilise la Chip Authentication).
+   */
+  missingDataGroups: number[];
 }
 
 /**
@@ -187,12 +200,20 @@ export async function readEmrtdChipData(
   config?.onProgress?.(1, filesTotal);
 
   const dataGroups: Record<number, Uint8Array> = {};
+  const missingDataGroups: number[] = [];
   for (const [index, dgNumber] of dataGroupNumbers.entries()) {
-    dataGroups[dgNumber] = await readFile(transceiver, keys, sscRef, dataGroupFileId(dgNumber), config);
+    try {
+      dataGroups[dgNumber] = await readFile(transceiver, keys, sscRef, dataGroupFileId(dgNumber), config);
+    } catch (error) {
+      // Le refus du SELECT arrive sous messagerie sécurisée (réponse authentifiée, SSC avancé) : la
+      // session reste utilisable, on passe au DG suivant.
+      if (!(error instanceof ChipFileNotFoundError) || MANDATORY_DATA_GROUPS.has(dgNumber)) throw error;
+      missingDataGroups.push(dgNumber);
+    }
     config?.onProgress?.(index + 2, filesTotal);
   }
 
-  return { sod, dataGroups };
+  return { sod, dataGroups, missingDataGroups };
 }
 
 export { EF_SOD_FID, EF_COM_FID, EMRTD_APPLICATION_AID, dataGroupFileId };

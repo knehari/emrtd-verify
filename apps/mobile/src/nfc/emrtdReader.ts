@@ -125,13 +125,14 @@ export async function readEmrtdChip(accessKey: MrzAccessKey, options: ReadEmrtdC
     options.onProgress?.(0.1);
     setIosMessage("Lecture de la puce… 10 %");
 
-    const { sod, dataGroups } = await readEmrtdChipData(transceiver, channel.smKeys, channel.ssc, dataGroupNumbers, {
+    const { sod, dataGroups, missingDataGroups } = await readEmrtdChipData(transceiver, channel.smKeys, channel.ssc, dataGroupNumbers, {
       onProgress: (filesRead, filesTotal) => {
         const fraction = 0.1 + 0.9 * (filesRead / filesTotal);
         options.onProgress?.(fraction);
         setIosMessage(`Lecture de la puce… ${Math.round(fraction * 100)} %`);
       },
     });
+    if (missingDataGroups.length > 0) debugLog(`DG absents de ce document (normal s'ils sont facultatifs) : ${missingDataGroups.join(", ")}`);
     setIosMessage("Lecture terminée ✓");
     return { dataGroups, sod, accessProtocolUsed: channel.protocol };
   } catch (error) {
