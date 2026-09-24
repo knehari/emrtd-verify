@@ -38,6 +38,8 @@ export interface ChipReaderConfig {
    * a annoncé le supporter (sinon garder la valeur par défaut, sûre en forme courte).
    */
   maxChunkSize?: number;
+  /** Appelé après chaque fichier lu (EF.SOD puis chaque DG) — progression affichée pendant la lecture NFC. */
+  onProgress?: (filesRead: number, filesTotal: number) => void;
 }
 
 const DEFAULT_MAX_CHUNK_SIZE = 200;
@@ -180,11 +182,14 @@ export async function readEmrtdChipData(
   const sscRef: SscRef = { current: initialSsc };
   await selectByAid(transceiver, keys, sscRef, EMRTD_APPLICATION_AID);
 
+  const filesTotal = 1 + dataGroupNumbers.length;
   const sod = await readFile(transceiver, keys, sscRef, EF_SOD_FID, config);
+  config?.onProgress?.(1, filesTotal);
 
   const dataGroups: Record<number, Uint8Array> = {};
-  for (const dgNumber of dataGroupNumbers) {
+  for (const [index, dgNumber] of dataGroupNumbers.entries()) {
     dataGroups[dgNumber] = await readFile(transceiver, keys, sscRef, dataGroupFileId(dgNumber), config);
+    config?.onProgress?.(index + 2, filesTotal);
   }
 
   return { sod, dataGroups };

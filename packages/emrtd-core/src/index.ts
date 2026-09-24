@@ -23,6 +23,8 @@ export * from "./nfc/apdu";
 export * from "./nfc/secureMessaging";
 export * from "./nfc/bac";
 export * from "./nfc/chipReader";
+export * from "./nfc/pace";
+export * from "./nfc/accessControl";
 export * from "./liveness/types";
 export * from "./liveness/frameIntegrity";
 export * from "./liveness/challenge";

@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { Button, StyleSheet, Text, View } from "react-native";
 import { NfcError } from "react-native-nfc-manager";
-import { BacAuthenticationError, ChipReaderError, NfcUnavailableError, readEmrtdChip, type EmrtdReadResult, type MrzAccessKey } from "../nfc/emrtdReader";
+import { BacAuthenticationError, ChipReaderError, NfcUnavailableError, PaceAuthenticationError, readEmrtdChip, type EmrtdReadResult, type MrzAccessKey } from "../nfc/emrtdReader";
 
 interface ScanScreenProps {
   mrzAccessKey: MrzAccessKey;
@@ -19,7 +19,7 @@ function describeScanError(error: unknown): { message: string; action: ScanError
   if (error instanceof NfcUnavailableError) {
     return { message: "NFC indisponible : vérifiez qu'il est activé dans les réglages de l'appareil.", action: "enable-nfc" };
   }
-  if (error instanceof BacAuthenticationError) {
+  if (error instanceof BacAuthenticationError || error instanceof PaceAuthenticationError) {
     return { message: "Impossible d'établir un canal sécurisé avec le document : la MRZ scannée est peut-être incorrecte.", action: "rescan-mrz" };
   }
   if (error instanceof ChipReaderError) {

@@ -75,6 +75,19 @@ a été ajoutée sur demande (`components/MrzCameraScanner.tsx`, `../mrz/mrzFrom
   de saisie manuelle, avec un bandeau de confirmation) avant de continuer — pas d'avance automatique
   sans confirmation visuelle.
 
+## Lecture NFC réelle (PACE, repli BAC)
+
+`beginNfc` lance une vraie lecture (`../nfc/emrtdReader.ts`) : lecture d'EF.CardAccess, PACE avec
+la clé MRZ quand la puce l'annonce (CNI françaises depuis 2021, passeports récents), sinon BAC ;
+puis EF.SOD, DG1, DG2, DG14, DG15 sous messagerie sécurisée (3DES ou AES). La jauge de l'écran NFC
+suit la progression réelle (canal établi, puis chaque fichier lu) et la feuille système iOS affiche
+les mêmes étapes. Une clé refusée par la puce (MRZ mal lue) renvoie vers l'écran MRZ ; une session
+interrompue renvoie vers l'écran « Placez le document ».
+
+Prérequis iOS : compte Apple Developer payant, capacité *NFC Tag Reading* (ajoutée par `expo
+prebuild` via le plugin de `react-native-nfc-manager` dans `app.json` : entitlement `TAG`, AID
+eMRTD A0000002471001 en premier dans `select-identifiers`).
+
 ## Design v2 — mode sombre, transitions, retours, Réglages
 
 Deuxième livraison de Claude Design (`Authentik Mobile v2 Dark.dc.html`, non versionné ici non

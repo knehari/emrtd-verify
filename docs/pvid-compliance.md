@@ -53,7 +53,9 @@ Par ordre de dépendance :
    round-trip/rejet sur falsification/interopérabilité entre implémentations indépendantes déjà
    en place. Ce qui manque encore n'est donc plus la conformité à la spécification, mais
    uniquement un **test contre un document et un lecteur NFC physiques réels** — aucun n'a été
-   mené ici. PACE n'est pas implémenté (BAC uniquement). `bacKey.ts` est désormais entièrement
+   mené ici. PACE (ECDH-GM/CAM, 3DES/AES, courbes standardisées) est implémenté avec repli BAC, validé
+   byte-exact contre l'exemple ICAO Doc 9303 Part 11 Appendix G.1 et deux traces réelles
+   (`packages/emrtd-core/src/nfc/{pace,accessControl}.ts`). `bacKey.ts` est désormais entièrement
    portable React Native (SHA-1 via `crypto/sha1.ts`/`hash.js`, `crypto.getRandomValues` via
    `react-native-get-random-values` — plus aucune dépendance à Web Crypto). Sans cette validation
    matérielle réelle, aucune vérification de bout en bout sur un document réel n'est possible — tout le reste de cette

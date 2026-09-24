@@ -1,6 +1,7 @@
 import { buildCommandApdu, parseResponseApdu, type CommandApduInput, type ResponseApdu } from "./apdu";
 import { computeRetailMac, constantTimeEquals, padIso9797Method2, unpadIso9797Method2 } from "../crypto/retailMac";
 import { tripleDesCbcDecrypt, tripleDesCbcEncrypt } from "../crypto/tripleDes";
+import { aesCbcDecrypt, aesCbcEncrypt, aesCmac8, aesEcbEncryptBlock } from "../crypto/aes";
 
 /**
  * Messagerie sécurisée BAC (Doc 9303 Part 11 §4.3/Appendix D.3, structure BER-TLV ISO/IEC 7816-4
@@ -15,23 +16,51 @@ import { tripleDesCbcDecrypt, tripleDesCbcEncrypt } from "../crypto/tripleDes";
  */
 
 export interface SecureMessagingKeys {
-  /** Clé de session post-authentification pour le chiffrement (KSenc), 16 octets. */
+  /** Clé de session post-authentification pour le chiffrement (KSenc) : 16 octets en 3DES, 16/24/32 en AES. */
   ksEnc: Uint8Array;
-  /** Clé de session post-authentification pour le MAC (KSmac), 16 octets. */
+  /** Clé de session post-authentification pour le MAC (KSmac), même taille que KSenc. */
   ksMac: Uint8Array;
+  /**
+   * "3DES" (BAC, PACE 3DES) : SSC 8 octets, IV nul, retail MAC. "AES" (PACE AES, Doc 9303 Part 11
+   * §9.8.6.3 / BSI TR-03110-3 §F.3) : SSC 16 octets, IV = AES-ECB(KSenc, SSC), AES-CMAC tronqué à
+   * 8 octets, padding sur blocs de 16. Absent = 3DES (seul cas possible avant l'ajout de PACE).
+   */
+  cipher?: "3DES" | "AES";
+}
+
+function isAes(keys: SecureMessagingKeys): boolean {
+  return keys.cipher === "AES";
+}
+
+function blockSizeOf(keys: SecureMessagingKeys): number {
+  return isAes(keys) ? 16 : 8;
+}
+
+function smEncrypt(keys: SecureMessagingKeys, ssc: Uint8Array, padded: Uint8Array): Uint8Array {
+  if (isAes(keys)) return aesCbcEncrypt(keys.ksEnc, aesEcbEncryptBlock(keys.ksEnc, ssc), padded);
+  return tripleDesCbcEncrypt(keys.ksEnc, ZERO_IV, padded);
+}
+
+function smDecrypt(keys: SecureMessagingKeys, ssc: Uint8Array, encrypted: Uint8Array): Uint8Array {
+  if (isAes(keys)) return aesCbcDecrypt(keys.ksEnc, aesEcbEncryptBlock(keys.ksEnc, ssc), encrypted);
+  return tripleDesCbcDecrypt(keys.ksEnc, ZERO_IV, encrypted);
+}
+
+function smMac(keys: SecureMessagingKeys, paddedInput: Uint8Array): Uint8Array {
+  return isAes(keys) ? aesCmac8(keys.ksMac, paddedInput) : computeRetailMac(keys.ksMac, paddedInput);
 }
 
 export class SecureMessagingError extends Error {}
 
 const ZERO_IV = new Uint8Array(8);
 
-/** Incrémente le compteur de séquence d'envoi (SSC, 8 octets, big-endian) — jamais muté en place. */
+/** Incrémente le compteur de séquence d'envoi (SSC big-endian, 8 octets en 3DES, 16 en AES) — jamais muté en place. */
 export function incrementSsc(ssc: Uint8Array): Uint8Array {
-  if (ssc.length !== 8) {
-    throw new Error(`SSC invalide : attendu 8 octets, reçu ${ssc.length}`);
+  if (ssc.length !== 8 && ssc.length !== 16) {
+    throw new Error(`SSC invalide : attendu 8 ou 16 octets, reçu ${ssc.length}`);
   }
   const next = Uint8Array.from(ssc);
-  for (let i = 7; i >= 0; i--) {
+  for (let i = next.length - 1; i >= 0; i--) {
     next[i] = (next[i] + 1) & 0xff;
     if (next[i] !== 0) break; // pas de retenue, arrêt de la propagation
   }
@@ -109,13 +138,14 @@ export function wrapCommandApdu(
   ssc: Uint8Array,
 ): { wrapped: Uint8Array; nextSsc: Uint8Array } {
   const nextSsc = incrementSsc(ssc);
+  const blockSize = blockSizeOf(keys);
 
   const maskedCla = 0x0c;
-  const paddedHeader = padIso9797Method2(Uint8Array.of(maskedCla, command.ins, command.p1, command.p2));
+  const paddedHeader = padIso9797Method2(Uint8Array.of(maskedCla, command.ins, command.p1, command.p2), blockSize);
 
   const domainObjects: Uint8Array[] = [];
   if (command.data && command.data.length > 0) {
-    const encrypted = tripleDesCbcEncrypt(keys.ksEnc, ZERO_IV, padIso9797Method2(command.data));
+    const encrypted = smEncrypt(keys, nextSsc, padIso9797Method2(command.data, blockSize));
     // Octet indicateur de padding 0x01 (ISO/IEC 7816-4 §8.2.1.1) devant les données chiffrées.
     domainObjects.push(encodeTlv(0x87, concatBytes(Uint8Array.of(0x01), encrypted)));
   }
@@ -123,8 +153,8 @@ export function wrapCommandApdu(
     domainObjects.push(encodeTlv(0x97, Uint8Array.of(command.le === 0 ? 0x00 : command.le & 0xff)));
   }
 
-  const macInput = padIso9797Method2(concatBytes(nextSsc, paddedHeader, ...domainObjects));
-  const mac = computeRetailMac(keys.ksMac, macInput);
+  const macInput = padIso9797Method2(concatBytes(nextSsc, paddedHeader, ...domainObjects), blockSize);
+  const mac = smMac(keys, macInput);
   domainObjects.push(encodeTlv(0x8e, mac));
 
   const protectedBody = concatBytes(...domainObjects);
@@ -180,8 +210,8 @@ export function unwrapResponseApdu(
     throw new SecureMessagingError("Réponse protégée sans DO8E (MAC absent) — rejetée");
   }
 
-  const macInput = padIso9797Method2(concatBytes(nextSsc, ...authenticatedObjects));
-  const expectedMac = computeRetailMac(keys.ksMac, macInput);
+  const macInput = padIso9797Method2(concatBytes(nextSsc, ...authenticatedObjects), blockSizeOf(keys));
+  const expectedMac = smMac(keys, macInput);
   if (!constantTimeEquals(expectedMac, macObject)) {
     throw new SecureMessagingError("MAC de messagerie sécurisée invalide — réponse rejetée (altération ou clés désynchronisées)");
   }
@@ -191,7 +221,7 @@ export function unwrapResponseApdu(
     if (encryptedDataObject.length < 1 || encryptedDataObject[0] !== 0x01) {
       throw new SecureMessagingError("DO87 sans octet indicateur de padding 0x01 attendu");
     }
-    const decrypted = tripleDesCbcDecrypt(keys.ksEnc, ZERO_IV, encryptedDataObject.subarray(1));
+    const decrypted = smDecrypt(keys, nextSsc, encryptedDataObject.subarray(1));
     data = unpadIso9797Method2(decrypted);
   }
 

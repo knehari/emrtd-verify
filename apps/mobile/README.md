@@ -6,7 +6,7 @@ Application Expo/React Native chargée de la capture des données du document : 
 
 ## Lecture NFC
 
-`src/nfc/emrtdReader.ts` définit l'interface de lecture BAC/PACE (Doc 9303 Part 11 §4 et §9) au-dessus de `react-native-nfc-manager`. L'implémentation de la dérivation de clé BAC (à partir du numéro de document, de la date de naissance et de la date d'expiration lues sur la MRZ imprimée) et du protocole PACE reste à faire — voir [docs/roadmap.md](../../docs/roadmap.md) Phase 4.
+`src/nfc/emrtdReader.ts` lit la puce au-dessus de `react-native-nfc-manager` : EF.CardAccess, puis PACE si la puce l'annonce (sinon BAC), puis EF.SOD et les DG sous messagerie sécurisée — protocoles dans `packages/emrtd-core/src/nfc/` (voir [docs/roadmap.md](../../docs/roadmap.md) Phase 4). Sur iOS, la lecture exige un compte Apple Developer payant (capacité *NFC Tag Reading*) ; l'entitlement `TAG` et les AID eMRTD (`com.apple.developer.nfc.readersession.iso7816.select-identifiers`) sont ajoutés par le plugin Expo de `react-native-nfc-manager` déclaré dans `app.json`.
 
 ## Démarrer
 

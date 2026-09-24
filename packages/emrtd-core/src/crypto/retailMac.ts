@@ -6,9 +6,10 @@ import { singleDesDecryptBlock, singleDesEncryptBlock } from "./tripleDes";
  * alignée reçoit un bloc de padding complet supplémentaire ([0x80, 0,0,0,0,0,0,0]). Doc 9303
  * Part 11 Appendix E.2 impose ce padding avant le calcul du retail MAC ET avant le chiffrement
  * 3DES-CBC des données de messagerie sécurisée (deux usages distincts, voir secureMessaging.ts).
+ * `blockSize` = 16 pour la messagerie sécurisée AES établie par PACE (même règle, bloc AES).
  */
-export function padIso9797Method2(data: Uint8Array): Uint8Array {
-  const paddedLength = data.length + (8 - (data.length % 8));
+export function padIso9797Method2(data: Uint8Array, blockSize = 8): Uint8Array {
+  const paddedLength = data.length + (blockSize - (data.length % blockSize));
   const padded = new Uint8Array(paddedLength);
   padded.set(data, 0);
   padded[data.length] = 0x80;

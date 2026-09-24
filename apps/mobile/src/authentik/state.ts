@@ -7,7 +7,7 @@
  *   (`design_handoff_authentik/eMRTD Verify Mobile.dc.html`, méthodes `startScan`/`runNfc`/
  *   `runSelfie`/`renderVals`) — utile pour prévisualiser les trois verdicts sans document réel.
  * - MODE RÉEL (nouveau) : `startScan` mène à un vrai formulaire MRZ (`mrzForm`/`updateMrzForm`/
- *   `submitMrz`), puis `beginNfc` déclenche une vraie lecture NFC/BAC (`readEmrtdChip`,
+ *   `submitMrz`), puis `beginNfc` déclenche une vraie lecture NFC PACE/BAC (`readEmrtdChip`,
  *   apps/mobile/src/nfc/emrtdReader.ts) suivie d'une vraie vérification locale
  *   (`computeLocalVerification`, apps/mobile/src/verification/localVerification.ts). Dès qu'un
  *   `verificationResult` réel existe, `derived` l'utilise à la place des données canned du mode
@@ -34,6 +34,8 @@ import {
   NfcUnavailableError,
   BacAuthenticationError,
   ChipReaderError,
+  PaceAuthenticationError,
+  PaceError,
   type EmrtdReadResult,
   type MrzAccessKey,
 } from "../nfc/emrtdReader";
@@ -82,11 +84,14 @@ function describeVerificationError(error: unknown): VerificationError {
   if (error instanceof NfcUnavailableError) {
     return { message: "NFC indisponible : vérifiez qu'il est activé dans les réglages de l'appareil.", action: "enable-nfc" };
   }
-  if (error instanceof BacAuthenticationError) {
+  if (error instanceof BacAuthenticationError || error instanceof PaceAuthenticationError) {
     return {
       message: "Impossible d'établir un canal sécurisé avec le document : les informations saisies sont peut-être incorrectes.",
       action: "rescan-mrz",
     };
+  }
+  if (error instanceof PaceError) {
+    return { message: "La connexion sécurisée (PACE) avec la puce a échoué : maintenez le document immobile et réessayez.", action: "retry-nfc" };
   }
   if (error instanceof ChipReaderError) {
     return { message: "La lecture de la puce a échoué en cours de session (transmission interrompue).", action: "retry-nfc" };
@@ -267,7 +272,7 @@ export function useAuthentikDemo() {
     setS((prev) => ({ ...prev, step: "place", anim: "push" }));
   }, [fb]);
 
-  // Mode réel : lecture NFC/BAC réelle (readEmrtdChip) puis vérification locale réelle
+  // Mode réel : lecture NFC PACE/BAC réelle (readEmrtdChip) puis vérification locale réelle
   // (computeLocalVerification), sans liveness ni reconnaissance faciale (voir en-tête du fichier).
   const runVerification = useCallback(async () => {
     const { mrzForm } = sRef.current;
@@ -277,21 +282,16 @@ export function useAuthentikDemo() {
       dateOfExpiry: mrzForm.dateOfExpiry,
     };
 
-    // readEmrtdChip() ne remonte aucun palier réel (voir plus bas) : un seul retour au démarrage et
-    // un à la fin de la lecture, plutôt qu'un "tick" par palier simulé.
+    // Un retour au démarrage et un à la fin de la lecture ; entre les deux, la jauge suit la
+    // progression réelle remontée par readEmrtdChip (canal sécurisé établi, puis chaque fichier lu).
     fb("tap");
     setS((prev) => ({ ...prev, step: "nfc", anim: "push", pct: 0, verificationStatus: "reading-nfc", verificationError: null }));
 
-    // readEmrtdChip() est un seul appel asynchrone sans callback de progression (voir sa
-    // signature dans emrtdReader.ts) : on simule une montée fluide jusqu'à 90 % pendant l'attente
-    // réelle, puis on saute à 100 % une fois la lecture terminée avec succès.
-    timerRef.current = setInterval(() => {
-      setS((prev) => (prev.pct >= 90 ? prev : { ...prev, pct: prev.pct + 4 }));
-    }, 300);
-
     let chipResult: EmrtdReadResult;
     try {
-      chipResult = await readEmrtdChip(accessKey);
+      chipResult = await readEmrtdChip(accessKey, {
+        onProgress: (fraction) => setS((prev) => ({ ...prev, pct: Math.max(prev.pct, Math.round(fraction * 100)) })),
+      });
     } catch (error) {
       clear();
       const described = describeVerificationError(error);

@@ -1,15 +1,17 @@
+import { Platform } from "react-native";
 import NfcManager, { NfcTech } from "react-native-nfc-manager";
 import {
-  deriveBacSessionKeys,
-  performBacHandshake,
+  establishSecureChannel,
   readEmrtdChipData,
   BacAuthenticationError,
   ChipReaderError,
+  PaceAuthenticationError,
+  PaceError,
   type ApduTransceiver,
   type BacAccessKeyInput,
 } from "@emrtd-verify/emrtd-core";
 
-/** Informations lues sur la MRZ imprimée (zone visuelle), nécessaires pour établir BAC. */
+/** Informations lues sur la MRZ imprimée (zone visuelle) : mot de passe de PACE comme de BAC. */
 export type MrzAccessKey = BacAccessKeyInput;
 
 export interface EmrtdReadResult {
@@ -18,17 +20,24 @@ export interface EmrtdReadResult {
   accessProtocolUsed: "BAC" | "PACE";
 }
 
-/** NFC absent de l'appareil ou désactivé dans les réglages — à distinguer d'un échec en cours de session (voir EmrtdReadResult ci-dessus et les exports de @emrtd-verify/emrtd-core pour les autres catégories). */
+/** NFC absent de l'appareil ou désactivé dans les réglages — à distinguer d'un échec en cours de session. */
 export class NfcUnavailableError extends Error {}
+
+export interface ReadEmrtdChipOptions {
+  dataGroupNumbers?: number[];
+  /** Progression de la lecture, de 0 à 1 (canal sécurisé établi ≈ 0,1, puis chaque fichier lu). */
+  onProgress?: (fraction: number) => void;
+}
 
 const DEFAULT_DATA_GROUPS = [1, 2, 14, 15]; // MRZ, photo, Chip Authentication (si présent), Active Authentication
 
+let nfcStarted: Promise<void> | undefined;
+
 /**
  * Adapte react-native-nfc-manager (`isoDepHandler.transceive`, commun iOS Core NFC / Android
- * IsoDep derrière une seule API JS — voir index.d.ts du paquet) à `ApduTransceiver`
- * (@emrtd-verify/emrtd-core) : le protocole BAC/messagerie sécurisée ne connaît que "des octets
- * qui partent, des octets qui reviennent", jamais react-native-nfc-manager directement — c'est ce
- * qui permet au même code protocolaire de tourner sans changement sur les deux plateformes.
+ * IsoDep — sur iOS il renvoie déjà données || SW1 || SW2) à `ApduTransceiver`
+ * (@emrtd-verify/emrtd-core) : les protocoles PACE/BAC et la messagerie sécurisée ne connaissent
+ * que "des octets qui partent, des octets qui reviennent".
  */
 function createIsoDepTransceiver(): ApduTransceiver {
   return {
@@ -39,47 +48,78 @@ function createIsoDepTransceiver(): ApduTransceiver {
   };
 }
 
+function setIosMessage(message: string): void {
+  if (Platform.OS === "ios") void NfcManager.setAlertMessageIOS(message).catch(() => undefined);
+}
+
+function iosFailureMessage(error: unknown): string {
+  if (error instanceof PaceAuthenticationError || error instanceof BacAuthenticationError) {
+    return "Accès refusé par la puce : vérifiez la zone MRZ saisie.";
+  }
+  return "Lecture interrompue — maintenez le document contre le haut du téléphone.";
+}
+
 /**
- * Établit un canal sécurisé BAC avec la puce (Doc 9303 Part 11 §4.3 — protocole implémenté et
- * testé dans @emrtd-verify/emrtd-core, voir nfc/{apdu,secureMessaging,bac,chipReader}.ts) et lit
- * le SOD + les groupes de données demandés. `dataGroupNumbers` par défaut : MRZ (DG1), photo
- * (DG2), et les clés Chip/Active Authentication (DG14/DG15) si présentes — ne demander que les DG
- * réellement nécessaires réduit le nombre d'échanges NFC (donc la durée de la lecture).
+ * Lit la puce : EF.CardAccess, PACE (ou BAC en repli, voir `establishSecureChannel`), puis EF.SOD
+ * et les groupes de données demandés sous messagerie sécurisée. `dataGroupNumbers` par défaut :
+ * MRZ (DG1), photo (DG2) et les clés Chip/Active Authentication (DG14/DG15) si présentes.
  *
  * Erreurs à distinguer côté appelant (UI) :
- * - `NfcUnavailableError` — NFC absent/désactivé, détecté AVANT d'ouvrir une session : proposer
- *   d'activer le NFC plutôt que de relancer la lecture.
- * - `BacAuthenticationError` (@emrtd-verify/emrtd-core) — clé BAC incorrecte (MRZ mal lue à
- *   l'OCR) ou authentification mutuelle échouée (document non conforme/falsifié) : proposer de
- *   rescanner la MRZ, PAS de simplement relancer la lecture NFC.
- * - `ChipReaderError` (@emrtd-verify/emrtd-core) — échec du protocole APDU après un BAC réussi
- *   (SELECT/READ BINARY), inclut un MAC de messagerie sécurisée invalide (transmission altérée) :
- *   relancer la lecture NFC est approprié (transitoire).
- * - Erreurs `NfcError.*` de react-native-nfc-manager (`SessionInvalidated`, `TagConnectionLost`,
- *   `UserCancel`, `Timeout`) — session NFC interrompue (téléphone éloigné du document, session
- *   expirée, annulation utilisateur) : relancer la lecture NFC est approprié.
+ * - `NfcUnavailableError` — NFC absent/désactivé, détecté AVANT d'ouvrir une session.
+ * - `PaceAuthenticationError` / `BacAuthenticationError` — clé MRZ refusée par la puce (MRZ mal
+ *   lue ou saisie) ou document non authentique : proposer de rescanner la MRZ.
+ * - `PaceError` (autre) / `ChipReaderError` — échec protocolaire ou transmission altérée (MAC de
+ *   messagerie sécurisée invalide) : relancer la lecture NFC est approprié.
+ * - Erreurs `NfcError.*` de react-native-nfc-manager (`UserCancel`, `Timeout`,
+ *   `TagConnectionLost`…) — session interrompue : relancer la lecture NFC est approprié.
  */
-export async function readEmrtdChip(accessKey: MrzAccessKey, dataGroupNumbers: number[] = DEFAULT_DATA_GROUPS): Promise<EmrtdReadResult> {
-  const isSupported = await NfcManager.isSupported();
-  if (!isSupported) {
+export async function readEmrtdChip(accessKey: MrzAccessKey, options: ReadEmrtdChipOptions = {}): Promise<EmrtdReadResult> {
+  const dataGroupNumbers = options.dataGroupNumbers ?? DEFAULT_DATA_GROUPS;
+  nfcStarted ??= NfcManager.start().catch((error: unknown) => {
+    nfcStarted = undefined;
+    throw new NfcUnavailableError(`NFC indisponible sur cet appareil (${error instanceof Error ? error.message : String(error)})`);
+  });
+  await nfcStarted;
+  if (!(await NfcManager.isSupported())) {
     throw new NfcUnavailableError("NFC non supporté par cet appareil");
   }
-  const isEnabled = await NfcManager.isEnabled();
-  if (!isEnabled) {
+  if (!(await NfcManager.isEnabled())) {
     throw new NfcUnavailableError("NFC désactivé — l'activer dans les réglages de l'appareil");
   }
 
-  const documentKeys = await deriveBacSessionKeys(accessKey);
-
-  await NfcManager.requestTechnology(NfcTech.IsoDep, { alertMessage: "Approchez le document du téléphone" });
+  await NfcManager.requestTechnology(NfcTech.IsoDep, {
+    alertMessage: "Posez le haut du téléphone sur le document et ne bougez plus.",
+  });
+  let failed = false;
   try {
+    setIosMessage("Document détecté — connexion sécurisée…");
     const transceiver = createIsoDepTransceiver();
-    const { smKeys, ssc } = await performBacHandshake(transceiver, documentKeys);
-    const { sod, dataGroups } = await readEmrtdChipData(transceiver, smKeys, ssc, dataGroupNumbers);
-    return { dataGroups, sod, accessProtocolUsed: "BAC" };
+    const channel = await establishSecureChannel(transceiver, accessKey, {
+      onProtocol: (protocol) => setIosMessage(`Connexion sécurisée (${protocol})…`),
+    });
+    options.onProgress?.(0.1);
+    setIosMessage("Lecture de la puce… 10 %");
+
+    const { sod, dataGroups } = await readEmrtdChipData(transceiver, channel.smKeys, channel.ssc, dataGroupNumbers, {
+      onProgress: (filesRead, filesTotal) => {
+        const fraction = 0.1 + 0.9 * (filesRead / filesTotal);
+        options.onProgress?.(fraction);
+        setIosMessage(`Lecture de la puce… ${Math.round(fraction * 100)} %`);
+      },
+    });
+    setIosMessage("Lecture terminée ✓");
+    return { dataGroups, sod, accessProtocolUsed: channel.protocol };
+  } catch (error) {
+    failed = true;
+    if (Platform.OS === "ios") {
+      await NfcManager.invalidateSessionWithErrorIOS(iosFailureMessage(error)).catch(() => undefined);
+    }
+    throw error;
   } finally {
-    await NfcManager.cancelTechnologyRequest();
+    if (!failed || Platform.OS !== "ios") {
+      await NfcManager.cancelTechnologyRequest().catch(() => undefined);
+    }
   }
 }
 
-export { BacAuthenticationError, ChipReaderError };
+export { BacAuthenticationError, ChipReaderError, PaceAuthenticationError, PaceError };
