@@ -42,17 +42,32 @@ export function embeddedCountryRows(lang: "fr" | "en", anchorsWord: string): Cou
     .sort((a, b) => a.name.localeCompare(b.name, lang));
 }
 
+/** Chiffres réels du magasin embarqué, pour les libellés à gabarit ({countries}, {anchors}). */
+export const embeddedStoreStats = {
+  anchors: anchors.length,
+  countries: new Set(anchors.map((a) => toAlpha2CountryCode(a.countryCode) ?? a.countryCode)).size,
+};
+
+export function fillStoreStats(template: string): string {
+  return template
+    .replace("{countries}", String(embeddedStoreStats.countries))
+    .replace("{anchors}", String(embeddedStoreStats.anchors));
+}
+
 export function embeddedStoreRows(lang: "fr" | "en"): [string, string][] {
-  const countries = new Set(anchors.map((a) => a.countryCode)).size;
+  const now = new Date().toISOString();
+  const valid = anchors.filter((a) => now >= a.notBefore && now <= a.notAfter).length;
   return lang === "fr"
     ? [
-        ["Ancres CSCA", String(anchors.length)],
-        ["Pays couverts", String(countries)],
-        ["Source", "Master List ICAO + PKD nationales (embarqué)"],
+        ["Ancres CSCA", String(embeddedStoreStats.anchors)],
+        ["Valides aujourd'hui", String(valid)],
+        ["Pays couverts", String(embeddedStoreStats.countries)],
+        ["Sources", "Master List ICAO · Master Lists nationales PKD · Master List BSI (DE)"],
       ]
     : [
-        ["CSCA anchors", String(anchors.length)],
-        ["Countries covered", String(countries)],
-        ["Source", "ICAO Master List + national PKDs (embedded)"],
+        ["CSCA anchors", String(embeddedStoreStats.anchors)],
+        ["Valid today", String(valid)],
+        ["Countries covered", String(embeddedStoreStats.countries)],
+        ["Sources", "ICAO Master List · PKD national Master Lists · BSI Master List (DE)"],
       ];
 }

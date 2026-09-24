@@ -119,7 +119,6 @@ export interface Copy {
   searchPh: string;
   anchorsWord: string;
   countries: [string, string, string, number][];
-  trust: [string, string][];
   verifiedLine: string;
   verifiedLineOnline: string;
   // Onglet Réglages — design v2 (`Authentik Mobile v2 Dark.dc.html`, `Object.assign(FR/EN, {about…})`).
@@ -128,7 +127,6 @@ export interface Copy {
   aboutAppTitle: string;
   aboutApp: [string, string][];
   aboutStoreTitle: string;
-  aboutStore: [string, string][];
   aboutStoreCta: string;
   aboutFbTitle: string;
   aboutFb: string;
@@ -180,9 +178,9 @@ export const FR: Copy = {
   modeOnline: "En ligne · KYC",
   modeOfflineDesc: "Tout est calculé sur l'appareil, avec le magasin CSCA embarqué.",
   modeOnlineDesc: "Connecté au service KYC : listes de révocation vérifiées en temps réel.",
-  trustLineOnline: "Magasin CSCA synchronisé à l'instant · 28 pays",
+  trustLineOnline: "Magasin CSCA embarqué · {countries} pays · {anchors} ancres",
   offlineTitle: "Hors ligne",
-  trustLine: "Magasin CSCA à jour · 28 pays · il y a 2 j",
+  trustLine: "Magasin CSCA embarqué · {countries} pays · {anchors} ancres",
   scanCta: "Vérifier un document",
   scanSub: "Lecture NFC + authentification passive",
   typesTitle: "Type de document",
@@ -324,13 +322,6 @@ export const FR: Copy = {
     ["GR", "🇬🇷", "Grèce", 8],
     ["TR", "🇹🇷", "Turquie", 10],
   ],
-  trust: [
-    ["Ancres CSCA", "312"],
-    ["Pays couverts", "28"],
-    ["Source", "ICAO PKD"],
-    ["Dernière synchro.", "19/09/2026"],
-    ["Master Lists nationales", "6"],
-  ],
   verifiedLine: "Vérifié le 21/09/2026 à 09:41 · hors ligne · résultat signé ECDSA P-256 · rien n'est conservé",
   verifiedLineOnline: "Vérifié le 21/09/2026 à 09:41 · en ligne · KYC · révocation vérifiée · résultat signé ECDSA P-256 · rien n'est conservé",
   aboutVersion: "Version 2.0 (214)",
@@ -342,11 +333,6 @@ export const FR: Copy = {
     ["Protocoles", "BAC · PACE · AA"],
   ],
   aboutStoreTitle: "Magasin CSCA",
-  aboutStore: [
-    ["Ancres CSCA", "312"],
-    ["Dernière synchro.", "19/09/2026"],
-    ["Empreinte", "7f3a…91c2"],
-  ],
   aboutStoreCta: "Voir le magasin de confiance",
   aboutFbTitle: "Retours",
   aboutFb: "Sons et retours haptiques",
@@ -397,9 +383,9 @@ export const EN: Copy = {
   modeOnline: "Online · KYC",
   modeOfflineDesc: "Everything is computed on device, against the embedded CSCA store.",
   modeOnlineDesc: "Connected to the KYC service: revocation lists checked in real time.",
-  trustLineOnline: "CSCA store synced just now · 28 countries",
+  trustLineOnline: "Embedded CSCA store · {countries} countries · {anchors} anchors",
   offlineTitle: "Offline",
-  trustLine: "CSCA store up to date · 28 countries · 2 d ago",
+  trustLine: "Embedded CSCA store · {countries} countries · {anchors} anchors",
   scanCta: "Verify a document",
   scanSub: "NFC read + passive authentication",
   typesTitle: "Document type",
@@ -541,13 +527,6 @@ export const EN: Copy = {
     ["GR", "🇬🇷", "Greece", 8],
     ["TR", "🇹🇷", "Türkiye", 10],
   ],
-  trust: [
-    ["CSCA anchors", "312"],
-    ["Countries covered", "28"],
-    ["Source", "ICAO PKD"],
-    ["Last sync", "19/09/2026"],
-    ["National Master Lists", "6"],
-  ],
   verifiedLine: "Verified 21/09/2026 at 09:41 · offline · result signed ECDSA P-256 · nothing retained",
   verifiedLineOnline: "Verified 21/09/2026 at 09:41 · online · KYC · revocation checked · result signed ECDSA P-256 · nothing retained",
   aboutTagline: "Standalone verification of electronic identity documents.",
@@ -557,11 +536,6 @@ export const EN: Copy = {
     ["Protocols", "BAC · PACE · AA"],
   ],
   aboutStoreTitle: "CSCA store",
-  aboutStore: [
-    ["CSCA anchors", "312"],
-    ["Last sync", "19/09/2026"],
-    ["Fingerprint", "7f3a…91c2"],
-  ],
   aboutStoreCta: "Open the trust store",
   aboutFbTitle: "Feedback",
   aboutFb: "Sounds and haptics",

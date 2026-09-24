@@ -33,7 +33,7 @@ export function TrustScreen({ demo }: { demo: AuthentikDemo }) {
       <Pressable onPress={demo.goCountries} style={styles.countriesBtn}>
         <Icon name="globe" size={21} />
         <Text style={styles.countriesLabel}>{demo.t.countriesTitle}</Text>
-        <Text style={styles.countriesCount}>28</Text>
+        <Text style={styles.countriesCount}>{demo.countryRows.length}</Text>
         <Text style={styles.chevron}>›</Text>
       </Pressable>
 

@@ -40,7 +40,7 @@ import {
   type MrzAccessKey,
 } from "../nfc/emrtdReader";
 import { computeLocalVerification, LocalVerificationError, type LocalVerificationResult } from "../verification/localVerification";
-import { embeddedCountryRows } from "./trustStoreSummary";
+import { embeddedCountryRows, embeddedStoreRows, fillStoreStats } from "./trustStoreSummary";
 import { flagEmoji } from "./countryNames";
 
 /** Carte d'identité affichée sur le verdict (format "pièce d'identité"). */
@@ -490,7 +490,7 @@ export function useAuthentikDemo() {
       color: alert ? RED : OK,
       isLast: i === 2,
     }));
-    const trustRows = t.trust.map((r, i) => ({ label: r[0], value: r[1], first: i === 0 }));
+    const trustRows = embeddedStoreRows(lang).map(([label, value], i) => ({ label, value, first: i === 0 }));
     const countryRows = embeddedCountryRows(lang, t.anchorsWord);
 
     return {
@@ -511,7 +511,7 @@ export function useAuthentikDemo() {
       modeLabel: s.online ? t.modeOnline : t.modeOffline,
       modeDesc: s.online ? t.modeOnlineDesc : t.modeOfflineDesc,
       modeDot: s.online ? OK : "#0A84FF",
-      trustLineNow: s.online ? t.trustLineOnline : t.trustLine,
+      trustLineNow: fillStoreStats(s.online ? t.trustLineOnline : t.trustLine),
       procNote: s.online ? t.procNoteOnline : t.procNote,
       showTabs: TAB_STEPS.includes(s.step),
       livePhase: s.livePhase,
@@ -725,12 +725,9 @@ function deriveFromRealResult(
     },
   ];
 
-  const trustRows = [
-    { label: "Source", value: trustSourceLabel, first: true },
-    { label: "Niveau", value: trust.level, first: false },
-    { label: "Conforme à la politique client", value: trust.sufficientForClientPolicy ? "oui" : "non", first: false },
-    { label: "Révocation vérifiée", value: trust.revocationChecked ? "oui" : "non", first: false },
-  ];
+  // L'écran « Magasin de confiance » décrit le magasin lui-même ; la source et le niveau de
+  // confiance de CE document sont sur l'écran « Chaîne de confiance » (chainRows).
+  const trustRows = embeddedStoreRows(lang).map(([label, value], i) => ({ label, value, first: i === 0 }));
 
   const dgRows = Object.keys(s.chipResult?.dataGroups ?? {}).map((k) => {
     const id = Number(k);
@@ -838,7 +835,7 @@ function deriveFromRealResult(
     modeLabel: s.online ? t.modeOnline : t.modeOffline,
     modeDesc: s.online ? t.modeOnlineDesc : t.modeOfflineDesc,
     modeDot: s.online ? OK : "#0A84FF",
-    trustLineNow: s.online ? t.trustLineOnline : t.trustLine,
+    trustLineNow: fillStoreStats(s.online ? t.trustLineOnline : t.trustLine),
     procNote: "Vérification locale — voir README pour ce qui reste hors périmètre (liveness, reconnaissance faciale, réconciliation backend).",
     showTabs: TAB_STEPS.includes(s.step),
     livePhase: s.livePhase,
