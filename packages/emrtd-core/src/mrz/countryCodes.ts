@@ -41,13 +41,19 @@ const ICAO_SPECIAL_CODES: Record<string, string> = {
 };
 
 /**
+ * Alpha-2 non ISO rencontrés dans l'attribut C de CSCA réels : le Kosovo signe avec C=KS (Master
+ * Lists ICAO et BSI) alors que XK est le code d'usage (RKS en MRZ).
+ */
+const ALPHA2_ALIASES: Record<string, string> = { KS: "XK" };
+
+/**
  * Code pays à 2 lettres (clé de rapprochement avec les CSCA) depuis un code MRZ (alpha-3, "D", …),
  * un alpha-2 déjà normalisé, ou `undefined` si inconnu (organisations internationales : UNO, XOM…).
  * Insensible aux '<' de bourrage MRZ et à la casse.
  */
 export function toAlpha2CountryCode(code: string): string | undefined {
   const normalized = code.replace(/</g, "").trim().toUpperCase();
-  if (normalized.length === 2) return normalized;
+  if (normalized.length === 2) return ALPHA2_ALIASES[normalized] ?? normalized;
   return ICAO_SPECIAL_CODES[normalized] ?? ISO_ALPHA3_TO_ALPHA2[normalized];
 }
 

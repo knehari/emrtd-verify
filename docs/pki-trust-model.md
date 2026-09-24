@@ -190,10 +190,21 @@ définitive.
 
 ### Limites honnêtes de ce périmètre v1
 
-- **PKD nationale (LDAP) et magasin étendu** : hors périmètre hors ligne — `computeLocalVerification`
-  n'utilise que le bundle ICAO PKD synchronisé (voir ci-dessus). Un document dont la chaîne de
-  confiance dépend de l'une de ces deux sources produira `NO_TRUST_ANCHOR` en local, et sera
-  correctement classé lors de la réconciliation serveur (qui, lui, les interroge).
+- **Magasin étendu** : hors périmètre hors ligne. Un document dont la chaîne de confiance n'en
+  dépend que produira `NO_TRUST_ANCHOR` en local, et sera correctement classé lors de la
+  réconciliation serveur (qui, lui, l'interroge).
+- **Bundle CSCA embarqué** (`apps/mobile/src/pki/defaultCscaBundle.json`, généré par
+  `apps/api/scripts/build-mobile-default-csca-bundle.ts`) : Master List ICAO globale (Phase A),
+  Master Lists nationales de l'ICAO PKD (Phase B, CSCA du seul pays émetteur) et Master Lists
+  publiées par une autorité nationale hors PKD, comme la GermanMasterList du BSI (Phase C). Une
+  liste de Phase C n'est retenue que si son signataire est émis par une CSCA déjà approuvée en
+  Phase A pour son pays (le « CSCA Master List Signer » du BSI est émis par `csca-germany`, présent
+  dans la Master List ICAO), et TOUS ses CSCA sont alors retenus, étrangers compris : l'autorité
+  émettrice les a vérifiés avant publication, et c'est ce qui couvre les pays non membres du PKD
+  (Algérie, Pologne, Portugal, Grèce, Danemark…). Dédoublonnage par empreinte du certificat, pas
+  par pays + numéro de série (des CSCA distincts partagent parfois un numéro, ex. `csca-germany` 01
+  de 2011 et de 2013). État au 2026-09-24 (ICAO ML du 2026-09-16, export LDIF PKD n° 531, DE ML du
+  2026-05-28) : 789 CSCA, 128 pays, dont 189 apportés par la liste allemande.
 - **Révocation (CRL)** : déjà non câblée en ligne (voir section précédente) — donc non plus hors
   ligne, sans régression par rapport au chemin serveur.
 - **Reconnaissance faciale on-device** : voir [facial-recognition.md](facial-recognition.md)

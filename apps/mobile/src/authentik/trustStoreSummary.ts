@@ -5,6 +5,7 @@
  * à la compilation.
  */
 import defaultCscaAnchorsJson from "../pki/defaultCscaBundle.json";
+import { toAlpha2CountryCode } from "@emrtd-verify/emrtd-core";
 import { COUNTRY_NAMES, flagEmoji } from "./countryNames";
 
 interface EmbeddedAnchor {
@@ -35,7 +36,7 @@ export function embeddedCountryRows(lang: "fr" | "en", anchorsWord: string): Cou
     .map(([code, { total, valid }]) => ({
       code,
       flag: flagEmoji(code),
-      name: COUNTRY_NAMES[code]?.[lang === "fr" ? 0 : 1] ?? code,
+      name: COUNTRY_NAMES[toAlpha2CountryCode(code) ?? code]?.[lang === "fr" ? 0 : 1] ?? code,
       anchors: `${total} ${anchorsWord}${valid < total ? ` (${valid} ${lang === "fr" ? "valides" : "valid"})` : ""}`,
     }))
     .sort((a, b) => a.name.localeCompare(b.name, lang));

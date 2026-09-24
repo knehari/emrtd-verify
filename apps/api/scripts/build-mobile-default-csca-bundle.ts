@@ -16,11 +16,17 @@
  *   via un export LDIF) n'est acceptée QUE si son signataire est relié à une CSCA déjà approuvée
  *   pour CE pays par la Phase A — voir verifyCountryMasterListTrust. Un pays absent de la Master
  *   List globale est ignoré ici, jamais accepté à l'aveugle depuis le LDIF seul.
+ * - Phase C : chaque Master List publiée par une autorité nationale hors ICAO PKD (ex. la
+ *   GermanMasterList du BSI) suit la même règle que la Phase B — signataire émis par une CSCA déjà
+ *   approuvée en Phase A pour son pays — mais tous ses CSCA sont retenus, étrangers compris : c'est
+ *   ce qui couvre les pays absents de l'ICAO PKD (Algérie…). Voir le commentaire dans main().
  *
- * Usage :
+ * Usage (depuis apps/api) :
  *   node -r ts-node/register/transpile-only scripts/build-mobile-default-csca-bundle.ts \
- *     <chemin-vers-master-list-globale.ml> <chemin-vers-export-ldif-national> <chemin-de-sortie.json>
+ *     --icao-ml ICAO_ML_<date>.ml [--pkd-ldif icaopkd-002-complete-<n>.ldif] \
+ *     [--national-ml DE_ML_<date>.ml] --out ../mobile/src/pki/defaultCscaBundle.json
  */
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 // Repli ECDSA Brainpool (node:crypto) pour les CSCA à courbe explicite qu'un vrai export ICAO PKD
@@ -71,12 +77,48 @@ function parseCertForAnchor(der: Uint8Array) {
   };
 }
 
+interface CliArgs {
+  icaoMasterList?: string;
+  pkdLdif: string[];
+  nationalMasterLists: string[];
+  output?: string;
+}
+
+function parseArgs(argv: string[]): CliArgs {
+  const args: CliArgs = { pkdLdif: [], nationalMasterLists: [] };
+  for (let i = 0; i < argv.length; i++) {
+    const flag = argv[i];
+    const value = argv[i + 1];
+    if (value === undefined || value.startsWith("--")) throw new Error(`Valeur manquante pour ${flag}`);
+    if (flag === "--icao-ml") args.icaoMasterList = value;
+    else if (flag === "--pkd-ldif") args.pkdLdif.push(value);
+    else if (flag === "--national-ml") args.nationalMasterLists.push(value);
+    else if (flag === "--out") args.output = value;
+    else throw new Error(`Option inconnue : ${flag}`);
+    i++;
+  }
+  return args;
+}
+
+const USAGE =
+  "Usage : build-mobile-default-csca-bundle.ts --icao-ml <master-list-globale.ml> [--pkd-ldif <export.ldif>]... " +
+  "[--national-ml <master-list-nationale.ml>]... --out <sortie.json>\n";
+
+function fingerprint(der: Uint8Array): string {
+  return createHash("sha256").update(der).digest("hex");
+}
+
 async function main(): Promise<void> {
-  const [globalMlPath, nationalLdifPath, outputPath] = process.argv.slice(2);
-  if (!globalMlPath || !nationalLdifPath || !outputPath) {
-    process.stderr.write(
-      "Usage : build-mobile-default-csca-bundle.ts <master-list-globale.ml> <export-ldif-national> <sortie.json>\n",
-    );
+  let args: CliArgs;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n${USAGE}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (!args.icaoMasterList || !args.output) {
+    process.stderr.write(USAGE);
     process.exitCode = 1;
     return;
   }
@@ -87,7 +129,7 @@ async function main(): Promise<void> {
   }
 
   // Phase A : Master List ICAO globale.
-  const globalMlDer = new Uint8Array(readFileSync(globalMlPath));
+  const globalMlDer = new Uint8Array(readFileSync(args.icaoMasterList));
   const decodedGlobal = decodeMasterList(globalMlDer);
   const globalTrust = await verifyMasterListTrust(decodedGlobal, signerTrustAnchors);
   if (!globalTrust.trusted) {
@@ -105,59 +147,88 @@ async function main(): Promise<void> {
     phaseAByCountry.set(anchor.countryCode, list);
   }
 
-  // Phase B : Master Lists nationales (LDIF), chacune validée contre les CSCA déjà approuvés
-  // pour son pays par la Phase A.
-  const ldifText = readFileSync(nationalLdifPath, "latin1");
-  const nationalEntries = parsePkdLdifMasterLists(ldifText);
-  process.stdout.write(`${nationalEntries.length} entrée(s) Master List nationale trouvée(s) dans le LDIF.\n`);
-
+  // Phase B : Master Lists nationales de l'ICAO PKD (LDIF), chacune validée contre les CSCA déjà
+  // approuvés pour son pays par la Phase A.
   const phaseBAnchors: CscaTrustAnchor[] = [];
-  let validatedCountries = 0;
-  let skippedCountries = 0;
-  for (const entry of nationalEntries) {
-    let decoded;
-    try {
-      decoded = decodeMasterList(entry.masterListCmsDer);
-    } catch (error) {
-      process.stdout.write(`  ${entry.countryCode} : ignoré (décodage impossible) : ${String(error)}\n`);
-      skippedCountries++;
-      continue;
-    }
+  for (const ldifPath of args.pkdLdif) {
+    const ldifText = readFileSync(ldifPath, "latin1");
+    const nationalEntries = parsePkdLdifMasterLists(ldifText);
+    process.stdout.write(`${nationalEntries.length} entrée(s) Master List nationale trouvée(s) dans ${ldifPath}.\n`);
 
-    const alreadyTrusted = phaseAByCountry.get(entry.countryCode) ?? [];
-    const trust = await verifyCountryMasterListTrust(decoded, alreadyTrusted);
-    if (!trust.trusted) {
-      process.stdout.write(`  ${entry.countryCode} : ignoré (${trust.reason})\n`);
-      skippedCountries++;
-      continue;
-    }
-    validatedCountries++;
+    let validatedCountries = 0;
+    let skippedCountries = 0;
+    for (const entry of nationalEntries) {
+      let decoded;
+      try {
+        decoded = decodeMasterList(entry.masterListCmsDer);
+      } catch (error) {
+        process.stdout.write(`  ${entry.countryCode} : ignoré (décodage impossible) : ${String(error)}\n`);
+        skippedCountries++;
+        continue;
+      }
 
-    let addedForCountry = 0;
-    for (const certDer of decoded.content.certificatesDer) {
-      const parsed = parseCertForAnchor(certDer);
-      if (parsed.countryCode !== entry.countryCode) continue; // voir csca-sync.service.ts, même règle
-      phaseBAnchors.push({
-        countryCode: parsed.countryCode,
-        certificateDer: certDer,
-        subject: parsed.subject,
-        serialNumber: parsed.serialNumber,
-        notBefore: parsed.notBefore,
-        notAfter: parsed.notAfter,
-        source: "national-pkd",
-        level: "high",
-      });
-      addedForCountry++;
+      const alreadyTrusted = phaseAByCountry.get(entry.countryCode) ?? [];
+      const trust = await verifyCountryMasterListTrust(decoded, alreadyTrusted);
+      if (!trust.trusted) {
+        process.stdout.write(`  ${entry.countryCode} : ignoré (${trust.reason})\n`);
+        skippedCountries++;
+        continue;
+      }
+      validatedCountries++;
+
+      let addedForCountry = 0;
+      for (const certDer of decoded.content.certificatesDer) {
+        const parsed = parseCertForAnchor(certDer);
+        if (parsed.countryCode !== entry.countryCode) continue; // voir csca-sync.service.ts, même règle
+        phaseBAnchors.push({ ...parsed, countryCode: parsed.countryCode, certificateDer: certDer, source: "national-pkd", level: "high" });
+        addedForCountry++;
+      }
+      process.stdout.write(`  ${entry.countryCode} : validé, ${addedForCountry} CSCA supplémentaire(s) exploité(s).\n`);
     }
-    process.stdout.write(`  ${entry.countryCode} : validé, ${addedForCountry} CSCA supplémentaire(s) exploité(s).\n`);
+    process.stdout.write(`Phase B : ${validatedCountries} pays validés, ${skippedCountries} ignorés.\n`);
   }
-  process.stdout.write(`Phase B : ${validatedCountries} pays validés, ${skippedCountries} ignorés.\n`);
 
-  // Fusion (comme CscaSyncService.persistMergedBatch) : une entrée Phase B remplace/complète la
-  // Phase A pour la même clé countryCode+serialNumber.
+  // Phase C : Master Lists publiées directement par une autorité nationale (ex. BSI allemand,
+  // GermanMasterList.zip). Même règle de confiance que la Phase B — le signataire doit être émis
+  // par une CSCA DÉJÀ approuvée en Phase A pour le pays du signataire (attribut C de son sujet),
+  // jamais par une CSCA tirée du fichier lui-même. Différence assumée : TOUS les CSCA du fichier
+  // sont retenus, y compris étrangers — c'est l'objet même de ces listes (l'autorité émettrice a
+  // vérifié chaque CSCA par voie diplomatique avant de le publier), et c'est ce qui comble les pays
+  // absents de la Master List ICAO (non-membres du PKD, ex. Algérie).
+  const phaseCAnchors: CscaTrustAnchor[] = [];
+  for (const mlPath of args.nationalMasterLists) {
+    const decoded = decodeMasterList(new Uint8Array(readFileSync(mlPath)));
+    const signerCountry = certificateCountryCode(parseCertificate(decoded.signerCertificate.certificateDer))?.toUpperCase();
+    if (!signerCountry) throw new Error(`${mlPath} : signataire sans code pays, impossible de le rattacher à une CSCA`);
+    const trust = await verifyCountryMasterListTrust(decoded, phaseAByCountry.get(signerCountry) ?? []);
+    if (!trust.trusted) {
+      throw new Error(`${mlPath} (signataire "${decoded.signerCertificate.subject}") non fiable : ${trust.reason}`);
+    }
+    const anchors = masterListCertificatesToTrustAnchors(decoded.content.certificatesDer, parseCertForAnchor).map(
+      (anchor): CscaTrustAnchor => ({ ...anchor, source: "national-pkd" }),
+    );
+    phaseCAnchors.push(...anchors);
+    const countries = new Set(anchors.map((anchor) => anchor.countryCode));
+    process.stdout.write(
+      `Phase C (${mlPath}, signataire "${decoded.signerCertificate.subject}", émis par la CSCA ${signerCountry} ` +
+        `"${parseCertForAnchor(trust.trustedViaDer!).subject}" de la Phase A) : ${anchors.length} CSCA, ${countries.size} pays.\n`,
+    );
+  }
+
+  // Fusion, dédoublonnée sur l'empreinte SHA-256 du certificat (deux sources publient souvent le
+  // même CSCA ; deux CSCA distincts d'un même pays peuvent en revanche partager un numéro de
+  // série) : la première source l'emporte, ICAO avant PKD nationale avant listes nationales.
   const merged = new Map<string, CscaTrustAnchor>();
-  for (const anchor of phaseAAnchors) merged.set(`${anchor.countryCode}:${anchor.serialNumber}`, anchor);
-  for (const anchor of phaseBAnchors) merged.set(`${anchor.countryCode}:${anchor.serialNumber}`, anchor);
+  const added = { A: 0, B: 0, C: 0 };
+  for (const [phase, anchors] of [["A", phaseAAnchors], ["B", phaseBAnchors], ["C", phaseCAnchors]] as const) {
+    for (const anchor of anchors) {
+      const key = fingerprint(anchor.certificateDer);
+      if (merged.has(key)) continue;
+      merged.set(key, anchor);
+      added[phase]++;
+    }
+  }
+  process.stdout.write(`Apports après dédoublonnage : Phase A ${added.A}, Phase B ${added.B}, Phase C ${added.C}.\n`);
 
   const output: CscaBundleAnchorJson[] = Array.from(merged.values()).map((anchor) => ({
     countryCode: anchor.countryCode,
@@ -169,11 +240,17 @@ async function main(): Promise<void> {
     source: anchor.source as "icao-pkd" | "national-pkd",
     level: "high",
   }));
-  output.sort((a, b) => (a.countryCode === b.countryCode ? a.serialNumber.localeCompare(b.serialNumber) : a.countryCode.localeCompare(b.countryCode)));
+  output.sort((a, b) =>
+    a.countryCode !== b.countryCode
+      ? a.countryCode.localeCompare(b.countryCode)
+      : a.serialNumber !== b.serialNumber
+        ? a.serialNumber.localeCompare(b.serialNumber)
+        : a.certificateDerBase64.localeCompare(b.certificateDerBase64),
+  );
 
-  writeFileSync(outputPath, `${JSON.stringify(output, null, 2)}\n`);
+  writeFileSync(args.output, `${JSON.stringify(output, null, 2)}\n`);
   const countries = new Set(output.map((a) => a.countryCode));
-  process.stdout.write(`Écrit ${output.length} ancre(s) CSCA (${countries.size} pays) dans ${outputPath}.\n`);
+  process.stdout.write(`Écrit ${output.length} ancre(s) CSCA (${countries.size} pays) dans ${args.output}.\n`);
 }
 
 main().catch((error) => {
