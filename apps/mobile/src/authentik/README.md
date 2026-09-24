@@ -99,7 +99,9 @@ plus). Ce qu'elle change, et comment c'est transcrit :
   section Apparence des Réglages (ajout hors design, le design v2 est sombre uniquement).
 - **Nom provisoire "BaynID"** (`copy.ts` `appName`, `app.json` `name`) — le design proposait
   ClearID/PuceID/IDSure/VeraID/TrueID ; l'utilisateur teste BaynID. Les identifiants de code
-  (`authentik/`, `useAuthentikDemo`) et l'identifiant de bundle iOS ne changent pas.
+  (`authentik/`, `useAuthentikDemo`) ne changent pas. L'identifiant de bundle iOS est `com.nehari.baynid`
+  (`com.authentik.mobile` restait enregistré par l'équipe de développement gratuite et bloquait la
+  capacité NFC Tag Reading une fois passé au compte Apple Developer payant).
 - **Accueil** (`screens/HomeScreen.tsx`) — logo flat, nom, mode hors ligne/en ligne et état du
   magasin CSCA dans un seul cadre ; bouton Vérifier en anneau de verre (176 px) autour d'un disque
   plein (132 px) qui occupe l'espace central. L'illustration d'en-tête

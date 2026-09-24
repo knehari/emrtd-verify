@@ -7,7 +7,7 @@
     "userInterfaceStyle": "dark",
     "icon": "./assets/icon.png",
     "ios": {
-      "bundleIdentifier": "com.authentik.mobile",
+      "bundleIdentifier": "com.nehari.baynid",
       "buildNumber": "1",
       "infoPlist": {
         "NFCReaderUsageDescription": "Lecture de la puce du document d'identité (BAC/PACE) pour vérifier son authenticité.",
