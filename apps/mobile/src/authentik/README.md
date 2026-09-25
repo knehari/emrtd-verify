@@ -125,6 +125,12 @@ dans Xcode. Un binaire plus ancien démarre quand même et saute l'étape selfie
 
 ## Mode en ligne · KYC — branchement sur apps/api
 
+Serveur local pour tester depuis un iPhone sur le même Wi-Fi (Docker Desktop pour Postgres et
+Redis) : `scripts/serveur-local.sh installer` (.env, clés de signature, base), puis `demarrer`
+(affiche l'adresse à saisir dans l'app), `client` (clé API) et `master-list <fichier ICAO>`
+(certificats des pays — sans eux, le serveur rejette tout document). `empreintes` ré-affiche les
+empreintes à comparer au moment de l'épinglage.
+
 Réglages › Serveur KYC (`screens/ServerScreen.tsx`, `../backend/backendClient.ts`) : adresse du
 serveur et clé API du client KYC (créée par `pnpm --filter @emrtd-verify/api create-kyc-client`),
 « Tester la connexion » (GET /health, puis GET /v1/verifications/signing-key avec la clé API), puis
