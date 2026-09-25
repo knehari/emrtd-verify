@@ -195,15 +195,15 @@ cmd_client() {
 }
 
 cmd_registre() {
-  local mode="${1:-}" id="${2:-iphone}" value
+  local mode="${1:-}" id="${2:-}" value
   case "$mode" in
     exige) value=required ;;
     non-exige) value=optional ;;
-    *) die "usage : scripts/serveur-local.sh registre <exige|non-exige> [identifiant du client, défaut : iphone]" ;;
+    *) die "usage : scripts/serveur-local.sh registre <exige|non-exige> [identifiant du client, facultatif s'il n'y en a qu'un]" ;;
   esac
   load_env
   cd "$API"
-  "${TS_NODE[@]}" scripts/update-kyc-client.ts --client-id="$id" --lost-stolen="$value"
+  "${TS_NODE[@]}" scripts/update-kyc-client.ts ${id:+--client-id="$id"} --lost-stolen="$value"
 }
 
 cmd_master_list() {
