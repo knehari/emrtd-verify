@@ -6,12 +6,15 @@
  *
  * Usage :
  *   pnpm --filter @emrtd-verify/api create-kyc-client -- \
- *     --client-id=acme-bank --trust-levels=high,medium --fields=dateOfBirth,nationality
+ *     --client-id=acme-bank --trust-levels=high,medium --fields=dateOfBirth,nationality [--lost-stolen=optional]
+ *
+ * --lost-stolen=optional : registre des documents perdus/volés non exigé pour ce client (un
+ * registre non interrogé devient une simple information) ; par défaut : exigé.
  */
 import { PrismaClient } from "@prisma/client";
 import { KycClientService } from "../src/modules/kyc/kyc-client.service";
 
-function parseArgs(argv: string[]): { clientId: string; trustLevels: string[]; fields: string[] } {
+function parseArgs(argv: string[]): { clientId: string; trustLevels: string[]; fields: string[]; lostStolenCheckRequired: boolean } {
   const options = new Map<string, string>();
   for (const arg of argv) {
     const match = /^--([a-z-]+)=(.*)$/.exec(arg);
@@ -34,11 +37,16 @@ function parseArgs(argv: string[]): { clientId: string; trustLevels: string[]; f
 
   const fields = (options.get("fields") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 
-  return { clientId, trustLevels, fields };
+  const lostStolen = options.get("lost-stolen") ?? "required";
+  if (lostStolen !== "required" && lostStolen !== "optional") {
+    throw new Error(`--lost-stolen invalide : "${lostStolen}" (attendu : required ou optional)`);
+  }
+
+  return { clientId, trustLevels, fields, lostStolenCheckRequired: lostStolen === "required" };
 }
 
 async function main(): Promise<void> {
-  const { clientId, trustLevels, fields } = parseArgs(process.argv.slice(2));
+  const { clientId, trustLevels, fields, lostStolenCheckRequired } = parseArgs(process.argv.slice(2));
 
   const prisma = new PrismaClient();
   try {
@@ -54,6 +62,7 @@ async function main(): Promise<void> {
         apiKeyHash: KycClientService.hashApiKey(apiKey),
         acceptedTrustLevels: trustLevels,
         allowedFields: fields,
+        lostStolenCheckRequired,
         active: true,
       },
     });
@@ -63,6 +72,7 @@ async function main(): Promise<void> {
         `Client KYC créé : ${clientId}`,
         `Niveaux de confiance acceptés : ${trustLevels.join(", ")}`,
         `Champs autorisés : ${fields.length > 0 ? fields.join(", ") : "(aucun — verdict/trustChain/anomalies uniquement)"}`,
+        `Registre perdus/volés : ${lostStolenCheckRequired ? "exigé" : "non exigé"}`,
         "",
         "Clé API (à conserver en lieu sûr — ne sera plus jamais affichée) :",
         apiKey,

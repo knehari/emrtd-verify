@@ -78,17 +78,19 @@ function CreateTenantDialog({ open, onOpenChange, onCreated }: { open: boolean; 
   const [clientId, setClientId] = useState("");
   const [trustLevels, setTrustLevels] = useState<string[]>(["high"]);
   const [allowedFields, setAllowedFields] = useState<string[]>([]);
+  const [lostStolenCheckRequired, setLostStolenCheckRequired] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: () => adminApi.createKycClient({ clientId, acceptedTrustLevels: trustLevels, allowedFields }),
+    mutationFn: () => adminApi.createKycClient({ clientId, acceptedTrustLevels: trustLevels, allowedFields, lostStolenCheckRequired }),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["admin-kyc-clients"] });
       onOpenChange(false);
       setClientId("");
       setTrustLevels(["high"]);
       setAllowedFields([]);
+      setLostStolenCheckRequired(true);
       onCreated(result.apiKey);
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Échec de la création"),
@@ -122,6 +124,10 @@ function CreateTenantDialog({ open, onOpenChange, onCreated }: { open: boolean; 
             <Label>Champs d&apos;identité autorisés</Label>
             <CheckboxGroup options={IDENTITY_FIELDS} values={allowedFields} onChange={setAllowedFields} />
           </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 rounded border-input" checked={lostStolenCheckRequired} onChange={(e) => setLostStolenCheckRequired(e.target.checked)} />
+            Registre des documents perdus/volés exigé (décoché = un registre non interrogé n&apos;est qu&apos;une information)
+          </label>
           {error && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
           <DialogFooter>
             <Button type="submit" disabled={mutation.isPending || !clientId}>
@@ -137,12 +143,13 @@ function CreateTenantDialog({ open, onOpenChange, onCreated }: { open: boolean; 
 function EditTenantDialog({ tenant, onOpenChange }: { tenant: KycClient | null; onOpenChange: (open: boolean) => void }) {
   const [trustLevels, setTrustLevels] = useState<string[]>(tenant?.acceptedTrustLevels ?? []);
   const [allowedFields, setAllowedFields] = useState<string[]>(tenant?.allowedFields ?? []);
+  const [lostStolenCheckRequired, setLostStolenCheckRequired] = useState(tenant?.lostStolenCheckRequired ?? true);
   const [active, setActive] = useState(tenant?.active ?? true);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: () => adminApi.updateKycClient(tenant!.clientId, { acceptedTrustLevels: trustLevels, allowedFields, active }),
+    mutationFn: () => adminApi.updateKycClient(tenant!.clientId, { acceptedTrustLevels: trustLevels, allowedFields, lostStolenCheckRequired, active }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-kyc-clients"] });
       onOpenChange(false);
@@ -159,6 +166,7 @@ function EditTenantDialog({ tenant, onOpenChange }: { tenant: KycClient | null; 
         if (open) {
           setTrustLevels(tenant.acceptedTrustLevels);
           setAllowedFields(tenant.allowedFields);
+          setLostStolenCheckRequired(tenant.lostStolenCheckRequired);
           setActive(tenant.active);
         }
         onOpenChange(open);
@@ -184,6 +192,10 @@ function EditTenantDialog({ tenant, onOpenChange }: { tenant: KycClient | null; 
             <Label>Champs d&apos;identité autorisés</Label>
             <CheckboxGroup options={IDENTITY_FIELDS} values={allowedFields} onChange={setAllowedFields} />
           </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 rounded border-input" checked={lostStolenCheckRequired} onChange={(e) => setLostStolenCheckRequired(e.target.checked)} />
+            Registre des documents perdus/volés exigé (décoché = un registre non interrogé n&apos;est qu&apos;une information)
+          </label>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" className="h-4 w-4 rounded border-input" checked={active} onChange={(e) => setActive(e.target.checked)} />
             Tenant actif (décoché = suspendu, API refusée)

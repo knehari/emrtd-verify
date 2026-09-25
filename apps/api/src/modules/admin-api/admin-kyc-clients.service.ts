@@ -41,6 +41,7 @@ export class AdminKycClientsService {
         apiKeyHash: KycClientService.hashApiKey(apiKey),
         acceptedTrustLevels: dto.acceptedTrustLevels,
         allowedFields: dto.allowedFields,
+        lostStolenCheckRequired: dto.lostStolenCheckRequired ?? true,
         active: true,
       },
     });
@@ -59,6 +60,7 @@ export class AdminKycClientsService {
       data: {
         acceptedTrustLevels: dto.acceptedTrustLevels,
         allowedFields: dto.allowedFields,
+        lostStolenCheckRequired: dto.lostStolenCheckRequired,
         active: dto.active,
       },
     });
@@ -87,6 +89,7 @@ function toSafeKycClient(client: {
   clientId: string;
   acceptedTrustLevels: string[];
   allowedFields: string[];
+  lostStolenCheckRequired: boolean;
   active: boolean;
   createdAt: Date;
 }) {
@@ -95,6 +98,7 @@ function toSafeKycClient(client: {
     clientId: client.clientId,
     acceptedTrustLevels: client.acceptedTrustLevels,
     allowedFields: client.allowedFields,
+    lostStolenCheckRequired: client.lostStolenCheckRequired,
     active: client.active,
     createdAt: client.createdAt,
   };

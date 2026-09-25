@@ -13,5 +13,9 @@ export class UpdateKycClientDto {
 
   @IsOptional()
   @IsBoolean()
+  lostStolenCheckRequired?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   active?: boolean;
 }

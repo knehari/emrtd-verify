@@ -94,6 +94,10 @@ model KycClient {
   /// Champs d'identité que ce client est autorisé à recevoir (principe de minimisation RGPD,
   /// voir docs/gdpr-compliance.md) — filtre appliqué en plus de `requestedFields` par requête.
   allowedFields       String[]
+  /// Registre des documents perdus/volés exigé par ce client (par défaut). À false, un registre
+  /// non interrogé (non configuré ou injoignable) n'est plus qu'une information et ne plafonne plus
+  /// le verdict ; un document SIGNALÉ reste une anomalie critique quel que soit ce réglage.
+  lostStolenCheckRequired Boolean @default(true)
   active              Boolean  @default(true)
   createdAt           DateTime @default(now())
   /// Comptes humains du portail tenant scopés à ce client (voir TenantUser) — distincts de

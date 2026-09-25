@@ -38,6 +38,8 @@ export interface VerificationJobData {
   clientAcceptedLevels: TrustLevel[];
   /** Champs d'identité que ce client est autorisé à recevoir (minimisation RGPD). */
   allowedFields: string[];
+  /** Registre perdus/volés exigé par le client (absent sur les jobs antérieurs : exigé). */
+  lostStolenCheckRequired?: boolean;
 }
 
 /**
@@ -69,7 +71,7 @@ export class VerificationProcessor extends WorkerHost {
   }
 
   async process(job: Job<VerificationJobData>): Promise<void> {
-    const { verificationId, dto, clientId, clientAcceptedLevels, allowedFields } = job.data;
+    const { verificationId, dto, clientId, clientAcceptedLevels, allowedFields, lostStolenCheckRequired } = job.data;
     const startedAt = process.hrtime.bigint();
 
     let decoded: DecodedChipData;
@@ -108,6 +110,8 @@ export class VerificationProcessor extends WorkerHost {
       // sur les eID/titres de séjour selon le profil national.
       documentExpectedToSupportAaOrCa: dto.documentType === "ePassport",
       lostStolenCheck,
+      // Politique du client : registre non exigé → un statut non vérifié n'est qu'une information.
+      skippedChecks: { lostStolen: lostStolenCheckRequired === false },
     });
 
     let faceMatch: FaceMatchResult | undefined;

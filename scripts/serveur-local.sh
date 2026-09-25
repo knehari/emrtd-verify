@@ -5,6 +5,8 @@
 #   scripts/serveur-local.sh installer              .env, clés de signature, Postgres + Redis (Docker), tables
 #   scripts/serveur-local.sh demarrer               API + worker, affiche l'adresse à saisir dans l'app (Ctrl-C pour arrêter)
 #   scripts/serveur-local.sh client [identifiant]   crée un client KYC et affiche sa clé API (une seule fois)
+#   scripts/serveur-local.sh registre <exige|non-exige> [identifiant]
+#                                                   registre des documents perdus/volés exigé ou non pour ce client
 #   scripts/serveur-local.sh master-list <fichier>  charge la Master List ICAO (.ml) ou un export LDIF dans le serveur
 #   scripts/serveur-local.sh empreintes             ré-affiche les empreintes à comparer dans l'app
 #
@@ -168,6 +170,18 @@ cmd_client() {
   "${TS_NODE[@]}" scripts/create-kyc-client.ts --client-id="$id" --trust-levels=high,medium --fields="$CLIENT_FIELDS"
 }
 
+cmd_registre() {
+  local mode="${1:-}" id="${2:-iphone}" value
+  case "$mode" in
+    exige) value=required ;;
+    non-exige) value=optional ;;
+    *) die "usage : scripts/serveur-local.sh registre <exige|non-exige> [identifiant du client, défaut : iphone]" ;;
+  esac
+  load_env
+  cd "$API"
+  "${TS_NODE[@]}" scripts/update-kyc-client.ts --client-id="$id" --lost-stolen="$value"
+}
+
 cmd_master_list() {
   local file="${1:-}"
   [ -n "$file" ] && [ -f "$file" ] || die "usage : scripts/serveur-local.sh master-list <fichier .ml ou .ldif de l'ICAO>"
@@ -198,10 +212,11 @@ case "${1:-}" in
   installer) cmd_installer ;;
   demarrer) cmd_demarrer ;;
   client) cmd_client "${2:-}" ;;
+  registre) cmd_registre "${2:-}" "${3:-}" ;;
   master-list) cmd_master_list "${2:-}" ;;
   empreintes) cmd_empreintes ;;
   *)
-    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac

@@ -1,4 +1,4 @@
-import { IsArray, IsIn, IsString, Matches } from "class-validator";
+import { IsArray, IsBoolean, IsIn, IsOptional, IsString, Matches } from "class-validator";
 
 export class CreateKycClientDto {
   @IsString()
@@ -12,4 +12,9 @@ export class CreateKycClientDto {
   @IsArray()
   @IsString({ each: true })
   allowedFields!: string[];
+
+  /** Registre perdus/volés exigé (défaut : oui). */
+  @IsOptional()
+  @IsBoolean()
+  lostStolenCheckRequired?: boolean;
 }

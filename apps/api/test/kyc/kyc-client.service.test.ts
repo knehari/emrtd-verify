@@ -64,11 +64,17 @@ describe("KycClientService.authenticate", () => {
       clientId: "acme",
       acceptedTrustLevels: ["high", "medium"],
       allowedFields: ["dateOfBirth"],
+      lostStolenCheckRequired: false,
       active: true,
     });
     const service = buildService(findUnique);
     const result = await service.authenticate("emrtd_something");
-    expect(result).toEqual({ clientId: "acme", acceptedTrustLevels: ["high", "medium"], allowedFields: ["dateOfBirth"] });
+    expect(result).toEqual({
+      clientId: "acme",
+      acceptedTrustLevels: ["high", "medium"],
+      allowedFields: ["dateOfBirth"],
+      lostStolenCheckRequired: false,
+    });
     expect(findUnique).toHaveBeenCalledWith({ where: { apiKeyHash: KycClientService.hashApiKey("emrtd_something") } });
   });
 });

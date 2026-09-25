@@ -32,6 +32,7 @@ export class VerificationService {
       clientId: kycClient.clientId,
       clientAcceptedLevels: kycClient.acceptedTrustLevels,
       allowedFields: kycClient.allowedFields,
+      lostStolenCheckRequired: kycClient.lostStolenCheckRequired,
     });
 
     return { verificationId };

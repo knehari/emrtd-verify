@@ -23,6 +23,16 @@ describe("AdminKycClientsService.create", () => {
     );
   });
 
+  it("exige le registre perdus/volés par défaut, et accepte « non exigé » explicitement", async () => {
+    const { service, create } = buildService(null);
+    const byDefault = await service.create({ clientId: "acme-bank", acceptedTrustLevels: ["high"], allowedFields: [] });
+    expect(byDefault.lostStolenCheckRequired).toBe(true);
+
+    const optional = await service.create({ clientId: "acme-2", acceptedTrustLevels: ["high"], allowedFields: [], lostStolenCheckRequired: false });
+    expect(optional.lostStolenCheckRequired).toBe(false);
+    expect(create).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ lostStolenCheckRequired: false }) }));
+  });
+
   it("rejette la création d'un clientId déjà existant", async () => {
     const { service } = buildService({ id: "kc-1", clientId: "acme-bank" });
     await expect(

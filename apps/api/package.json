@@ -15,6 +15,7 @@
     "prisma:migrate": "prisma migrate dev --schema=./prisma/schema.prisma",
     "prisma:migrate:deploy": "prisma migrate deploy --schema=./prisma/schema.prisma",
     "create-kyc-client": "node -r ts-node/register/transpile-only scripts/create-kyc-client.ts",
+    "update-kyc-client": "node -r ts-node/register/transpile-only scripts/update-kyc-client.ts",
     "create-admin-user": "node -r ts-node/register/transpile-only scripts/create-admin-user.ts",
     "create-tenant-user": "node -r ts-node/register/transpile-only scripts/create-tenant-user.ts",
     "sync-master-list": "node -r ts-node/register/transpile-only scripts/sync-master-list.ts",

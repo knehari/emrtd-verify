@@ -8,6 +8,8 @@ export interface AuthenticatedKycClient {
   clientId: string;
   acceptedTrustLevels: TrustLevel[];
   allowedFields: string[];
+  /** Politique du client : registre perdus/volés exigé (voir KycClient.lostStolenCheckRequired). */
+  lostStolenCheckRequired: boolean;
 }
 
 const API_KEY_PREFIX = "emrtd_";
@@ -48,6 +50,7 @@ export class KycClientService {
       clientId: client.clientId,
       acceptedTrustLevels: client.acceptedTrustLevels as TrustLevel[],
       allowedFields: client.allowedFields,
+      lostStolenCheckRequired: client.lostStolenCheckRequired,
     };
   }
 }
