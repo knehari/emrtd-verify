@@ -41,7 +41,7 @@ import {
   type EmrtdReadResult,
   type MrzAccessKey,
 } from "../nfc/emrtdReader";
-import { computeLocalVerification, LocalVerificationError, type LocalVerificationResult } from "../verification/localVerification";
+import { computeLocalVerification, dg14AnnouncesChipAuthentication, LocalVerificationError, type LocalVerificationResult } from "../verification/localVerification";
 import { embeddedCountryRows, embeddedStoreRows, fillStoreStats } from "./trustStoreSummary";
 import { bytesToBase64, extractDg2FaceImage } from "@emrtd-verify/emrtd-core";
 import { FaceKit } from "../../modules/face-kit";
@@ -815,22 +815,36 @@ function serverCheckRow(server: ServerState | null, red: string) {
   return { label, detail: `${o.error}${queued}`, color: WARN, icon: "warn" as const };
 }
 
-/** Ligne « Chip Authentication » du verdict (DG14) : preuve anti-clonage des documents récents. */
-function chipAuthenticationRow(result: LocalVerificationResult, red: string) {
-  const ca = result.chipAuthentication;
-  const label = "Chip Authentication (CA, anti-clonage)";
-  if (!ca) return { label, detail: "Non proposée par ce document (pas de clé dans DG14)", color: INFO, icon: "dash" as const };
-  if (ca.valid) {
-    return {
-      label,
-      detail: ca.protocol === "PACE-CAM" ? "Prouvée pendant PACE (CAM) : la puce détient la clé privée de DG14" : "La puce a prouvé détenir la clé privée de DG14",
-      color: OK,
-      icon: "check" as const,
-    };
+/**
+ * Ligne « Anti-clonage » du verdict. Doc 9303 Part 11 : Active Authentication (§6.1, clé DG15) et
+ * Chip Authentication (§6.2, clé DG14) sont deux mécanismes optionnels et interchangeables — la
+ * CA étant l'alternative recommandée (pas de preuve transférable, nouvelles clés de session). Une
+ * seule preuve réussie suffit ; un mécanisme qui ÉCHOUE reste signalé en rouge même si l'autre a
+ * réussi (incohérent pour une vraie puce). Le détail reste dans les anomalies.
+ */
+function antiCloningRow(result: LocalVerificationResult, dg14: Uint8Array | undefined, red: string) {
+  const label = "Anti-clonage (puce authentique)";
+  const aa = result.activeAuthentication;
+  const ca = dg14AnnouncesChipAuthentication(dg14) ? result.chipAuthentication : undefined;
+  if (!aa && !ca) {
+    return { label, detail: "Non proposé par ce document (ni AA ni CA)", color: INFO, icon: "dash" as const };
   }
-  return ca.performed
-    ? { label, detail: `Échec : la puce ne détient pas la clé privée de DG14${ca.reason ? ` — ${ca.reason}` : ""}`, color: red, icon: "warn" as const }
-    : { label, detail: `Non aboutie${ca.reason ? ` — ${ca.reason}` : ""}`, color: WARN, icon: "warn" as const };
+  const caName = ca?.protocol === "PACE-CAM" ? "Chip Authentication pendant PACE (CAM)" : "Chip Authentication";
+  const why = (reason?: string) => (reason ? ` — ${reason}` : "");
+
+  const failures: string[] = [];
+  if (ca?.performed && !ca.valid) failures.push(`CA échouée : la puce ne détient pas la clé privée de DG14${why(ca.reason)}`);
+  if (aa?.performed && !aa.valid) failures.push(`AA échouée : signature du défi invalide${why(aa.reason)}`);
+  if (failures.length > 0) return { label, detail: failures.join(" · "), color: red, icon: "warn" as const };
+
+  const proven = [...(ca?.valid ? [caName] : []), ...(aa?.valid ? ["Active Authentication"] : [])];
+  if (proven.length > 0) {
+    const pending = [...(ca && !ca.valid ? ["CA non aboutie"] : []), ...(aa && !aa.valid ? ["AA non aboutie"] : [])];
+    return { label, detail: `Prouvé par ${proven.join(" et ")}${pending.length ? ` (${pending.join(", ")})` : ""}`, color: OK, icon: "check" as const };
+  }
+
+  const notDone = [...(ca ? [`CA non aboutie${why(ca.reason)}`] : []), ...(aa ? [`AA non aboutie${why(aa.reason)}`] : [])];
+  return { label, detail: `Annoncé par le document mais non prouvé : ${notDone.join(" · ")}`, color: WARN, icon: "warn" as const };
 }
 
 const FACE_WARNINGS: Record<string, string> = {
@@ -1029,19 +1043,7 @@ function deriveFromRealResult(
       icon: (trust.sufficientForClientPolicy ? "check" : "warn") as "check" | "warn",
     },
     { label: `Accès à la puce (${protocol})`, detail: `Canal sécurisé ${protocol} établi avec succès`, color: OK, icon: "check" as const },
-    {
-      label: "Authentification active (AA, anti-clonage)",
-      detail: !result.activeAuthentication
-        ? "Non proposée par ce document (pas de DG15)"
-        : result.activeAuthentication.valid
-          ? "La puce a signé le défi avec sa clé privée (DG15)"
-          : result.activeAuthentication.performed
-            ? `Signature du défi invalide${result.activeAuthentication.reason ? ` — ${result.activeAuthentication.reason}` : ""}`
-            : "La puce n'a pas répondu au défi",
-      color: !result.activeAuthentication ? INFO : result.activeAuthentication.valid ? OK : result.activeAuthentication.performed ? RED : WARN,
-      icon: (!result.activeAuthentication ? "dash" : result.activeAuthentication.valid ? "check" : "warn") as "check" | "warn" | "dash",
-    },
-    chipAuthenticationRow(result, RED),
+    antiCloningRow(result, s.chipResult?.dataGroups[14], RED),
     {
       label: "Champs du document",
       detail: `${fieldRows.length} champ${fieldRows.length > 1 ? "s" : ""} contrôlé${fieldRows.length > 1 ? "s" : ""}`,

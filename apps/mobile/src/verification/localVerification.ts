@@ -268,7 +268,8 @@ export async function computeLocalVerification(input: LocalVerificationInput): P
   };
 }
 
-function dg14AnnouncesChipAuthentication(dg14: Uint8Array | undefined): boolean {
+/** DG14 annonce-t-il une clé de Chip Authentication ? (sinon la CA n'est pas proposée par ce document) */
+export function dg14AnnouncesChipAuthentication(dg14: Uint8Array | undefined): boolean {
   if (!dg14) return false;
   try {
     return parseDg14ChipAuthentication(dg14).publicKeys.length > 0;
