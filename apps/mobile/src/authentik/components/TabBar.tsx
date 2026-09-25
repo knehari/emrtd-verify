@@ -24,7 +24,7 @@ import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { type PaletteColors } from "../theme";
 import { NfcIcon, Icon, SettingsIcon } from "../icons";
-import { GlassEffectView } from "../../../modules/glass-kit";
+import { GlassEffectView, GlassTabBar } from "../../../modules/glass-kit";
 import type { AuthentikDemo } from "../state";
 
 const TAB_COUNT = 3;
@@ -64,6 +64,26 @@ export function TabBar({ demo, bottomInset }: { demo: AuthentikDemo; bottomInset
       ]),
     ]).start();
   }, [activeIndex, tabWidth]);
+
+  // iOS 26 : dock entièrement natif (SwiftUI, Liquid Glass du système, SF Symbols, pastille de
+  // sélection animée et retour haptique natifs) — voir modules/glass-kit/ios/GlassTabBar.swift.
+  if (GlassTabBar) {
+    const actions = [demo.reset, demo.goTrust, demo.goSettings];
+    return (
+      <View pointerEvents="box-none" style={[styles.wrap, { bottom: 16 + bottomInset }]}>
+        <GlassTabBar
+          style={styles.nativeBar}
+          titles={[demo.t.tabVerify, demo.t.tabTrust, demo.t.tabAbout]}
+          symbols={["wave.3.right", "lock.shield", "gearshape"]}
+          selectedIndex={activeIndex}
+          accentColor={c.accent}
+          colorScheme={dark ? "dark" : "light"}
+          haptics={demo.feedbackOn}
+          onSelect={(e) => actions[e.nativeEvent.index]?.()}
+        />
+      </View>
+    );
+  }
 
   const pill =
     activeIndex >= 0 && tabWidth > 0 ? (
@@ -148,6 +168,7 @@ const makeStyles = (colors: PaletteColors, dark: boolean) => StyleSheet.create({
     shadowRadius: dark ? 40 : 34,
     shadowOffset: { width: 0, height: dark ? 18 : 14 },
   },
+  nativeBar: { flex: 1 },
   // Verre natif (modules/glass-kit) : ni fond, ni rognage — le verre dessine son bord et son ombre.
   glassBar: {
     flex: 1,

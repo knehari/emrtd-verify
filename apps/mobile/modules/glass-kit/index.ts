@@ -48,3 +48,29 @@ export function glassStatus(): GlassStatus {
 
 /** Fond en verre natif (Liquid Glass sur iOS 26, flou fin + liseré avant) — `null` si le module manque. */
 export const GlassEffectView = GlassKit ? requireNativeViewManager<GlassEffectViewProps>("GlassKit") : null;
+
+export interface GlassTabBarProps extends ViewProps {
+  titles: string[];
+  /** Noms de SF Symbols, un par onglet. */
+  symbols: string[];
+  /** -1 : aucun onglet sélectionné. */
+  selectedIndex: number;
+  accentColor?: string;
+  colorScheme?: "light" | "dark";
+  haptics?: boolean;
+  onSelect?: (event: { nativeEvent: { index: number } }) => void;
+}
+
+function loadGlassTabBar() {
+  if (!liquidGlassAvailable) return null;
+  try {
+    requireNativeModule("GlassTabBar");
+    return requireNativeViewManager<GlassTabBarProps>("GlassTabBar");
+  } catch {
+    return null; // binaire sans ce module : dock React Native sur fond de verre
+  }
+}
+
+/** Dock natif SwiftUI en Liquid Glass (iOS 26 uniquement) — `null` sinon. */
+export const GlassTabBar = loadGlassTabBar();
+

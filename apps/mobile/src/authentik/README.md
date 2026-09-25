@@ -194,9 +194,11 @@ plus). Ce qu'elle change, et comment c'est transcrit :
   `scripts/generate-feedback-tones.js`. Coupables dans Réglages. La bulle "Haptique · …" du
   prototype n'est pas reprise : elle ne servait qu'à montrer les vibrations dans un navigateur.
 - **Dock** (`components/TabBar.tsx`) — géométrie v2 (64 px, rayon 32, marges 16), pilule
-  rgba(255,255,255,.13) en sombre, trois onglets actifs. Fond en verre natif
-  (`modules/glass-kit`) : vrai Liquid Glass (`UIGlassEffect`) quand l'app est compilée avec
-  Xcode 26 et tourne sous iOS 26 ; sinon flou système très fin, voile, reflet haut, liseré
+  rgba(255,255,255,.13) en sombre, trois onglets actifs. Sous iOS 26 (app compilée avec
+  Xcode 26), le dock est entièrement natif : SwiftUI `glassEffect(.regular.interactive())`, SF
+  Symbols, pastille de sélection animée (`matchedGeometryEffect`) et retour haptique du système
+  (`modules/glass-kit/ios/GlassTabBar.swift`) — plus aucune imitation en JS. Sinon, fond en
+  verre natif (`modules/glass-kit`) sous le dock React Native : flou système très fin, voile, reflet haut, liseré
   lumineux dégradé et ombre extérieure seulement. L'ancien rendu floutait un fond opaque (le
   porteur d'ombre) et ne laissait donc rien transparaître ; il ne sert plus qu'aux binaires
   compilés sans le module.
