@@ -50,7 +50,15 @@ import { getSfaceSession } from "../faceMatch/sfaceModel";
 import { refreshRevocationLists, revocationListsFor } from "../pki/crlCache";
 import { SfaceTensor } from "../faceMatch/sfaceSession";
 import { encodeChipDataEnvelope } from "@emrtd-verify/emrtd-core";
-import { isBackendReady, loadBackendSettings, submitAndAwaitResult, type BackendSettings, type ServerOutcome } from "../backend/backendClient";
+import {
+  isBackendReady,
+  loadBackendSettings,
+  submitAndAwaitResult,
+  type ActiveLivenessSubmission,
+  type BackendSettings,
+  type ServerOutcome,
+  type ServerSubmission,
+} from "../backend/backendClient";
 import { enqueueSubmission, runSyncCycle } from "../sync/submissionQueue";
 import { syncCscaBundle } from "../pki/cscaBundleSync";
 
@@ -183,6 +191,8 @@ interface RawState {
   faceMatchEnabled: boolean;
   /** Pourquoi la comparaison faciale n'a pas eu lieu, le cas échéant (affiché sur le verdict). */
   faceMatchNote: string | null;
+  /** Vivacité active : pourquoi elle n'a pas eu lieu, le cas échéant (affiché sur le verdict). */
+  livenessNote: string | null;
   /** Serveur KYC réglé dans l'app (Réglages › Serveur KYC), `null` si aucun. */
   backend: BackendSettings | null;
   /** Vérification serveur de la dernière lecture (mode en ligne seulement). */
@@ -214,6 +224,7 @@ export function useAuthentikDemo() {
     selectedCountry: null,
     faceMatchEnabled: true,
     faceMatchNote: null,
+    livenessNote: null,
     backend: null,
     server: null,
   });
@@ -347,7 +358,7 @@ export function useAuthentikDemo() {
   // Vérification locale (computeLocalVerification), avec la comparaison faciale si un selfie a
   // été capturé : visage de la photo DG2 (JPEG / JPEG 2000) trouvé par modules/face-kit, puis
   // embeddings SFace (onnxruntime) comparés — voir src/faceMatch/faceMatch.ts.
-  const verifyChip = useCallback(async (chipResult: EmrtdReadResult, selfie: NativeFaceCrop | null, skippedNote: string | null) => {
+  const verifyChip = useCallback(async (chipResult: EmrtdReadResult, selfie: NativeFaceCrop | null, skippedNote: string | null, liveness?: SelfieLiveness) => {
     const { mrzForm, online, backend } = sRef.current;
     const sendToServer = online && isBackendReady(backend);
     setS((prev) => ({
@@ -358,8 +369,14 @@ export function useAuthentikDemo() {
       anim: "fade",
       verificationStatus: "verifying",
       faceMatchNote: skippedNote,
+      livenessNote: liveness?.note ?? null,
       server: sendToServer ? { phase: "sending" } : null,
     }));
+
+    // Envoi au serveur tout de suite, en parallèle de la vérification locale : le défi de vivacité
+    // active expire ~15 s après sa dernière action (challenge.ts), le serveur doit l'avoir reçu avant.
+    const submission = sendToServer ? buildServerSubmission(mrzForm.documentType, chipResult, selfie, liveness?.active?.submission) : null;
+    const serverOutcome = submission && isBackendReady(backend) ? submitAndAwaitResult(backend, submission) : null;
 
     let faceMatch: Parameters<typeof computeLocalVerification>[0]["faceMatch"];
     let faceMatchNote = skippedNote;
@@ -397,6 +414,9 @@ export function useAuthentikDemo() {
           chipAuthentication: chipResult.chipAuthentication,
         },
         faceMatch,
+        activeLiveness: liveness?.active
+          ? { ...liveness.active.submission, now: Date.now() + liveness.active.clockOffsetMs }
+          : undefined,
         // CRL du pays : mise à jour depuis le réseau si celle en cache est absente ou périmée
         // (5 s max, sans bloquer hors ligne), puis vérification contre les CSCA — pki/crlCache.ts.
         loadRevocationLists: async (country, anchors) => {
@@ -416,8 +436,8 @@ export function useAuthentikDemo() {
         console.log(`[FACE] similarité ${result.faceMatch.similarityScore.toFixed(3)} → ${result.faceMatch.matchDecision}`);
       }
       let server: ServerState | null = null;
-      if (sendToServer && isBackendReady(backend)) {
-        server = await verifyOnServer(backend, mrzForm.documentType, chipResult, selfie, result);
+      if (submission && serverOutcome) {
+        server = await settleServerOutcome(serverOutcome, submission, result);
       }
       const signed = server?.phase === "done" && server.outcome.kind === "result" && server.outcome.signatureValid ? server.outcome.result : null;
       const verdict = signed?.verdict ?? result.verdict;
@@ -431,13 +451,16 @@ export function useAuthentikDemo() {
     }
   }, [fb]);
 
-  /** Fin de l'écran selfie (mode réel) : `null` si l'utilisateur a passé l'étape. */
+  /**
+   * Fin de l'écran selfie (mode réel) : `null` si l'utilisateur a passé l'étape ; `liveness`, la
+   * réponse au défi de vivacité active (caméra TrueDepth) ou pourquoi elle manque.
+   */
   const completeSelfie = useCallback(
-    (capture: NativeFaceCrop | null) => {
+    (capture: NativeFaceCrop | null, liveness?: SelfieLiveness) => {
       const chipResult = sRef.current.chipResult;
       if (!chipResult) return;
       fb(capture ? "live" : "tap");
-      void verifyChip(chipResult, capture, capture ? null : "Selfie passé");
+      void verifyChip(chipResult, capture, capture ? null : "Selfie passé", liveness);
     },
     [fb, verifyChip],
   );
@@ -516,6 +539,7 @@ export function useAuthentikDemo() {
       chipResult: null,
       verificationResult: null,
       faceMatchNote: null,
+      livenessNote: null,
       server: null,
     }));
   }, [clear]);
@@ -750,6 +774,8 @@ export function useAuthentikDemo() {
     toggleFaceMatch,
     faceMatchEnabled: s.faceMatchEnabled,
     faceMatchAvailable: FaceKit !== null,
+    /** Défi de vivacité active possible : mode en ligne, serveur prêt (le défi est émis et vérifié par lui). */
+    activeLivenessPossible: s.online && isBackendReady(s.backend),
     /** Écran selfie en mode réel (caméra frontale) plutôt que l'animation de démonstration. */
     realSelfie: s.chipResult !== null && s.verificationResult === null,
     completeSelfie,
@@ -764,33 +790,51 @@ export function useAuthentikDemo() {
 
 const REQUESTED_FIELDS = ["documentNumber", "dateOfBirth", "dateOfExpiry", "nationality", "sex", "primaryIdentifier", "secondaryIdentifier"];
 
-/**
- * Mode en ligne : envoie la puce lue (+ selfie JPEG) au serveur KYC et attend son résultat signé.
- * Sans résultat à temps (réseau, serveur occupé), la soumission part dans la file d'attente —
- * déjà acceptée (`verificationId`) : seulement réconciliée plus tard ; sinon renvoyée plus tard.
- */
-async function verifyOnServer(
-  backend: BackendSettings & { resultSigningKeySpkiBase64: string },
+/** Résultat de l'écran selfie côté vivacité active (SelfieScreen.tsx › ActiveSelfie). */
+export interface SelfieLiveness {
+  /** Réponse au défi, à envoyer au serveur ; `clockOffsetMs` : heure serveur − heure du téléphone. */
+  active?: { submission: ActiveLivenessSubmission; clockOffsetMs: number };
+  /** Pourquoi il n'y a pas de vivacité active (défi non réalisé, échoué, indisponible). */
+  note?: string;
+}
+
+/** Mode en ligne : la puce lue, le selfie JPEG et, si réalisée, la réponse au défi de vivacité active. */
+function buildServerSubmission(
   documentType: DocumentType,
   chipResult: EmrtdReadResult,
   selfie: NativeFaceCrop | null,
-  localResult: LocalVerificationResult,
-): Promise<ServerState> {
+  activeLiveness: ActiveLivenessSubmission | undefined,
+): ServerSubmission {
   const activeAuthentication = chipResult.activeAuthentication?.response
     ? { challenge: chipResult.activeAuthentication.challenge, responseDer: chipResult.activeAuthentication.response }
     : undefined;
-  const submission = {
+  return {
     documentType,
     chipDataBase64: encodeChipDataEnvelope({ sod: chipResult.sod, dataGroups: chipResult.dataGroups, activeAuthentication }),
     liveCaptureBase64: selfie?.jpeg,
     requestedFields: REQUESTED_FIELDS,
+    activeLiveness,
   };
-  const outcome = await submitAndAwaitResult(backend, submission);
+}
+
+/**
+ * Attend le résultat signé du serveur KYC. Sans résultat à temps (réseau, serveur occupé), la
+ * soumission part dans la file d'attente — déjà acceptée (`verificationId`) : seulement réconciliée
+ * plus tard ; sinon renvoyée plus tard, SANS la réponse de vivacité active (son défi aura expiré :
+ * elle serait jugée échouée alors qu'elle n'a simplement pas pu être transmise à temps).
+ */
+async function settleServerOutcome(
+  pending: Promise<ServerOutcome>,
+  submission: ServerSubmission,
+  localResult: LocalVerificationResult,
+): Promise<ServerState> {
+  const outcome = await pending;
   if (__DEV__) console.log(`[KYC] ${outcome.kind}${outcome.kind === "failed" ? ` : ${outcome.error}` : ` · ${outcome.verificationId}`}`);
   if (outcome.kind === "result") return { phase: "done", outcome, queued: false };
+  const { activeLiveness: _expiresSoon, ...queued } = submission;
   try {
     await enqueueSubmission(
-      { ...submission, localResult },
+      { ...queued, localResult },
       outcome.kind === "pending" ? { verificationId: outcome.verificationId } : { lastError: outcome.error },
     );
     return { phase: "done", outcome, queued: true };
@@ -1067,6 +1111,7 @@ function deriveFromRealResult(
     },
     lostStolenRow(signed, s.requireLostStolenCheck, RED),
     faceCheckRow(result, s.faceMatchNote, RED),
+    livenessRow(result, signed, s.livenessNote, RED),
     ...[serverCheckRow(s.server, RED)].filter((row): row is NonNullable<typeof row> => row !== null),
   ];
 
@@ -1190,6 +1235,23 @@ function lostStolenRow(signed: VerificationResult | null, required: boolean, red
   return required
     ? { label, detail: "Exigé mais registre injoignable hors ligne", color: WARN, icon: "warn" as const }
     : { label, detail: "Non exigé (Réglages)", color: INFO, icon: "dash" as const };
+}
+
+/** Ligne « Vivacité » : défi actif TrueDepth (vérifié par le serveur s'il a répondu) ou passive seulement. */
+function livenessRow(result: LocalVerificationResult, signed: VerificationResult | null, note: string | null, red: string) {
+  const label = "Vivacité";
+  const active = signed ? signed.activeLiveness : result.activeLiveness;
+  const by = signed ? "vérifié par le serveur" : "vérification locale";
+  if (active?.performed) {
+    return active.passed
+      ? { label, detail: `Active (caméra TrueDepth) · défi réussi, ${by}`, color: OK, icon: "check" as const }
+      : { label, detail: `Active (caméra TrueDepth) · défi échoué, ${by}`, color: red, icon: "warn" as const };
+  }
+  const passiveOnly = signed?.anomalies.find((a) => a.code === "LIVENESS_PASSIVE_ONLY");
+  const why = note ? ` — ${note}` : "";
+  if (passiveOnly?.severity === "info") return { label, detail: `Passive seulement (active non exigée pour ce client)${why}`, color: INFO, icon: "dash" as const };
+  if (passiveOnly) return { label, detail: `Passive seulement : active exigée pour ce client${why}`, color: WARN, icon: "warn" as const };
+  return { label, detail: `Passive seulement (selfie guidé)${why}`, color: INFO, icon: "dash" as const };
 }
 
 function severityColor(sev: AnomalySeverity, RED: string) {

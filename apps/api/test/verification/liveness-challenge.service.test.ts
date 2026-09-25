@@ -14,6 +14,12 @@ describe("LivenessChallengeService", () => {
     expect(signed.signature.length).toBeGreaterThan(0);
   });
 
+  it("issue() laisse 3 s avant la première action (réception du challenge par le mobile, lecture de la consigne)", () => {
+    const service = new LivenessChallengeService(configWith({ LIVENESS_CHALLENGE_SIGNING_SECRET: "test-secret" }));
+    expect(service.issue().challenge.steps[0].windowStartMs).toBe(3000);
+    expect(service.issue(["medium", "high"]).challenge.steps[0].windowStartMs).toBe(3000);
+  });
+
   it("verifyChallengeIntegrity() accepte un challenge non modifié", () => {
     const service = new LivenessChallengeService(configWith({ LIVENESS_CHALLENGE_SIGNING_SECRET: "test-secret" }));
     const signed = service.issue();

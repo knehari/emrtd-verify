@@ -15,7 +15,9 @@ import { AppModule } from "./app.module";
 async function bootstrap() {
   // bufferLogs: true — tamponne les logs de démarrage jusqu'à ce que le logger Pino (fourni
   // par nestjs-pino, asynchrone) soit prêt, pour ne perdre aucune ligne émise avant useLogger().
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter(), {
+  // 4 Mo (au lieu du 1 Mo de Fastify) : puce (photo DG2 comprise) + selfie JPEG + échantillons du
+  // défi de vivacité active (~30 par seconde pendant ~15 s) dans une même soumission.
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({ bodyLimit: 4 * 1024 * 1024 }), {
     bufferLogs: true,
   });
 

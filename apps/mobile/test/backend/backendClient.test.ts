@@ -21,8 +21,16 @@ vi.mock("expo-file-system", () => ({
   }),
 }));
 
-const { loadBackendSettings, saveBackendSettings, clearBackendSettings, isBackendReady, keyFingerprint, checkConnection, submitAndAwaitResult } =
-  await import("../../src/backend/backendClient");
+const {
+  loadBackendSettings,
+  saveBackendSettings,
+  clearBackendSettings,
+  isBackendReady,
+  keyFingerprint,
+  checkConnection,
+  submitAndAwaitResult,
+  requestLivenessChallenge,
+} = await import("../../src/backend/backendClient");
 const { appConfig } = await import("../../src/config");
 
 async function generateKeyPair() {
@@ -85,6 +93,24 @@ describe("backendClient", () => {
     const check = await checkConnection("https://kyc.example.com", "mauvaise", fetchMock as unknown as typeof fetch);
     expect(check.reachable).toBe(true);
     expect(check.apiKeyAccepted).toBe(false);
+  });
+
+  it("requestLivenessChallenge : POST authentifié, heures d'envoi/réception pour caler l'horloge ; réponse invalide refusée", async () => {
+    const challenge = { nonce: "n", steps: [{ action: "blink", windowStartMs: 3000, windowEndMs: 5500 }], issuedAt: 1, expiresAt: 2 };
+    const fetchMock = vi.fn(async () => jsonResponse({ challenge, signature: "ab" }, 201));
+    const issued = await requestLivenessChallenge({ apiBaseUrl: "https://kyc.example.com/", apiKey: "k" }, fetchMock as unknown as typeof fetch);
+    expect(issued.challenge).toEqual(challenge);
+    expect(issued.signature).toBe("ab");
+    expect(issued.receivedAt).toBeGreaterThanOrEqual(issued.sentAt);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://kyc.example.com/v1/verifications/liveness-challenge");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer k");
+
+    const bad = vi.fn(async () => jsonResponse({ nope: true }));
+    await expect(requestLivenessChallenge({ apiBaseUrl: "https://kyc.example.com", apiKey: "k" }, bad as unknown as typeof fetch)).rejects.toThrow("réponse inattendue");
+    const refused = vi.fn(async () => jsonResponse({}, 401));
+    await expect(requestLivenessChallenge({ apiBaseUrl: "https://kyc.example.com", apiKey: "k" }, refused as unknown as typeof fetch)).rejects.toThrow("HTTP 401");
   });
 
   it("submitAndAwaitResult : attend le traitement (404) puis vérifie la signature contre la clé épinglée", async () => {

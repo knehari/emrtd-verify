@@ -146,6 +146,14 @@ describe("verifyLivenessResponse", () => {
     expect(result.reasons).toContain("challenge_expired");
   });
 
+  it("rejette une réponse vérifiée avant la fin de ses propres images (horodatages inventés à l'avance)", () => {
+    const challenge = buildChallenge(1_000_000);
+    const samples = chainFrames(challenge, buildCompliantRawSamples(challenge));
+    const result = verifyLivenessResponse(challenge, { samples }, { now: challenge.issuedAt + 3000 });
+    expect(result.passed).toBe(false);
+    expect(result.reasons).toContain("samples_after_verification");
+  });
+
   it("rejette des échantillons vides", () => {
     const challenge = buildChallenge(1_000_000);
     const result = verifyLivenessResponse(challenge, { samples: [] }, { now: challenge.issuedAt + 1000 });

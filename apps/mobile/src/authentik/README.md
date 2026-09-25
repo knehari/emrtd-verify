@@ -123,6 +123,30 @@ docs/facial-recognition.md « Reconnaissance faciale hors ligne ».
 Nouveau module natif et nouvelle dépendance native (expo-asset) : `pod install` puis recompiler
 dans Xcode. Un binaire plus ancien démarre quand même et saute l'étape selfie.
 
+### Vivacité active (caméra TrueDepth)
+
+En mode **En ligne · KYC** avec un serveur prêt, sur un iPhone à caméra TrueDepth (Face ID),
+l'écran selfie devient « Vivacité active » : la personne cadre son visage, l'app demande au
+serveur un défi aléatoire signé (`POST /v1/verifications/liveness-challenge`), puis affiche ses
+consignes (clignez, tournez la tête à gauche/droite, ouvrez la bouche, souriez) chacune dans sa
+fenêtre de temps ; pour les clients à politique stricte, l'écran change aussi de couleur (défi
+lumineux). ARKit (`modules/face-kit/ios/FaceLiveness.swift`) fournit les coefficients du visage
+3D, l'orientation de la tête et la couleur de la peau ; `../liveness/activeLiveness.ts` recale
+l'horloge sur celle du serveur, chaîne les images et vérifie la réponse avec les mêmes règles que
+le serveur — un échec propose tout de suite « Recommencer » (nouveau défi) ou « Continuer sans ».
+Le selfie comparé à la photo de la puce est pris ensuite dans la même session de suivi du visage
+(même visage suivi sans interruption, sinon échec). La réponse part au serveur dès la fin, en
+parallèle de la vérification locale (le défi expire ~15 s après sa dernière action) ; le serveur
+la revérifie (signature du défi, usage unique, actions, lumière) et le verdict affiche une ligne
+« Vivacité ». Hors ligne, sans serveur, sans TrueDepth, ou si le défi est indisponible : selfie
+guidé ci-dessus (vivacité passive). Côté serveur, `scripts/serveur-local.sh vivacite non-exige`
+fait d'une vivacité seulement passive une simple information pour ce client.
+
+Limites honnêtes : ce code natif n'a pas pu être compilé ni essayé ici ; les seuils (repos < 0,15,
+action ≥ 0,55, tête ≥ 25°) et surtout la mesure du reflet lumineux ne sont pas calibrés sur de
+vraies captures. Si seul le défi lumineux échoue localement, la réponse est quand même envoyée et
+le serveur tranche.
+
 ## Mode en ligne · KYC — branchement sur apps/api
 
 Serveur local pour tester depuis un iPhone sur le même Wi-Fi (Docker Desktop pour Postgres et

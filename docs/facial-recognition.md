@@ -90,18 +90,23 @@ systématique pour les profils à risque élevé).
   implémentées et testées.
 - Orchestration côté mobile (émission du challenge, capture, soumission) :
   `apps/mobile/src/screens/LivenessChallengeScreen.tsx`, branché dans `App.tsx`.
-- **Capture native ARKit elle-même : délibérément NON implémentée.** Contrairement à l'adaptateur
-  NFC (`isoDepHandler.transceive`, un passe-plat trivial autour de `react-native-nfc-manager`,
-  bibliothèque déjà installée et testée), la capture ARKit nécessite d'écrire un module natif
-  Swift complet (cycle de vie `ARSession`, délégué, threading, pont vers React Native) — impossible
-  à compiler ou exécuter dans cet environnement (pas de Xcode, pas de simulateur TrueDepth, pas
-  d'appareil physique confirmé, pas de compte Apple Developer payant). L'écrire à l'aveugle
-  produirait une fausse impression d'achèvement sur un mécanisme anti-fraude qui mérite mieux
-  qu'un code jamais vérifié. La spécification exacte de ce qu'il reste à construire (structure du
-  module natif, noms exacts des coefficients ARKit à extraire, convention d'horodatage, chaînage
-  des frames, canal lumineux) est documentée dans `apps/mobile/src/liveness/faceLivenessSession.ts`.
-  En attendant, `createMockFaceLivenessSession` (`packages/emrtd-core`) permet de développer/tester
-  tout le reste du parcours (écran, protocole réseau, vérification serveur) sans matériel réel.
+- **Capture native ARKit : implémentée** (`apps/mobile/modules/face-kit/ios/FaceLiveness.swift`,
+  vue `FaceLivenessView`) et branchée dans l'app Authentik (écran selfie, mode en ligne) :
+  `ARFaceTrackingConfiguration`, coefficients `eyeBlinkLeft/Right`, `jawOpen`,
+  `mouthSmileLeft/Right`, lacet de la tête calculé depuis la position de la caméra dans le repère
+  du visage, horodatage epoch ms de chaque image ARKit, couleur moyenne de la peau (YCbCr → RGB) au
+  centre du visage pour le canal lumineux, exposition et balance des blancs verrouillées pendant
+  le défi lumineux (iOS 16+). La logique (recalage de l'horloge téléphone sur celle du serveur au
+  milieu de l'aller-retour, chaînage, continuité du suivi du visage, extraction du reflet de
+  l'écran — couleur mesurée moins le niveau ambiant, normalisée) est en TypeScript pur,
+  `apps/mobile/src/liveness/activeLiveness.ts`, testée sur des séries synthétiques et de bout en
+  bout contre un vrai `apps/api` (défi émis, réponse acceptée, rejeu refusé). Le serveur laisse
+  3 s avant la première action (`leadInMs`) et refuse des images postérieures à l'instant de
+  vérification (`samples_after_verification`). **Limite honnête** : le module Swift n'a pas pu
+  être compilé ni exécuté dans cet environnement (pas de Xcode ni d'appareil) et les seuils —
+  surtout la mesure du reflet lumineux — ne sont pas calibrés sur de vraies captures ;
+  validation sur iPhone réel indispensable avant tout usage en production.
+  `createMockFaceLivenessSession` (`packages/emrtd-core`) reste disponible pour les tests.
 
 ## Sécurisation du flux caméra contre l'injection — priorité selon l'ENISA/OWASP MASVS
 

@@ -220,6 +220,11 @@ export function verifyLivenessResponse(
   if (samples[0].timestamp < challenge.issuedAt - skew) {
     reasons.push("samples_start_before_challenge");
   }
+  // Une réponse ne peut pas contenir d'images postérieures à sa vérification (horodatages inventés
+  // à l'avance, soumission avant la fin réelle du défi).
+  if (samples[samples.length - 1].timestamp > now + skew) {
+    reasons.push("samples_after_verification");
+  }
 
   const frameChain = verifyFrameChain(challenge, samples);
   if (!frameChain.intact) {

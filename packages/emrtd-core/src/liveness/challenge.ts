@@ -7,6 +7,13 @@ export interface GenerateLivenessChallengeOptions {
   stepCount?: number;
   /** Ajoute un canal indépendant de challenge lumineux (voir verifyLightChallenge, verify.ts) — recommandé pour les politiques de risque élevées (voir apps/api `LivenessChallengeService`, adapté au risque client). Par défaut désactivé : nécessite un contrôle de l'écran ET une lecture de la lumière perçue côté capture, non disponible tant que le module natif ARKit n'est pas écrit (voir apps/mobile/src/liveness/faceLivenessSession.ts). */
   requireLightChallenge?: boolean;
+  /**
+   * Délai avant la première fenêtre d'action (ms après `issuedAt`) : le temps que le challenge
+   * arrive sur le mobile et que la personne lise la première consigne. Par défaut 0 ; le serveur
+   * (apps/api `LivenessChallengeService`) en ajoute un, sans quoi la première fenêtre s'ouvrirait
+   * avant même la réception du challenge. La séquence lumineuse, elle, commence à `issuedAt`.
+   */
+  leadInMs?: number;
   /** Source d'aléa injectable — permet des tests déterministes et reste portable React Native (voir defaultRandomBytes ci-dessous, même contrainte que nfc/bac.ts `generateRandomBytes`). */
   randomBytes?: (length: number) => Uint8Array;
 }
@@ -98,10 +105,11 @@ export function generateLivenessChallenge(options: GenerateLivenessChallengeOpti
   const now = options.now ?? Date.now();
   const stepCount = options.stepCount ?? 3;
   const randomBytes = options.randomBytes ?? defaultRandomBytes;
+  const leadInMs = Math.max(0, Math.round(options.leadInMs ?? 0));
 
   const actions = pickDistinctActions(stepCount, randomBytes);
   const steps: LivenessChallengeStep[] = actions.map((action, index) => {
-    const windowStartMs = index * (STEP_WINDOW_DURATION_MS + STEP_GAP_MS);
+    const windowStartMs = leadInMs + index * (STEP_WINDOW_DURATION_MS + STEP_GAP_MS);
     return { action, windowStartMs, windowEndMs: windowStartMs + STEP_WINDOW_DURATION_MS };
   });
 

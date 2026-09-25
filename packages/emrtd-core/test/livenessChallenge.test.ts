@@ -50,6 +50,16 @@ describe("generateLivenessChallenge", () => {
     expect(challenge.issuedAt).toBe(5000);
   });
 
+  it("leadInMs décale toutes les fenêtres (réception + lecture de la consigne), pas la séquence lumineuse", () => {
+    const base = generateLivenessChallenge({ now: 0, requireLightChallenge: true, randomBytes: deterministicRandomBytes([2, 0]) });
+    const delayed = generateLivenessChallenge({ now: 0, requireLightChallenge: true, leadInMs: 3000, randomBytes: deterministicRandomBytes([2, 0]) });
+    expect(delayed.steps[0].windowStartMs).toBe(3000);
+    delayed.steps.forEach((step, i) => expect(step.windowStartMs - base.steps[i].windowStartMs).toBe(3000));
+    expect(delayed.expiresAt - base.expiresAt).toBe(3000);
+    expect(delayed.lightSequence![0].atMs).toBe(0);
+    expect(delayed.lightSequence![delayed.lightSequence!.length - 1].atMs).toBeGreaterThan(delayed.steps[delayed.steps.length - 1].windowStartMs);
+  });
+
   it("génère un nonce hexadécimal de 32 caractères (16 octets) — non trivial/vide", () => {
     const challenge = generateLivenessChallenge({ now: 0, randomBytes: deterministicRandomBytes([9, 8, 7, 6]) });
     expect(challenge.nonce).toMatch(/^[0-9a-f]{32}$/);

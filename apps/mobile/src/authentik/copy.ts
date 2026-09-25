@@ -76,6 +76,34 @@ export interface Copy {
   selfieSkip: string;
   selfieBlinkNudge: string;
   selfieHints: Record<"no-face" | "multiple" | "closer" | "farther" | "center" | "face-camera" | "hold", string>;
+  /** Vivacité active (caméra TrueDepth, défi émis par le serveur) — SelfieScreen.tsx › ActiveSelfie. */
+  active: {
+    nav: string;
+    align: string;
+    alignSub: string;
+    fetching: string;
+    ready: string;
+    firstAction: string;
+    actions: Record<"blink" | "turn_head_left" | "turn_head_right" | "open_mouth" | "smile", string>;
+    actionSub: string;
+    back: string;
+    nextAction: string;
+    lightSub: string;
+    capture: string;
+    captureSub: string;
+    passed: string;
+    passedSub: string;
+    failed: string;
+    retry: string;
+    continueWithout: string;
+    unavailable: string;
+    simpleSelfie: string;
+    note: string;
+    noteFailed: string;
+    noteSkipped: string;
+    noteUnavailable: string;
+    interrupted: string;
+  };
   aboutFace: string;
   aboutFaceDesc: string;
   procHead: string;
@@ -286,6 +314,39 @@ export const FR: Copy = {
     center: "Centrez votre visage dans le cadre.",
     "face-camera": "Regardez l'écran, tête droite.",
     hold: "Ne bougez plus…",
+  },
+  active: {
+    nav: "Vivacité active",
+    align: "Placez votre visage dans le cadre",
+    alignSub: "De face, bien éclairé. Un défi aléatoire du serveur va suivre.",
+    fetching: "Préparation du défi…",
+    ready: "Préparez-vous",
+    firstAction: "Première consigne : {action}",
+    actions: {
+      blink: "Clignez des yeux",
+      turn_head_left: "Tournez la tête à gauche",
+      turn_head_right: "Tournez la tête à droite",
+      open_mouth: "Ouvrez la bouche",
+      smile: "Souriez",
+    },
+    actionSub: "Maintenant, franchement, puis revenez de face.",
+    back: "Revenez de face",
+    nextAction: "Ensuite : {action}",
+    lightSub: "L'écran change de couleur : gardez le visage face à lui.",
+    capture: "Regardez l'écran",
+    captureSub: "Visage détendu, tête droite.",
+    passed: "Vivacité confirmée",
+    passedSub: "Comparaison avec la photo de la puce…",
+    failed: "Défi non validé",
+    retry: "Recommencer",
+    continueWithout: "Continuer sans",
+    unavailable: "Défi indisponible",
+    simpleSelfie: "Selfie simple",
+    note: "Caméra TrueDepth",
+    noteFailed: "défi actif échoué, poursuivi sans",
+    noteSkipped: "défi actif passé",
+    noteUnavailable: "défi actif indisponible",
+    interrupted: "Suivi du visage interrompu pendant le défi.",
   },
   aboutFace: "Comparaison faciale",
   aboutFaceDesc: "Après la lecture de la puce, un selfie guidé est comparé à la photo du document (SFace, sur l'appareil).",
@@ -560,6 +621,39 @@ export const EN: Copy = {
     center: "Center your face in the frame.",
     "face-camera": "Look at the screen, head straight.",
     hold: "Hold still…",
+  },
+  active: {
+    nav: "Active liveness",
+    align: "Place your face in the frame",
+    alignSub: "Facing the screen, well lit. A random challenge from the server follows.",
+    fetching: "Preparing the challenge…",
+    ready: "Get ready",
+    firstAction: "First: {action}",
+    actions: {
+      blink: "Blink",
+      turn_head_left: "Turn your head left",
+      turn_head_right: "Turn your head right",
+      open_mouth: "Open your mouth",
+      smile: "Smile",
+    },
+    actionSub: "Now, clearly, then face the screen again.",
+    back: "Face the screen",
+    nextAction: "Next: {action}",
+    lightSub: "The screen changes colour: keep your face towards it.",
+    capture: "Look at the screen",
+    captureSub: "Relaxed face, head straight.",
+    passed: "Liveness confirmed",
+    passedSub: "Comparing with the chip photo…",
+    failed: "Challenge not passed",
+    retry: "Try again",
+    continueWithout: "Continue without",
+    unavailable: "Challenge unavailable",
+    simpleSelfie: "Simple selfie",
+    note: "TrueDepth camera",
+    noteFailed: "active challenge failed, continued without",
+    noteSkipped: "active challenge skipped",
+    noteUnavailable: "active challenge unavailable",
+    interrupted: "Face tracking was interrupted during the challenge.",
   },
   aboutFace: "Face comparison",
   aboutFaceDesc: "After the chip is read, a guided selfie is compared with the document photo (SFace, on the device).",

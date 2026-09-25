@@ -94,6 +94,8 @@ export interface LocalVerificationInput {
     challenge: LivenessChallenge;
     samples: LivenessSignalFrame[];
     lightSamples?: LightSignalSample[];
+    /** Heure du serveur émetteur du défi (epoch ms), pour juger l'expiration ; défaut : heure du téléphone. */
+    now?: number;
   };
   /**
    * Comparaison faciale on-device (voir faceMatch/faceMatch.ts) — facultative : elle demande la
@@ -210,7 +212,7 @@ export async function computeLocalVerification(input: LocalVerificationInput): P
     const livenessResult = verifyLivenessResponse(input.activeLiveness.challenge, {
       samples: input.activeLiveness.samples,
       lightSamples: input.activeLiveness.lightSamples,
-    });
+    }, { now: input.activeLiveness.now });
     activeLiveness = { performed: true, passed: livenessResult.passed, method: "active_challenge_response" };
     if (!livenessResult.passed) {
       anomalies.push({

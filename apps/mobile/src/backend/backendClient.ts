@@ -1,5 +1,12 @@
 import * as FileSystem from "expo-file-system";
-import { sha256Hex, base64ToBytes, verifyJsonPayloadSignatureWithSpki } from "@emrtd-verify/emrtd-core";
+import {
+  sha256Hex,
+  base64ToBytes,
+  verifyJsonPayloadSignatureWithSpki,
+  type LightSignalSample,
+  type LivenessChallenge,
+  type LivenessSignalFrame,
+} from "@emrtd-verify/emrtd-core";
 import type { DocumentType, VerificationResult } from "@emrtd-verify/shared-types";
 import { appConfig } from "../config";
 
@@ -140,6 +147,47 @@ export interface ServerSubmission {
   /** Selfie (JPEG base64) pour la comparaison faciale côté serveur. */
   liveCaptureBase64?: string;
   requestedFields?: string[];
+  /** Réponse au défi de vivacité active (src/liveness/activeLiveness.ts), vérifiée par le serveur. */
+  activeLiveness?: ActiveLivenessSubmission;
+}
+
+/** `SubmitVerificationDto.activeLiveness` : le challenge et sa signature renvoyés tels quels. */
+export interface ActiveLivenessSubmission {
+  challenge: LivenessChallenge;
+  signature: string;
+  samples: LivenessSignalFrame[];
+  lightSamples?: LightSignalSample[];
+}
+
+export interface IssuedLivenessChallenge {
+  challenge: LivenessChallenge;
+  signature: string;
+  /** Heure locale (Date.now) à l'envoi de la requête et à la réception du challenge. */
+  sentAt: number;
+  receivedAt: number;
+}
+
+/**
+ * Défi de vivacité active émis et signé par le serveur (POST /v1/verifications/liveness-challenge),
+ * à demander juste avant l'exécuter : ses fenêtres d'action sont comptées depuis son émission.
+ */
+export async function requestLivenessChallenge(
+  settings: BackendSettings,
+  fetchImpl: FetchLike = fetch,
+): Promise<IssuedLivenessChallenge> {
+  const sentAt = Date.now();
+  const response = await fetchWithTimeout(fetchImpl, `${normalizeBaseUrl(settings.apiBaseUrl)}/v1/verifications/liveness-challenge`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${settings.apiKey}` },
+    timeoutMs: 5000,
+  });
+  const receivedAt = Date.now();
+  if (!response.ok) throw new Error(`Défi de vivacité : HTTP ${response.status}`);
+  const body = (await response.json()) as { challenge?: LivenessChallenge; signature?: string };
+  if (!body.challenge || typeof body.signature !== "string" || !Array.isArray(body.challenge.steps)) {
+    throw new Error("Défi de vivacité : réponse inattendue");
+  }
+  return { challenge: body.challenge, signature: body.signature, sentAt, receivedAt };
 }
 
 export type ServerOutcome =
@@ -171,6 +219,7 @@ export async function submitAndAwaitResult(
         chipData: submission.chipDataBase64,
         liveCapture: submission.liveCaptureBase64,
         requestedFields: submission.requestedFields,
+        activeLiveness: submission.activeLiveness,
       }),
       timeoutMs: 15000,
     });

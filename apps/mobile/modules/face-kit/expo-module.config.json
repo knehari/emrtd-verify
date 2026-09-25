@@ -1,6 +1,6 @@
 {
   "platforms": ["ios"],
   "ios": {
-    "modules": ["FaceKitModule"]
+    "modules": ["FaceKitModule", "FaceLivenessModule"]
   }
 }

@@ -8,6 +8,8 @@ import type { TrustLevel } from "../kyc/kyc-client.service";
 const RELAXED_STEP_COUNT = 3;
 /** Nombre d'actions + challenge lumineux requis pour un client dont la politique de risque exige "medium"/"high" uniquement — la variante la plus stricte du protocole (voir docs/facial-recognition.md "Détection de vivacité active"). */
 const STRICT_STEP_COUNT = 4;
+/** Avant la première action : réception du challenge par le mobile (réseau) puis lecture de la première consigne. */
+const LEAD_IN_MS = 3000;
 
 export interface SignedLivenessChallenge {
   challenge: LivenessChallenge;
@@ -46,8 +48,8 @@ export class LivenessChallengeService {
     const requiresStrictPolicy = acceptedTrustLevels !== undefined && !acceptedTrustLevels.includes("low");
     const challenge = generateLivenessChallenge(
       requiresStrictPolicy
-        ? { stepCount: STRICT_STEP_COUNT, requireLightChallenge: true }
-        : { stepCount: RELAXED_STEP_COUNT },
+        ? { stepCount: STRICT_STEP_COUNT, requireLightChallenge: true, leadInMs: LEAD_IN_MS }
+        : { stepCount: RELAXED_STEP_COUNT, leadInMs: LEAD_IN_MS },
     );
     return { challenge, signature: this.sign(challenge) };
   }
