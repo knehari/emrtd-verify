@@ -40,6 +40,8 @@ export interface VerificationJobData {
   allowedFields: string[];
   /** Registre perdus/volés exigé par le client (absent sur les jobs antérieurs : exigé). */
   lostStolenCheckRequired?: boolean;
+  /** Vivacité active exigée par le client (absent sur les jobs antérieurs : exigée). */
+  activeLivenessRequired?: boolean;
 }
 
 /**
@@ -71,7 +73,7 @@ export class VerificationProcessor extends WorkerHost {
   }
 
   async process(job: Job<VerificationJobData>): Promise<void> {
-    const { verificationId, dto, clientId, clientAcceptedLevels, allowedFields, lostStolenCheckRequired } = job.data;
+    const { verificationId, dto, clientId, clientAcceptedLevels, allowedFields, lostStolenCheckRequired, activeLivenessRequired } = job.data;
     const startedAt = process.hrtime.bigint();
 
     let decoded: DecodedChipData;
@@ -208,12 +210,21 @@ export class VerificationProcessor extends WorkerHost {
       // verdict "authentic" automatisé : le traiter comme contrôle de qualité seulement, en
       // dégradant systématiquement vers "suspicious" (revue possible) — SAUF si une liveness
       // active a réellement été exécutée et validée pour ce même live capture, auquel cas cette
-      // preuve plus forte rend l'avertissement redondant.
-      anomalies.push({
-        code: "LIVENESS_PASSIVE_ONLY",
-        severity: "warning",
-        message: "Liveness validée uniquement par des heuristiques passives (pas une protection anti-spoofing forte)",
-      });
+      // preuve plus forte rend l'avertissement redondant. Un client peut choisir de ne pas exiger
+      // la vivacité active (KycClient.activeLivenessRequired = false) : simple information alors.
+      anomalies.push(
+        activeLivenessRequired === false
+          ? {
+              code: "LIVENESS_PASSIVE_ONLY",
+              severity: "info",
+              message: "Liveness validée uniquement par des heuristiques passives — vivacité active non exigée pour ce client",
+            }
+          : {
+              code: "LIVENESS_PASSIVE_ONLY",
+              severity: "warning",
+              message: "Liveness validée uniquement par des heuristiques passives (pas une protection anti-spoofing forte)",
+            },
+      );
     }
 
     const allFieldChecksValid =

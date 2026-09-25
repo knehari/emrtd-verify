@@ -79,11 +79,12 @@ function CreateTenantDialog({ open, onOpenChange, onCreated }: { open: boolean; 
   const [trustLevels, setTrustLevels] = useState<string[]>(["high"]);
   const [allowedFields, setAllowedFields] = useState<string[]>([]);
   const [lostStolenCheckRequired, setLostStolenCheckRequired] = useState(true);
+  const [activeLivenessRequired, setActiveLivenessRequired] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: () => adminApi.createKycClient({ clientId, acceptedTrustLevels: trustLevels, allowedFields, lostStolenCheckRequired }),
+    mutationFn: () => adminApi.createKycClient({ clientId, acceptedTrustLevels: trustLevels, allowedFields, lostStolenCheckRequired, activeLivenessRequired }),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["admin-kyc-clients"] });
       onOpenChange(false);
@@ -91,6 +92,7 @@ function CreateTenantDialog({ open, onOpenChange, onCreated }: { open: boolean; 
       setTrustLevels(["high"]);
       setAllowedFields([]);
       setLostStolenCheckRequired(true);
+      setActiveLivenessRequired(true);
       onCreated(result.apiKey);
     },
     onError: (err) => setError(err instanceof ApiError ? err.message : "Échec de la création"),
@@ -128,6 +130,10 @@ function CreateTenantDialog({ open, onOpenChange, onCreated }: { open: boolean; 
             <input type="checkbox" className="h-4 w-4 rounded border-input" checked={lostStolenCheckRequired} onChange={(e) => setLostStolenCheckRequired(e.target.checked)} />
             Registre des documents perdus/volés exigé (décoché = un registre non interrogé n&apos;est qu&apos;une information)
           </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 rounded border-input" checked={activeLivenessRequired} onChange={(e) => setActiveLivenessRequired(e.target.checked)} />
+            Vivacité active exigée (décoché = une vivacité seulement passive n&apos;est qu&apos;une information)
+          </label>
           {error && <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
           <DialogFooter>
             <Button type="submit" disabled={mutation.isPending || !clientId}>
@@ -144,12 +150,13 @@ function EditTenantDialog({ tenant, onOpenChange }: { tenant: KycClient | null; 
   const [trustLevels, setTrustLevels] = useState<string[]>(tenant?.acceptedTrustLevels ?? []);
   const [allowedFields, setAllowedFields] = useState<string[]>(tenant?.allowedFields ?? []);
   const [lostStolenCheckRequired, setLostStolenCheckRequired] = useState(tenant?.lostStolenCheckRequired ?? true);
+  const [activeLivenessRequired, setActiveLivenessRequired] = useState(tenant?.activeLivenessRequired ?? true);
   const [active, setActive] = useState(tenant?.active ?? true);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: () => adminApi.updateKycClient(tenant!.clientId, { acceptedTrustLevels: trustLevels, allowedFields, lostStolenCheckRequired, active }),
+    mutationFn: () => adminApi.updateKycClient(tenant!.clientId, { acceptedTrustLevels: trustLevels, allowedFields, lostStolenCheckRequired, activeLivenessRequired, active }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-kyc-clients"] });
       onOpenChange(false);
@@ -167,6 +174,7 @@ function EditTenantDialog({ tenant, onOpenChange }: { tenant: KycClient | null; 
           setTrustLevels(tenant.acceptedTrustLevels);
           setAllowedFields(tenant.allowedFields);
           setLostStolenCheckRequired(tenant.lostStolenCheckRequired);
+          setActiveLivenessRequired(tenant.activeLivenessRequired);
           setActive(tenant.active);
         }
         onOpenChange(open);
@@ -195,6 +203,10 @@ function EditTenantDialog({ tenant, onOpenChange }: { tenant: KycClient | null; 
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" className="h-4 w-4 rounded border-input" checked={lostStolenCheckRequired} onChange={(e) => setLostStolenCheckRequired(e.target.checked)} />
             Registre des documents perdus/volés exigé (décoché = un registre non interrogé n&apos;est qu&apos;une information)
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 rounded border-input" checked={activeLivenessRequired} onChange={(e) => setActiveLivenessRequired(e.target.checked)} />
+            Vivacité active exigée (décoché = une vivacité seulement passive n&apos;est qu&apos;une information)
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" className="h-4 w-4 rounded border-input" checked={active} onChange={(e) => setActive(e.target.checked)} />

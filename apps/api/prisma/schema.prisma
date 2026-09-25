@@ -98,6 +98,10 @@ model KycClient {
   /// non interrogé (non configuré ou injoignable) n'est plus qu'une information et ne plafonne plus
   /// le verdict ; un document SIGNALÉ reste une anomalie critique quel que soit ce réglage.
   lostStolenCheckRequired Boolean @default(true)
+  /// Vivacité ACTIVE exigée (par défaut) : sans elle, une comparaison faciale validée seulement par
+  /// la vivacité passive plafonne le verdict (LIVENESS_PASSIVE_ONLY en avertissement). À false,
+  /// c'est une simple information — choix de sécurité plus faible (photo/écran non exclus).
+  activeLivenessRequired  Boolean @default(true)
   active              Boolean  @default(true)
   createdAt           DateTime @default(now())
   /// Comptes humains du portail tenant scopés à ce client (voir TenantUser) — distincts de

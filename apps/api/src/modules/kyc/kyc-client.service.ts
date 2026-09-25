@@ -10,6 +10,8 @@ export interface AuthenticatedKycClient {
   allowedFields: string[];
   /** Politique du client : registre perdus/volés exigé (voir KycClient.lostStolenCheckRequired). */
   lostStolenCheckRequired: boolean;
+  /** Politique du client : vivacité active exigée (voir KycClient.activeLivenessRequired). */
+  activeLivenessRequired: boolean;
 }
 
 const API_KEY_PREFIX = "emrtd_";
@@ -51,6 +53,7 @@ export class KycClientService {
       acceptedTrustLevels: client.acceptedTrustLevels as TrustLevel[],
       allowedFields: client.allowedFields,
       lostStolenCheckRequired: client.lostStolenCheckRequired,
+      activeLivenessRequired: client.activeLivenessRequired,
     };
   }
 }

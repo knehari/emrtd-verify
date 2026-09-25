@@ -17,4 +17,9 @@ export class CreateKycClientDto {
   @IsOptional()
   @IsBoolean()
   lostStolenCheckRequired?: boolean;
+
+  /** Vivacité active exigée (défaut : oui). */
+  @IsOptional()
+  @IsBoolean()
+  activeLivenessRequired?: boolean;
 }

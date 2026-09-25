@@ -65,6 +65,7 @@ describe("KycClientService.authenticate", () => {
       acceptedTrustLevels: ["high", "medium"],
       allowedFields: ["dateOfBirth"],
       lostStolenCheckRequired: false,
+      activeLivenessRequired: false,
       active: true,
     });
     const service = buildService(findUnique);
@@ -74,6 +75,7 @@ describe("KycClientService.authenticate", () => {
       acceptedTrustLevels: ["high", "medium"],
       allowedFields: ["dateOfBirth"],
       lostStolenCheckRequired: false,
+      activeLivenessRequired: false,
     });
     expect(findUnique).toHaveBeenCalledWith({ where: { apiKeyHash: KycClientService.hashApiKey("emrtd_something") } });
   });

@@ -56,6 +56,8 @@ export interface KycClient {
   allowedFields: string[];
   /** Registre des documents perdus/volés exigé ; sinon un registre non interrogé n'est qu'une information. */
   lostStolenCheckRequired: boolean;
+  /** Vivacité active exigée ; sinon une vivacité seulement passive n'est qu'une information. */
+  activeLivenessRequired: boolean;
   active: boolean;
   createdAt: string;
 }
@@ -118,9 +120,9 @@ export const adminApi = {
 
   listKycClients: () => request<KycClient[]>("/admin/kyc-clients"),
   getKycClient: (clientId: string) => request<KycClient>(`/admin/kyc-clients/${encodeURIComponent(clientId)}`),
-  createKycClient: (data: { clientId: string; acceptedTrustLevels: string[]; allowedFields: string[]; lostStolenCheckRequired?: boolean }) =>
+  createKycClient: (data: { clientId: string; acceptedTrustLevels: string[]; allowedFields: string[]; lostStolenCheckRequired?: boolean; activeLivenessRequired?: boolean }) =>
     request<KycClient & { apiKey: string }>("/admin/kyc-clients", { method: "POST", body: JSON.stringify(data) }),
-  updateKycClient: (clientId: string, data: Partial<{ acceptedTrustLevels: string[]; allowedFields: string[]; lostStolenCheckRequired: boolean; active: boolean }>) =>
+  updateKycClient: (clientId: string, data: Partial<{ acceptedTrustLevels: string[]; allowedFields: string[]; lostStolenCheckRequired: boolean; activeLivenessRequired: boolean; active: boolean }>) =>
     request<KycClient>(`/admin/kyc-clients/${encodeURIComponent(clientId)}`, { method: "PATCH", body: JSON.stringify(data) }),
   rotateKycClientKey: (clientId: string) =>
     request<KycClient & { apiKey: string }>(`/admin/kyc-clients/${encodeURIComponent(clientId)}/rotate-key`, { method: "POST" }),

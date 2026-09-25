@@ -17,5 +17,9 @@ export class UpdateKycClientDto {
 
   @IsOptional()
   @IsBoolean()
+  activeLivenessRequired?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   active?: boolean;
 }

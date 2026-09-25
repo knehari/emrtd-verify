@@ -27,6 +27,7 @@ describe("AdminKycClientsService.create", () => {
     const { service, create } = buildService(null);
     const byDefault = await service.create({ clientId: "acme-bank", acceptedTrustLevels: ["high"], allowedFields: [] });
     expect(byDefault.lostStolenCheckRequired).toBe(true);
+    expect(byDefault.activeLivenessRequired).toBe(true);
 
     const optional = await service.create({ clientId: "acme-2", acceptedTrustLevels: ["high"], allowedFields: [], lostStolenCheckRequired: false });
     expect(optional.lostStolenCheckRequired).toBe(false);

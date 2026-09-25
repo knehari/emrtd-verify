@@ -9,7 +9,9 @@
 #                                                   registre des documents perdus/volés exigé ou non pour ce client
 #   scripts/serveur-local.sh master-list <fichier>  charge la Master List ICAO (.ml) ou un export LDIF dans le serveur
 #   scripts/serveur-local.sh empreintes             ré-affiche les empreintes à comparer dans l'app
-#   scripts/serveur-local.sh clients                liste les clients KYC et leur réglage « registre »
+#   scripts/serveur-local.sh vivacite <exige|non-exige> [identifiant]
+#                                                   vivacité active exigée ou non pour ce client
+#   scripts/serveur-local.sh clients                liste les clients KYC et leurs réglages
 #
 # SANS_DOCKER=1 : Postgres et Redis tournent déjà autrement (adresses de DATABASE_URL / REDIS_URL).
 # Les clés de signature déjà présentes dans .env ne sont jamais remplacées : l'app les a peut-être
@@ -147,7 +149,7 @@ cmd_clients() {
       .then((clients) => {
         if (clients.length === 0) console.log("  (aucun client — scripts/serveur-local.sh client)");
         for (const c of clients) {
-          console.log(`  ${c.clientId} : registre perdus/volés ${c.lostStolenCheckRequired ? "exigé" : "non exigé"}${c.active ? "" : " (suspendu)"}`);
+          console.log(`  ${c.clientId} : registre perdus/volés ${c.lostStolenCheckRequired ? "exigé" : "non exigé"}, vivacité active ${c.activeLivenessRequired ? "exigée" : "non exigée"}${c.active ? "" : " (suspendu)"}`);
         }
       })
       .finally(() => prisma.$disconnect());
@@ -206,6 +208,18 @@ cmd_registre() {
   "${TS_NODE[@]}" scripts/update-kyc-client.ts ${id:+--client-id="$id"} --lost-stolen="$value"
 }
 
+cmd_vivacite() {
+  local mode="${1:-}" id="${2:-}" value
+  case "$mode" in
+    exige) value=required ;;
+    non-exige) value=optional ;;
+    *) die "usage : scripts/serveur-local.sh vivacite <exige|non-exige> [identifiant du client, facultatif s'il n'y en a qu'un]" ;;
+  esac
+  load_env
+  cd "$API"
+  "${TS_NODE[@]}" scripts/update-kyc-client.ts ${id:+--client-id="$id"} --active-liveness="$value"
+}
+
 cmd_master_list() {
   local file="${1:-}"
   [ -n "$file" ] && [ -f "$file" ] || die "usage : scripts/serveur-local.sh master-list <fichier .ml ou .ldif de l'ICAO>"
@@ -237,6 +251,7 @@ case "${1:-}" in
   demarrer) cmd_demarrer ;;
   client) cmd_client "${2:-}" ;;
   registre) cmd_registre "${2:-}" "${3:-}" ;;
+  vivacite) cmd_vivacite "${2:-}" "${3:-}" ;;
   master-list) cmd_master_list "${2:-}" ;;
   empreintes) cmd_empreintes ;;
   clients) cmd_clients ;;

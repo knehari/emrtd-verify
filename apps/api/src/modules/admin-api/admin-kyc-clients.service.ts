@@ -42,6 +42,7 @@ export class AdminKycClientsService {
         acceptedTrustLevels: dto.acceptedTrustLevels,
         allowedFields: dto.allowedFields,
         lostStolenCheckRequired: dto.lostStolenCheckRequired ?? true,
+        activeLivenessRequired: dto.activeLivenessRequired ?? true,
         active: true,
       },
     });
@@ -61,6 +62,7 @@ export class AdminKycClientsService {
         acceptedTrustLevels: dto.acceptedTrustLevels,
         allowedFields: dto.allowedFields,
         lostStolenCheckRequired: dto.lostStolenCheckRequired,
+        activeLivenessRequired: dto.activeLivenessRequired,
         active: dto.active,
       },
     });
@@ -90,6 +92,7 @@ function toSafeKycClient(client: {
   acceptedTrustLevels: string[];
   allowedFields: string[];
   lostStolenCheckRequired: boolean;
+  activeLivenessRequired: boolean;
   active: boolean;
   createdAt: Date;
 }) {
@@ -99,6 +102,7 @@ function toSafeKycClient(client: {
     acceptedTrustLevels: client.acceptedTrustLevels,
     allowedFields: client.allowedFields,
     lostStolenCheckRequired: client.lostStolenCheckRequired,
+    activeLivenessRequired: client.activeLivenessRequired,
     active: client.active,
     createdAt: client.createdAt,
   };

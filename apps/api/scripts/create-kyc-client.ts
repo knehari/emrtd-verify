@@ -10,11 +10,18 @@
  *
  * --lost-stolen=optional : registre des documents perdus/volés non exigé pour ce client (un
  * registre non interrogé devient une simple information) ; par défaut : exigé.
+ * --active-liveness=optional : vivacité active non exigée ; par défaut : exigée.
  */
 import { PrismaClient } from "@prisma/client";
 import { KycClientService } from "../src/modules/kyc/kyc-client.service";
 
-function parseArgs(argv: string[]): { clientId: string; trustLevels: string[]; fields: string[]; lostStolenCheckRequired: boolean } {
+function parseArgs(argv: string[]): {
+  clientId: string;
+  trustLevels: string[];
+  fields: string[];
+  lostStolenCheckRequired: boolean;
+  activeLivenessRequired: boolean;
+} {
   const options = new Map<string, string>();
   for (const arg of argv) {
     const match = /^--([a-z-]+)=(.*)$/.exec(arg);
@@ -42,11 +49,16 @@ function parseArgs(argv: string[]): { clientId: string; trustLevels: string[]; f
     throw new Error(`--lost-stolen invalide : "${lostStolen}" (attendu : required ou optional)`);
   }
 
-  return { clientId, trustLevels, fields, lostStolenCheckRequired: lostStolen === "required" };
+  const activeLiveness = options.get("active-liveness") ?? "required";
+  if (activeLiveness !== "required" && activeLiveness !== "optional") {
+    throw new Error(`--active-liveness invalide : "${activeLiveness}" (attendu : required ou optional)`);
+  }
+
+  return { clientId, trustLevels, fields, lostStolenCheckRequired: lostStolen === "required", activeLivenessRequired: activeLiveness === "required" };
 }
 
 async function main(): Promise<void> {
-  const { clientId, trustLevels, fields, lostStolenCheckRequired } = parseArgs(process.argv.slice(2));
+  const { clientId, trustLevels, fields, lostStolenCheckRequired, activeLivenessRequired } = parseArgs(process.argv.slice(2));
 
   const prisma = new PrismaClient();
   try {
@@ -63,6 +75,7 @@ async function main(): Promise<void> {
         acceptedTrustLevels: trustLevels,
         allowedFields: fields,
         lostStolenCheckRequired,
+        activeLivenessRequired,
         active: true,
       },
     });
@@ -73,6 +86,7 @@ async function main(): Promise<void> {
         `Niveaux de confiance acceptés : ${trustLevels.join(", ")}`,
         `Champs autorisés : ${fields.length > 0 ? fields.join(", ") : "(aucun — verdict/trustChain/anomalies uniquement)"}`,
         `Registre perdus/volés : ${lostStolenCheckRequired ? "exigé" : "non exigé"}`,
+        `Vivacité active : ${activeLivenessRequired ? "exigée" : "non exigée"}`,
         "",
         "Clé API (à conserver en lieu sûr — ne sera plus jamais affichée) :",
         apiKey,
