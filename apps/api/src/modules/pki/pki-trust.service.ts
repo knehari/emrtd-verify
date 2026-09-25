@@ -12,6 +12,7 @@ import {
 } from "@emrtd-verify/pki-trust";
 import { TrustCacheService } from "./trust-cache.service";
 import { CscaStoreService } from "./csca-store.service";
+import { CrlService } from "./crl.service";
 
 export type ValidateTrustChainRequest = Omit<
   ChainValidationInput,
@@ -36,6 +37,7 @@ export class PkiTrustService {
     private readonly config: ConfigService,
     private readonly trustCache: TrustCacheService,
     private readonly cscaStore: CscaStoreService,
+    private readonly crl: CrlService,
   ) {
     this.extendedTrustStore = this.loadExtendedTrustStore();
   }
@@ -72,9 +74,16 @@ export class PkiTrustService {
 
   async validate(request: ValidateTrustChainRequest): Promise<ChainValidationResult> {
     const icaoPkdAnchors = await this.getIcaoAnchors(request.countryCode);
+    // CRL du pays (téléchargée et vérifiée si besoin, puis en cache) : sans elle, la révocation
+    // reste « non vérifiée ». Un échec ici ne bloque jamais la vérification.
+    const revocationLists = await this.crl.revocationListsFor(request.countryCode, icaoPkdAnchors).catch((error) => {
+      this.logger.warn(`CRL indisponibles pour ${request.countryCode} : ${String(error)}`);
+      return [];
+    });
     return validateTrustChain({
       ...request,
       icaoPkdAnchors,
+      revocationLists,
       nationalPkdRegistry: this.nationalPkdRegistry,
       extendedTrustStore: this.extendedTrustStore,
     });

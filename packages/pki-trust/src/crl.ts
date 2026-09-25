@@ -7,6 +7,8 @@ import {
   parseCertificate,
   distinguishedNameToString,
   verifyRawSignature,
+  toAlpha2CountryCode,
+  toAlpha3CountryCode,
 } from "@emrtd-verify/emrtd-core";
 
 export interface DecodedRevocationList {
@@ -103,6 +105,26 @@ export function crlDistributionPointUrls(certificateDer: Uint8Array): string[] {
     }
   }
   return [...new Set(urls)];
+}
+
+/**
+ * Adresses où chercher les CRL d'un pays, dans l'ordre d'essai : miroir HTTPS de l'ICAO PKD, puis
+ * adresses publiées par ses CSCA (extension CRLDistributionPoints), HTTPS avant HTTP. Partagé par
+ * l'app (apps/mobile/src/pki/crlCache.ts) et le serveur (apps/api CrlService).
+ */
+export function crlCandidateUrls(countryCode: string, anchors: Array<{ certificateDer: Uint8Array }>, extraUrls: string[] = []): string[] {
+  const alpha2 = toAlpha2CountryCode(countryCode) ?? countryCode.toUpperCase();
+  const alpha3 = toAlpha3CountryCode(alpha2);
+  const icao = alpha3 ? [`https://pkddownload1.icao.int/CRLs/${alpha3}.crl`, `https://pkddownload2.icao.int/CRLs/${alpha3}.crl`] : [];
+  const published = anchors.flatMap((a) => {
+    try {
+      return crlDistributionPointUrls(a.certificateDer);
+    } catch {
+      return [];
+    }
+  });
+  const unique = [...new Set([...extraUrls, ...icao, ...published])];
+  return [...unique.filter((u) => u.startsWith("https:")), ...unique.filter((u) => u.startsWith("http:"))];
 }
 
 export function isSerialNumberRevoked(crl: DecodedRevocationList, serialNumberHex: string): boolean {

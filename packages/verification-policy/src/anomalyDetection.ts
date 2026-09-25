@@ -112,9 +112,9 @@ export function detectAnomalies(input: AnomalyDetectionInput): AnomalyFinding[] 
     });
   }
 
-  // La récupération/persistance de CRL n'est pas encore câblée en production (voir
-  // docs/pki-trust-model.md "Révocation" et docs/roadmap.md) : validateTrustChain reçoit alors
-  // toujours revocationChecked:false. Sans ce signal, un DSC révoqué mais non signalé serait
+  // Sans CRL vérifiée et à jour pour le pays (non publiée, injoignable, périmée — voir
+  // apps/api CrlService et apps/mobile crlCache), validateTrustChain renvoie
+  // revocationChecked:false. Sans ce signal, un DSC révoqué mais non signalé serait
   // accepté silencieusement — le remonter en avertissement dégrade le verdict (computeVerdict)
   // au lieu de laisser une révocation potentielle invisible. Omis quand aucune ancre de
   // confiance n'existe (déjà critique via NO_TRUST_ANCHOR, la révocation y est sans objet).

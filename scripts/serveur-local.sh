@@ -9,6 +9,7 @@
 #                                                   registre des documents perdus/volés exigé ou non pour ce client
 #   scripts/serveur-local.sh master-list <fichier>  charge la Master List ICAO (.ml) ou un export LDIF dans le serveur
 #   scripts/serveur-local.sh empreintes             ré-affiche les empreintes à comparer dans l'app
+#   scripts/serveur-local.sh clients                liste les clients KYC et leur réglage « registre »
 #
 # SANS_DOCKER=1 : Postgres et Redis tournent déjà autrement (adresses de DATABASE_URL / REDIS_URL).
 # Les clés de signature déjà présentes dans .env ne sont jamais remplacées : l'app les a peut-être
@@ -136,9 +137,32 @@ cmd_installer() {
   info "Installation terminée. Étape suivante : scripts/serveur-local.sh demarrer"
 }
 
+cmd_clients() {
+  load_env
+  cd "$API"
+  node -e '
+    const { PrismaClient } = require("@prisma/client");
+    const prisma = new PrismaClient();
+    prisma.kycClient.findMany({ orderBy: { createdAt: "asc" } })
+      .then((clients) => {
+        if (clients.length === 0) console.log("  (aucun client — scripts/serveur-local.sh client)");
+        for (const c of clients) {
+          console.log(`  ${c.clientId} : registre perdus/volés ${c.lostStolenCheckRequired ? "exigé" : "non exigé"}${c.active ? "" : " (suspendu)"}`);
+        }
+      })
+      .finally(() => prisma.$disconnect());
+  '
+}
+
 cmd_demarrer() {
   load_env
   cd "$API"
+  # Toujours la base au niveau du code (nouvelles colonnes après un git pull), sans étape à oublier.
+  pnpm prisma:generate >/dev/null
+  pnpm prisma:migrate:deploy >/dev/null || die "migrations de la base impossibles — Postgres tourne-t-il ? (scripts/serveur-local.sh installer)"
+  info "Code : $(git -C "$ROOT" log -1 --format='%h %s' 2>/dev/null || echo inconnu)"
+  echo "Clients KYC :"
+  cmd_clients
   "${TS_NODE[@]}" src/main.ts &
   local api=$!
   "${TS_NODE[@]}" src/worker.ts &
@@ -215,8 +239,9 @@ case "${1:-}" in
   registre) cmd_registre "${2:-}" "${3:-}" ;;
   master-list) cmd_master_list "${2:-}" ;;
   empreintes) cmd_empreintes ;;
+  clients) cmd_clients ;;
   *)
-    sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac

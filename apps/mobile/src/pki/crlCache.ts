@@ -1,6 +1,6 @@
 import * as FileSystem from "expo-file-system";
-import { base64ToBytes, bytesToBase64, toAlpha2CountryCode, toAlpha3CountryCode } from "@emrtd-verify/emrtd-core";
-import { crlDistributionPointUrls, verifyRevocationList, type CscaTrustAnchor, type VerifiedRevocationList } from "@emrtd-verify/pki-trust";
+import { base64ToBytes, bytesToBase64, toAlpha2CountryCode } from "@emrtd-verify/emrtd-core";
+import { crlCandidateUrls as sharedCrlCandidateUrls, verifyRevocationList, type CscaTrustAnchor, type VerifiedRevocationList } from "@emrtd-verify/pki-trust";
 import defaultCrlsJson from "./defaultCrls.json";
 
 /**
@@ -81,17 +81,7 @@ export async function revocationListsFor(countryCode: string, anchors: CscaTrust
 
 /** Adresses à essayer : miroir HTTPS de l'ICAO PKD d'abord, puis celles des CSCA (HTTPS avant HTTP). */
 export function crlCandidateUrls(countryCode: string, anchors: CscaTrustAnchor[]): string[] {
-  const alpha3 = toAlpha3CountryCode(countryKey(countryCode));
-  const icao = alpha3 ? [`https://pkddownload1.icao.int/CRLs/${alpha3}.crl`, `https://pkddownload2.icao.int/CRLs/${alpha3}.crl`] : [];
-  const published = anchors.flatMap((a) => {
-    try {
-      return crlDistributionPointUrls(a.certificateDer);
-    } catch {
-      return [];
-    }
-  });
-  const unique = [...new Set([...icao, ...published])];
-  return [...unique.filter((u) => u.startsWith("https:")), ...unique.filter((u) => u.startsWith("http:"))];
+  return sharedCrlCandidateUrls(countryKey(countryCode), anchors);
 }
 
 export interface RefreshResult {
