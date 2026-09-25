@@ -1,3 +1,4 @@
+import { sameCountry } from "@emrtd-verify/emrtd-core";
 import type { CscaTrustAnchor } from "./trustAnchor";
 
 /**
@@ -28,7 +29,7 @@ export class ExtendedTrustStore {
    */
   findByCountry(countryCode: string, atIso8601: string = new Date().toISOString()): CscaTrustAnchor[] {
     return this.anchors
-      .filter((a) => a.countryCode === countryCode)
+      .filter((a) => sameCountry(a.countryCode, countryCode))
       .map((a) => {
         if (a.extended && atIso8601 > a.extended.reviewBeforeDate && a.level !== "low") {
           return { ...a, level: "low" as const };

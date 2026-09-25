@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import type { CscaTrustAnchor } from "@emrtd-verify/pki-trust";
+import { toAlpha2CountryCode, toAlpha3CountryCode } from "@emrtd-verify/emrtd-core";
 import { PrismaService } from "../prisma/prisma.service";
 
 /**
@@ -22,7 +23,9 @@ export class CscaStoreService {
     const records = await this.prisma.cscaCertificateRecord.findMany({
       where: {
         batchId: activeBatchId,
-        countryCode,
+        // Les CSCA sont enregistrés avec le pays de leur certificat (X.509 C=, 2 lettres : « FR »),
+        // la demande arrive avec celui de la MRZ (3 lettres : « FRA ») — les deux formes sont cherchées.
+        countryCode: { in: countryCodeVariants(countryCode) },
         // Seuls ces états de confiance sont utilisables comme ancre — DISCOVERED/PKD_OBSERVED/
         // QUARANTINED/REVOKED_OR_DISTRUSTED ne sont jamais servis à la chaîne de validation, voir
         // docs/pki-trust-model.md "Modèle de confiance à deux niveaux".
@@ -79,4 +82,12 @@ function toTrustAnchor(record: {
     source: "icao-pkd" as const,
     level: "high" as const,
   };
+}
+
+/** « FRA », « FR » ou « fr » → [« FRA », « FR »] ; un code sans équivalent (UTO…) reste seul. */
+export function countryCodeVariants(countryCode: string): string[] {
+  const normalized = countryCode.replace(/</g, "").trim().toUpperCase();
+  const alpha2 = toAlpha2CountryCode(normalized);
+  const alpha3 = alpha2 ? toAlpha3CountryCode(alpha2) : undefined;
+  return [...new Set([normalized, alpha2, alpha3].filter((code): code is string => Boolean(code)))];
 }
