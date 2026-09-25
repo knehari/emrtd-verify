@@ -195,6 +195,8 @@ export interface Copy {
   aboutAppearanceTitle: string;
   aboutDarkMode: string;
   aboutDarkModeDesc: string;
+  aboutDock: string;
+  dockGlass: { native: string; noModule: string; oldSdk: string; oldIos: string };
   aboutPrivacyTitle: string;
   aboutPrivacy: string;
   aboutLegalTitle: string;
@@ -461,6 +463,13 @@ export const FR: Copy = {
   aboutAppearanceTitle: "Apparence",
   aboutDarkMode: "Mode sombre",
   aboutDarkModeDesc: "Activé par défaut. Les écrans caméra restent sombres.",
+  aboutDock: "Effet du dock",
+  dockGlass: {
+    native: "Liquid Glass natif (iOS 26)",
+    noModule: "Verre imité : module natif absent de cette compilation (pod install, puis recompiler dans Xcode)",
+    oldSdk: "Verre imité : app compilée avec un Xcode antérieur à Xcode 26",
+    oldIos: "Verre imité : l'iPhone est sous iOS {v}, le Liquid Glass demande iOS 26",
+  },
   aboutPrivacyTitle: "Confidentialité",
   aboutPrivacy:
     "Hors ligne, tout est traité sur l'appareil : aucune donnée d'identité ni biométrique n'est conservée ou transmise (seules les CRL publiques sont téléchargées). En ligne · KYC, les données de la puce et le selfie sont envoyés au serveur KYC configuré dans ces Réglages.",
@@ -726,6 +735,13 @@ export const EN: Copy = {
   aboutAppearanceTitle: "Appearance",
   aboutDarkMode: "Dark mode",
   aboutDarkModeDesc: "On by default. Camera screens stay dark.",
+  aboutDock: "Dock effect",
+  dockGlass: {
+    native: "Native Liquid Glass (iOS 26)",
+    noModule: "Imitation glass: native module missing from this build (pod install, then rebuild in Xcode)",
+    oldSdk: "Imitation glass: app built with an Xcode older than Xcode 26",
+    oldIos: "Imitation glass: this iPhone runs iOS {v}, Liquid Glass needs iOS 26",
+  },
   aboutPrivacyTitle: "Privacy",
   aboutPrivacy:
     "Offline, everything is processed on device: no identity or biometric data is kept or transmitted (only public CRLs are downloaded). Online · KYC, the chip data and the selfie are sent to the KYC server configured in these Settings.",

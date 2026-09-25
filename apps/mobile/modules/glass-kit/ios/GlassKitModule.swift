@@ -10,6 +10,20 @@ public final class GlassKitModule: Module {
       GlassEffectView.liquidGlassAvailable
     }
 
+    /// Pourquoi le vrai Liquid Glass est (in)disponible : SDK de compilation et version d'iOS.
+    Function("glassDiagnostics") { () -> [String: Any] in
+      var compiledWithIOS26SDK = false
+      #if compiler(>=6.2)
+      compiledWithIOS26SDK = true
+      #endif
+      let os = ProcessInfo.processInfo.operatingSystemVersion
+      return [
+        "compiledWithIOS26SDK": compiledWithIOS26SDK,
+        "osVersion": "\(os.majorVersion).\(os.minorVersion)",
+        "liquidGlass": GlassEffectView.liquidGlassAvailable,
+      ]
+    }
+
     View(GlassEffectView.self) {
       /// "regular" (défaut) ou "clear" (plus transparent, pour un fond riche).
       Prop("glassStyle") { (view: GlassEffectView, style: String?) in

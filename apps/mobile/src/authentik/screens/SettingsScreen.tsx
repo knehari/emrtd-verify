@@ -13,6 +13,7 @@ import { AppIcon } from "../icons";
 import { ModeSwitch } from "./HomeScreen";
 import { embeddedStoreRows } from "../trustStoreSummary";
 import { revocationCacheSummary } from "../../pki/crlCache";
+import { glassStatus } from "../../../modules/glass-kit";
 import type { AuthentikDemo } from "../state";
 
 export function SettingsScreen({ demo }: { demo: AuthentikDemo }) {
@@ -31,6 +32,15 @@ export function SettingsScreen({ demo }: { demo: AuthentikDemo }) {
       )
       .catch(() => setCrlSummary(t.aboutCrlCacheNone));
   }, [demo.lang, t.aboutCrlCacheNone]);
+  const glass = glassStatus();
+  const dockGlassLine =
+    glass.kind === "native"
+      ? t.dockGlass.native
+      : glass.kind === "no-module"
+        ? t.dockGlass.noModule
+        : glass.kind === "old-sdk"
+          ? t.dockGlass.oldSdk
+          : t.dockGlass.oldIos.replace("{v}", glass.osVersion);
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ paddingBottom: 110 }}>
       <View style={styles.hero}>
@@ -121,6 +131,12 @@ export function SettingsScreen({ demo }: { demo: AuthentikDemo }) {
             <Text style={styles.toggleDesc}>{t.aboutDarkModeDesc}</Text>
           </View>
           <ModeSwitch on={demo.scheme === "dark"} onToggle={demo.toggleScheme} colors={c} label={t.aboutDarkMode} />
+        </View>
+        <View style={[styles.toggleRow, styles.rule]}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.toggleLabel}>{t.aboutDock}</Text>
+            <Text style={styles.toggleDesc}>{dockGlassLine}</Text>
+          </View>
         </View>
       </View>
 
